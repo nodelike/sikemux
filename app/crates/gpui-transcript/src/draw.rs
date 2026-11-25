@@ -19,7 +19,7 @@ use gpui::{
 };
 
 use crate::markdown::{superscript, Kind, Markdown, Marks, Node, Picture, Piece, Rich};
-use crate::select::{Key, Selecting, Shown};
+use crate::select::{Key, Mark, Selecting, Shown};
 
 /// Where a long code block is scrolled to, and whose the gesture under way is.
 #[derive(Default)]
@@ -1126,7 +1126,7 @@ impl Draw<'_> {
             let span = selecting.span?;
             span.range((selecting.ix, place.0, place.1, place.2), rich.text.len())
         });
-        let found: Vec<(Range<usize>, bool)> = on
+        let found: Vec<(Range<usize>, Mark)> = on
             .selecting
             .as_ref()
             .map(|selecting| {
@@ -1134,7 +1134,7 @@ impl Draw<'_> {
                     .hits
                     .iter()
                     .filter(|hit| hit.text == place)
-                    .map(|hit| (hit.range.clone(), hit.current))
+                    .map(|hit| (hit.range.clone(), hit.mark))
                     .collect()
             })
             .unwrap_or_default();
@@ -2011,7 +2011,7 @@ impl Draw<'_> {
 fn highlights(
     rich: &Rich,
     selected: Option<Range<usize>>,
-    found: &[(Range<usize>, bool)],
+    found: &[(Range<usize>, Mark)],
     style: &Style,
 ) -> Vec<(Range<usize>, HighlightStyle)> {
     let ranges = rich
@@ -2051,11 +2051,11 @@ fn highlights(
                 None if chosen || hit.is_some() => HighlightStyle::default(),
                 None => return None,
             };
-            if let Some((_, current)) = hit {
-                look.background_color = Some(if *current {
-                    style.found_current
-                } else {
-                    style.found
+            if let Some((_, mark)) = hit {
+                look.background_color = Some(match mark {
+                    Mark::Found => style.found,
+                    Mark::Current => style.found_current,
+                    Mark::Passage(strength) => style.found.opacity(*strength),
                 });
             }
             if chosen {

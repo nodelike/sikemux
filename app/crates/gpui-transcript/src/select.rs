@@ -144,12 +144,20 @@ pub(crate) struct Selecting {
     pub budget: Rc<LayoutBudget>,
 }
 
-/// A place found in a row: the text it is in, by doc, block and text, its bytes there, and
-/// whether it is the one the reader is on.
+/// A place marked in a row: the text it is in, by doc, block and text, its bytes there, and why.
 pub struct RowHit {
     pub text: (usize, usize, u32),
     pub range: Range<usize>,
-    pub current: bool,
+    pub mark: Mark,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Mark {
+    Found,
+    /// The place found the reader is on.
+    Current,
+    /// A passage shown for a moment, as strongly as this.
+    Passage(f32),
 }
 
 /// The text `span` covers in `markdown`, the `doc`th of row `ix`, a string per block it reaches.

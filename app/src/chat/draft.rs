@@ -13,7 +13,9 @@ use gpui_kit::{App, Context, EntityInputHandler as _, Focusable, Window};
 use sikemux_calls::call;
 use sikemux_calls::drafts::SetDraftParams;
 use sikemux_calls::params::AgentParams;
-use sikemux_view::chat::{chat_draft_key, DraftExtra, DraftToken, QUOTE_MAX, REPLY_URI};
+use sikemux_view::chat::{
+    chat_draft_key, openings, quote_cut, reply_written, DraftExtra, DraftToken, REPLY_URI,
+};
 use sikemux_wire::protocol::ChatContext;
 
 use super::{pills, Composing, Sent};
@@ -253,13 +255,19 @@ impl Workbench {
                 });
             }
             None => {
-                let quote = match quote.char_indices().nth(QUOTE_MAX) {
-                    Some((cut, _)) => format!("{}…", quote.get(..cut).unwrap_or(quote).trim_end()),
-                    None => quote.to_owned(),
-                };
-                let opening = opening_words(&quote);
+                let quote = quote_cut(quote);
+                let written: Vec<String> = (draft.read(cx).tokens().iter())
+                    .map(|span| span.token().text().to_string())
+                    .collect();
+                let mut opening = String::new();
+                for longer in openings(&quote) {
+                    opening = longer;
+                    if !written.contains(&reply_written(&opening)) {
+                        break;
+                    }
+                }
                 let token =
-                    InlineToken::new(uri.clone(), format!("“{opening}”")).with_label(opening);
+                    InlineToken::new(uri.clone(), reply_written(&opening)).with_label(opening);
                 composing.tracked_context.insert(
                     uri.clone(),
                     ChatContext {

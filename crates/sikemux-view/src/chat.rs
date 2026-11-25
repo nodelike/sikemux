@@ -932,6 +932,15 @@ pub const REPLY_URI: &str = "sikemux://reply/";
 pub const SIDE_URI: &str = "sikemux://side/";
 /// The most of an answer a reply quotes.
 pub const QUOTE_MAX: usize = 1_200;
+
+/// As much of `quote` as a reply carries.
+pub fn quote_cut(quote: &str) -> String {
+    match quote.char_indices().nth(QUOTE_MAX) {
+        Some((cut, _)) => format!("{}…", quote.get(..cut).unwrap_or(quote).trim_end()),
+        None => quote.to_owned(),
+    }
+}
+
 /// What a claim in an agent's answer rests on, as `why` gave it: a commit, the person's words in
 /// a chat, a call or a rule.
 pub const WHY_URI: &str = "sikemux://why/";
@@ -1067,6 +1076,37 @@ pub fn tracked_at(uri: &str) -> Option<(TrackedKind, &str)> {
     })
 }
 
+/// The first words of `quote`, without its markdown, as a reply's chip shows them: a few, then
+/// more, for a message whose replies open with the same few.
+pub fn openings(quote: &str) -> impl DoubleEndedIterator<Item = String> + '_ {
+    [28, 56, 112, 224]
+        .into_iter()
+        .map(|most| opening_words(quote, most))
+}
+
+/// What a reply whose quote opens with `opening` writes in its message's text.
+pub fn reply_written(opening: &str) -> String {
+    format!("“{opening}”")
+}
+
+fn opening_words(quote: &str, most: usize) -> String {
+    let plain: String = quote
+        .chars()
+        .filter(|letter| !matches!(letter, '*' | '_' | '`' | '#' | '>' | '[' | ']'))
+        .collect();
+    let mut opening = String::new();
+    for word in plain.split_whitespace().filter(|word| *word != "-") {
+        if !opening.is_empty() && opening.chars().count() + 1 + word.chars().count() > most {
+            return format!("{opening}…");
+        }
+        if !opening.is_empty() {
+            opening.push(' ');
+        }
+        opening.push_str(word);
+    }
+    opening
+}
+
 /// An issue's or pull request's title without the kind and number its context names it by.
 pub fn tracked_title<'a>(title: &'a str, number: &str) -> &'a str {
     let bare = title.trim_start_matches("Issue ");
@@ -1108,6 +1148,8 @@ pub enum SentChipKind {
     Image,
     Issue,
     Pull,
+    /// The answer a reply quotes, by its opening words.
+    Reply,
     /// A kind from a newer core, which a client draws as plain words.
     #[serde(other)]
     Other,

@@ -6,8 +6,8 @@ use std::collections::{BTreeMap, VecDeque};
 
 use sikemux_markdown::paths::is_image_path;
 use sikemux_view::chat::{
-    tracked_title, AgentLetter, LetterKind, SentChip, SentChipKind, SentContext, SentSpan,
-    TrackedKind, AGENT_URI, EARLIER_URI, WOKEN_URI,
+    openings, reply_written, tracked_title, AgentLetter, LetterKind, SentChip, SentChipKind,
+    SentContext, SentSpan, TrackedKind, AGENT_URI, EARLIER_URI, WOKEN_URI,
 };
 
 /// Tags Claude Code writes to itself. A finished background agent's notice
@@ -542,6 +542,14 @@ fn sent_chips(text: &str, names: &SentNames<'_>) -> Vec<(String, SentChip)> {
         } else if item.uri.starts_with(EARLIER_URI) && item.title.starts_with('@') {
             let earlier = chip(SentChipKind::Chat, &item.title, Some(&item.uri));
             found.push((item.title.clone(), earlier));
+        } else if let Some(quote) = &item.quote {
+            let opening = openings(quote)
+                .rev()
+                .find(|opening| text.contains(&reply_written(opening)));
+            if let Some(opening) = opening {
+                let reply = chip(SentChipKind::Reply, &opening, Some(&item.uri));
+                found.push((reply_written(&opening), reply));
+            }
         } else if let Some(tracked) = &item.tracked {
             let (sign, kind) = match tracked.kind {
                 TrackedKind::Pull => ('!', SentChipKind::Pull),

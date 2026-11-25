@@ -312,6 +312,65 @@ impl Node {
         }
     }
 
+    fn passage(
+        &self,
+        block: usize,
+        texts: &mut Vec<SharedString>,
+        open: &mut dyn FnMut(bool) -> bool,
+    ) -> Passage {
+        let from = texts.len() as u32 + 1;
+        self.walk(texts, open);
+        Passage {
+            quoted: self.quoted(),
+            block,
+            texts: from..texts.len() as u32 + 1,
+        }
+    }
+
+    /// Every part a reply can quote in reading order, its texts counted on from `texts`. One
+    /// in a closed fold is given without texts.
+    fn passages(
+        &self,
+        block: usize,
+        texts: &mut Vec<SharedString>,
+        open: &mut dyn FnMut(bool) -> bool,
+        into: &mut Vec<Passage>,
+    ) {
+        match &self.kind {
+            Kind::Paragraph if self.pictures().is_none() => {
+                into.push(self.passage(block, texts, open));
+            }
+            Kind::Bullets | Kind::Numbers(_) => {
+                for item in &self.children {
+                    into.push(item.passage(block, texts, open));
+                }
+            }
+            Kind::Paragraph | Kind::Table(_) => self.walk(texts, open),
+            Kind::Details { open: written, .. } if !open(*written) => {
+                let mut held = Vec::new();
+                for child in &self.children {
+                    child.passages(block, &mut Vec::new(), &mut |_| true, &mut held);
+                }
+                into.extend(held.into_iter().map(|held| Passage {
+                    texts: 0..0,
+                    ..held
+                }));
+            }
+            _ => {
+                for piece in self.flow() {
+                    match piece {
+                        Piece::Text(rich) => texts.push(rich.text.clone()),
+                        Piece::Block(ix) => {
+                            if let Some(child) = self.children.get(*ix) {
+                                child.passages(block, texts, open, into);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// How many characters of the node a reader sees, its folds as they were written.
     fn shown_len(&self) -> usize {
         let mut texts = Vec::new();
@@ -570,6 +629,15 @@ fn byte_at_units(text: &str, units: usize) -> usize {
     text.len()
 }
 
+/// A part of a message a reply can quote: the markdown quoted, and where its texts are, by block
+/// and as `Markdown::texts` counts them from 1.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Passage {
+    pub quoted: String,
+    pub(crate) block: usize,
+    pub(crate) texts: Range<u32>,
+}
+
 /// One message's blocks, as the last patch left them, and what drawing them
 /// last left: the width they had and the folds the reader opened or closed.
 #[derive(Default)]
@@ -609,7 +677,7 @@ impl Markdown {
     }
 
     /// The texts of block `ix` a reader can select, in the order they are drawn.
-    pub(crate) fn texts(&self, ix: usize) -> Vec<SharedString> {
+    pub fn texts(&self, ix: usize) -> Vec<SharedString> {
         let mut texts = Vec::new();
         let turned = self.turned.borrow();
         let mut folds = 0;
@@ -620,6 +688,36 @@ impl Markdown {
             });
         }
         texts
+    }
+
+    /// Every part of the message a reply can quote, in the order they are drawn.
+    pub fn passages(&self) -> Vec<Passage> {
+        let mut passages = Vec::new();
+        let turned = self.turned.borrow();
+        for (ix, block) in self.blocks.iter().enumerate() {
+            let mut folds = 0;
+            block.passages(
+                ix,
+                &mut Vec::new(),
+                &mut |written| {
+                    folds += 1;
+                    written != turned.contains(&(ix, folds))
+                },
+                &mut passages,
+            );
+        }
+        passages
+    }
+
+    /// The whole message as one passage for each of its blocks.
+    pub fn whole(&self) -> Vec<Passage> {
+        (self.blocks.iter().enumerate())
+            .map(|(ix, _)| Passage {
+                quoted: String::new(),
+                block: ix,
+                texts: 1..self.texts(ix).len() as u32 + 1,
+            })
+            .collect()
     }
 
     /// The first whole blocks of a text over `limit` characters and how many characters they

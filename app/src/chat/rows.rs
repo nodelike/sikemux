@@ -1016,7 +1016,7 @@ pub(super) fn fold_toggle(
 }
 
 /// Where the reader's choice to see what was left out of `row` is kept.
-fn left_out_key(row: &ChatRow) -> String {
+pub(super) fn left_out_key(row: &ChatRow) -> String {
     format!("left-out:{}", row.message.id)
 }
 
@@ -1798,6 +1798,7 @@ pub(super) fn part(
                 attach::with_chips(
                     look,
                     &row.message,
+                    &looks.agent,
                     looks.file_pressed(),
                     &looks.bench,
                     window,

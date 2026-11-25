@@ -5,7 +5,7 @@ use std::ops::Range;
 
 use gpui::Pixels;
 
-use crate::select::{DocSelect, RowHit};
+use crate::select::{DocSelect, Mark, RowHit};
 use crate::{Markdown, Style};
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -131,7 +131,10 @@ impl DocFind {
             .map(|(ix, hit)| RowHit {
                 text: (hit.at.1, hit.at.2, hit.at.3),
                 range: hit.range.clone(),
-                current: ix == self.current,
+                mark: match ix == self.current {
+                    true => Mark::Current,
+                    false => Mark::Found,
+                },
             })
             .collect()
     }

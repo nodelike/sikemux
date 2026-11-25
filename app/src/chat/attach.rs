@@ -963,10 +963,11 @@ fn presses_file(face: Div, path: &str, file: &super::files::FilePressed) -> Div 
 }
 
 /// A sent message's look with the chips it wrote drawn in its text as the draft drew them; one
-/// for a file opens it.
+/// for a file opens it, and one for a reply shows what it quotes.
 pub fn with_chips(
     look: Rc<gpui_transcript::Style>,
     message: &ChatMessage,
+    agent: &str,
     file: super::files::FilePressed,
     bench: &WeakEntity<Workbench>,
     window: &mut Window,
@@ -975,13 +976,27 @@ pub fn with_chips(
     if mentions.is_empty() {
         return look;
     }
+    let reply: ReplyPressed = {
+        let (bench, agent, message) = (bench.clone(), agent.to_owned(), message.id.clone());
+        Rc::new(move |uri: &str, cx: &mut App| {
+            bench
+                .update(cx, |bench, cx| {
+                    bench.open_passage(&agent, &message, uri, cx)
+                })
+                .ok();
+        })
+    };
+    let opens = Opens {
+        file: Some(file),
+        reply: Some(reply),
+    };
     let chips = (mentions.into_iter())
         .map(|mention| {
             mention_chip(
                 mention.written,
                 mention.id,
                 mention.label,
-                Some(file.clone()),
+                opens.clone(),
                 &look,
                 bench,
                 window,
@@ -1027,7 +1042,7 @@ fn with_named_agents(
                 written.clone(),
                 format!("{AGENT}{id}"),
                 written,
-                None,
+                Opens::default(),
                 &look,
                 bench,
                 window,
@@ -1124,13 +1139,22 @@ fn closed_agent_chip(
     }
 }
 
+type ReplyPressed = Rc<dyn Fn(&str, &mut App)>;
+
+/// What a message's chips open.
+#[derive(Clone, Default)]
+struct Opens {
+    file: Option<super::files::FilePressed>,
+    reply: Option<ReplyPressed>,
+}
+
 /// The chip drawn in a message's text in place of `written`, as the draft drew it; an agent's
 /// chip opens its chat.
 fn mention_chip(
     written: String,
     id: String,
     label: String,
-    file: Option<super::files::FilePressed>,
+    opens: Opens,
     look: &gpui_transcript::Style,
     bench: &WeakEntity<Workbench>,
     window: &mut Window,
@@ -1166,15 +1190,26 @@ fn mention_chip(
             )
             .w_full()
             .h(height);
-            let face = match (id.strip_prefix(AGENT), id.strip_prefix(FILE), &file) {
-                (Some(agent), ..) => opens_agent(face, agent, None, &bench, cx).into_any_element(),
-                (_, Some(path), Some(file)) => {
-                    let t = Tokens::get(cx);
-                    let hover = theme::over(t.surface_active, t.surface_raised);
-                    presses_file(face.hover(move |chip| chip.bg(hover)), path, file)
-                        .into_any_element()
-                }
-                _ => face.into_any_element(),
+            let t = Tokens::get(cx);
+            let hover = theme::over(t.surface_active, t.surface_raised);
+            let agent = id.strip_prefix(AGENT);
+            let file = id.strip_prefix(FILE).zip(opens.file.as_ref());
+            let reply = (opens.reply.clone()).filter(|_| id.starts_with(REPLY_URI));
+            let face = if let Some(agent) = agent {
+                opens_agent(face, agent, None, &bench, cx).into_any_element()
+            } else if let Some((path, file)) = file {
+                presses_file(face.hover(move |chip| chip.bg(hover)), path, file).into_any_element()
+            } else if let Some(reply) = reply {
+                let uri = id.clone();
+                face.id(SharedString::from(format!("mention:{id}")))
+                    .hover(move |chip| chip.bg(hover))
+                    .clicks(move |_, _, cx| {
+                        cx.stop_propagation();
+                        reply(&uri, cx);
+                    })
+                    .into_any_element()
+            } else {
+                face.into_any_element()
             };
             div()
                 .size_full()
@@ -1434,6 +1469,7 @@ fn mention_of(written: &str, chip: &SentChip) -> Option<Mention> {
             "{TRACKED}pull:{}:{carried}",
             written.get(1..).unwrap_or_default()
         ),
+        SentChipKind::Reply => carried.clone(),
         SentChipKind::Other => return None,
     };
     let label = match chip.kind {
@@ -1703,11 +1739,12 @@ pub fn sent(
     }
     let t = Tokens::get(cx).clone();
     let written = super::edit::written(message);
-    let inline = mentions(message);
     let in_text = |carried: &str| {
-        inline
-            .iter()
-            .any(|mention| mention.carried == carried && !is_image(Path::new(carried)))
+        let mut chips = message.spans.iter().filter_map(|span| span.chip.as_ref());
+        !is_image(Path::new(carried))
+            && chips.any(|chip| {
+                chip.carried.as_deref() == Some(carried) && chip.kind != SentChipKind::Other
+            })
     };
     let files = message
         .attachments

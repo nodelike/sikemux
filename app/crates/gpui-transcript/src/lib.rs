@@ -23,6 +23,6 @@ pub use draw::{
     FileKind, FileOf, FilePress, LinkIcon, OnFile, OnLink, OnTask, Pen, Reply, Style,
 };
 pub use find::{DocFind, FoundChanged, Query};
-pub use markdown::{Kind, Markdown, Marks, Node, Picture, Piece, Rich, Table};
+pub use markdown::{Kind, Markdown, Marks, Node, Passage, Picture, Piece, Rich, Table};
 pub use select::DocSelect;
 pub use transcript::{init, AwayChanged, Change, Copy, EmptyChanged, Row, RowsChanged, Transcript};

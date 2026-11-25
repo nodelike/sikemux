@@ -1,8 +1,8 @@
 use serde_json::json;
 use sikemux_view::chat::{
     ChatActivity, ChatChange, ChatView, DecidedLine, DiffLine, DiffSummary, EndedTask, OutputImage,
-    OutputSummary, PageRef, PlanEntry, PlanPriority, PlanStatus, RowMeta, StopReason, ToolCall,
-    ToolOutput, ToolStatus,
+    OutputSummary, PageRef, PlanEntry, PlanPriority, PlanStatus, RowMeta, SentChip, SentChipKind,
+    StopReason, ToolCall, ToolOutput, ToolStatus,
 };
 
 use super::*;
@@ -2583,6 +2583,49 @@ mod prompt_context {
                 )]
             )
         );
+    }
+
+    #[test]
+    fn a_sent_reply_keeps_its_pill_where_it_was_typed() {
+        const REPLY: &str = "sikemux://reply/m4#m4:t1.2";
+        const QUOTE: &str =
+            "**Teammates' messages:** they reach the lead as one letter once its turn ends.";
+        const WRITTEN: &str = "why do “Teammates' messages: they…” wait";
+        let sent = [
+            Chat::new()
+                .prompt(json!({
+                    "text": WRITTEN,
+                    "context": [{ "uri": REPLY, "title": "Earlier answer", "quote": QUOTE }],
+                }))
+                .rows(),
+            Chat::new()
+                .update(say(
+                    "user_message_chunk",
+                    &format!("{WRITTEN}{REPLY}\n<context ref=\"{REPLY}\">\n{QUOTE}\n</context>"),
+                ))
+                .rows(),
+        ];
+        for rows in sent {
+            let spans: Vec<_> = (rows[0].spans.iter())
+                .map(|span| (span.text.as_str(), span.chip.clone()))
+                .collect();
+            assert_eq!(
+                spans,
+                [
+                    ("why do ", None),
+                    (
+                        "“Teammates' messages: they…”",
+                        Some(SentChip {
+                            kind: SentChipKind::Reply,
+                            label: "Teammates' messages: they…".into(),
+                            carried: Some(REPLY.into()),
+                        })
+                    ),
+                    (" wait", None),
+                ]
+            );
+            assert_eq!(rows[0].context[0].quote.as_deref(), Some(QUOTE));
+        }
     }
 
     #[test]

@@ -13,8 +13,10 @@ use gpui::{
 
 use crate::draw::{LayoutBudget, Pen, Style};
 use crate::find::{ranges_in, FoundChanged, Hit, Query};
-use crate::markdown::Markdown;
-use crate::select::{picked, spot_at, word_at, Key, Place, RowHit, Selecting, Shown, Span, Spot};
+use crate::markdown::{Markdown, Passage};
+use crate::select::{
+    picked, spot_at, word_at, Key, Mark, Place, RowHit, Selecting, Shown, Span, Spot,
+};
 
 actions!(transcript, [Copy]);
 
@@ -129,6 +131,8 @@ pub struct Transcript<R: Row> {
     /// A place found to go to once the rows hold it: the row, its doc by name, and which of the
     /// places found in that doc.
     pending: Option<(SharedString, SharedString, usize)>,
+    /// The passage shown for a moment.
+    lit: Option<Lit>,
     /// Where each row was last placed in the window, as its texts were.
     row_tops: Rc<RefCell<HashMap<SharedString, Pixels>>>,
     /// The first and last rows the frame being drawn holds, the list's extra ones around the view too.
@@ -150,9 +154,26 @@ const MOST_RISING: usize = 2;
 /// Bringing a place found into view, over the frames it takes its row to be laid out and
 /// its block drawn.
 struct Chase {
-    hit: usize,
+    hit: Hit,
     steps: u8,
+    /// Until when it aims again even once the place is in view, as rows around it still open.
+    settles: Option<Instant>,
 }
+
+/// A passage marked for a moment: its row, its doc and its parts there, and since when it has
+/// been in view.
+struct Lit {
+    row: SharedString,
+    doc: usize,
+    passages: Vec<Passage>,
+    since: Option<Instant>,
+}
+
+/// How long a passage stays marked once it is in view, and how long its mark takes to fade.
+const LIT: Duration = Duration::from_millis(1400);
+const LIT_FADE: Duration = Duration::from_millis(600);
+/// How long the folds opened around a passage take to open.
+const SETTLE: Duration = Duration::from_millis(350);
 
 /// The most frames spent bringing a place found into view.
 const MOST_CHASE_STEPS: u8 = 8;
@@ -220,6 +241,7 @@ impl<R: Row> Transcript<R> {
             chasing: None,
             layout_budget: Rc::default(),
             pending: None,
+            lit: None,
             row_tops: Rc::default(),
             drawn: None,
             rise: None,
@@ -343,11 +365,93 @@ impl<R: Row> Transcript<R> {
 
     /// Brings the place the reader is on into view as the transcript next draws.
     fn reveal(&mut self) {
-        if self.hits.get(self.current).is_some() {
+        if let Some(hit) = self.hits.get(self.current) {
             self.chasing = Some(Chase {
-                hit: self.current,
+                hit: hit.clone(),
                 steps: 0,
+                settles: None,
             });
+        }
+    }
+
+    /// The rows with every change pushed so far in them.
+    pub fn settled(&mut self, cx: &mut Context<Self>) -> &[R] {
+        self.apply(cx);
+        &self.rows
+    }
+
+    /// Brings `passages` of doc `doc` of row `row` into view and marks them for a moment.
+    pub fn show_passages(
+        &mut self,
+        row: SharedString,
+        doc: &str,
+        passages: Vec<Passage>,
+        cx: &mut Context<Self>,
+    ) {
+        let place = (self.position(&row)).and_then(|ix| {
+            let doc = self.rows.get(ix)?.doc_named(doc)?;
+            Some((ix, doc, passages.first()?))
+        });
+        let Some((ix, doc, first)) = place else {
+            return;
+        };
+        self.chasing = Some(Chase {
+            hit: Hit {
+                at: (ix, doc, first.block, first.texts.start),
+                range: 0..0,
+            },
+            steps: 0,
+            settles: Some(Instant::now() + SETTLE),
+        });
+        self.lit = Some(Lit {
+            row,
+            doc,
+            passages,
+            since: None,
+        });
+        cx.notify();
+    }
+
+    /// The passage's marks in row `row`, as strong as they are now.
+    fn lit_in(&self, row: &str) -> Vec<RowHit> {
+        let Some(lit) = self.lit.as_ref().filter(|lit| lit.row == row) else {
+            return Vec::new();
+        };
+        let fading =
+            (lit.since).map_or(Duration::ZERO, |since| since.elapsed().saturating_sub(LIT));
+        let strength = 1. - fading.as_secs_f32() / LIT_FADE.as_secs_f32();
+        (lit.passages.iter())
+            .flat_map(|passage| {
+                passage.texts.clone().map(|n| RowHit {
+                    text: (lit.doc, passage.block, n),
+                    range: 0..usize::MAX,
+                    mark: Mark::Passage(strength.max(0.)),
+                })
+            })
+            .collect()
+    }
+
+    /// Fades the passage shown once it has been in view a moment, and lets go of it after.
+    fn fade_lit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.chasing.is_some() {
+            return;
+        }
+        let Some(lit) = &mut self.lit else {
+            return;
+        };
+        let Some(since) = lit.since else {
+            lit.since = Some(Instant::now());
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(LIT).await;
+                this.update(cx, |_, cx| cx.notify()).ok();
+            })
+            .detach();
+            return;
+        };
+        match since.elapsed() {
+            past if past >= LIT + LIT_FADE => self.lit = None,
+            past if past >= LIT => window.request_animation_frame(),
+            _ => {}
         }
     }
 
@@ -362,13 +466,12 @@ impl<R: Row> Transcript<R> {
         let Some(mut chase) = self.chasing.take() else {
             return;
         };
-        if chase.steps >= MOST_CHASE_STEPS {
+        let settling = (chase.settles).is_some_and(|settles| Instant::now() < settles);
+        if chase.steps >= MOST_CHASE_STEPS && !settling {
             return;
         }
-        chase.steps += 1;
-        let Some(hit) = self.hits.get(chase.hit) else {
-            return;
-        };
+        chase.steps = chase.steps.saturating_add(1);
+        let hit = &chase.hit;
         let (row, doc, block, n) = hit.at;
         let Some(found) = self.rows.get(row) else {
             return;
@@ -414,6 +517,10 @@ impl<R: Row> Transcript<R> {
         if let Some((top, height)) = line {
             let view = self.list.viewport_bounds();
             if top >= view.top() + ROOM_ABOVE && top + height <= view.bottom() - ROOM_BELOW {
+                if settling {
+                    self.chasing = Some(chase);
+                    window.request_animation_frame();
+                }
                 return;
             }
         }
@@ -918,6 +1025,7 @@ impl<R: Row> Render for Transcript<R> {
             self.stale = Stale::None;
         }
         self.chase(window);
+        self.fade_lit(window, cx);
         self.shown.borrow_mut().clear();
         self.drawn = None;
         let span = self.span();
@@ -967,9 +1075,13 @@ impl<R: Row> Render for Transcript<R> {
                             RowHit {
                                 text: (doc, block, n),
                                 range: hit.range.clone(),
-                                current: at == this.current,
+                                mark: match at == this.current {
+                                    true => Mark::Current,
+                                    false => Mark::Found,
+                                },
                             }
                         })
+                        .chain(this.lit_in(row.id()))
                         .collect(),
                     budget: this.layout_budget.clone(),
                 });

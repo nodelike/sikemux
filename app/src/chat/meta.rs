@@ -31,7 +31,7 @@ fn prose(message: &ChatMessage) -> Vec<String> {
 }
 
 /// A prompt's own text, or at the end of an answer, all of the answer's prose.
-fn copied(rows: &[ChatRow], ix: usize) -> Option<String> {
+pub(super) fn copied(rows: &[ChatRow], ix: usize) -> Option<String> {
     let message = &rows.get(ix)?.message;
     let from = if message.role == ChatRole::User {
         ix

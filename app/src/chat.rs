@@ -80,6 +80,7 @@ mod math;
 mod mention;
 mod mermaid;
 mod moving;
+mod passage;
 mod pills;
 mod rotation;
 pub(crate) use attach::{
