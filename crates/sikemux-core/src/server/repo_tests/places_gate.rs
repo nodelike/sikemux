@@ -837,6 +837,31 @@ async fn a_push_that_deploys_a_repository_inside_a_folder_project_is_held() {
     assert_eq!(open_calls(&from_the_folder).len(), 1);
 }
 
+/// `gh pr merge` went freely into a branch whose push deploys on Vercel, though the same push
+/// was held.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merge_that_deploys_on_vercel_is_held_as_its_push_is() {
+    let (ours, theirs) = (repo(), repo());
+    let (cwd, project) = work_of(&ours);
+    let (site, _) = work_of(&theirs);
+    std::fs::write(site.join("vercel.json"), "{}").unwrap();
+    let core = core_at(None, &project, Vec::new());
+    let merge = |what: &str| Ship {
+        kind: ShipKind::Merge,
+        what: what.to_owned(),
+        target: None,
+    };
+    assert!(run(&core, merge("gh pr merge 5 --squash"), &cwd).is_ok_and(|went| went.is_none()));
+    let elsewhere = merge("gh pr merge 5 -R acme/other");
+    assert!(run(&core, elsewhere, &site).is_ok_and(|went| went.is_none()));
+    assert!(open_calls(&core).is_empty());
+    assert!(run(&core, merge("gh pr merge 5 --squash"), &site).is_err());
+    let call = open_calls(&core).remove(0);
+    answer(&core, &call.id, "allow").await;
+    assert!(run(&core, merge("gh pr merge 6 --squash"), &site).is_err());
+    assert!(run(&core, merge("gh pr merge 5 --squash"), &site).is_ok());
+}
+
 /// An agent pushed a scratch clone to its local bare remote with
 /// `S=…; cd $S/r/w && /usr/bin/git push …` and was asked whether to change Sikemux's releases
 /// on GitHub, shown the push without its `cd`.

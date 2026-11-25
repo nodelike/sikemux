@@ -234,6 +234,96 @@ pub fn reach(what: &str, cwd: &Path) -> Reach {
     }
 }
 
+/// The pull request a `gh pr merge` merges, as its words name it.
+pub struct Merging {
+    /// Its number, address or branch; none for the current branch's.
+    pull: Option<String>,
+    /// The `owner/name` of its repository, when the words name one.
+    pub repo: Option<String>,
+    /// Whether every word was understood, so that `pull` is the one merged.
+    read: bool,
+}
+
+pub fn merging(what: &str) -> Merging {
+    let mut found = Merging {
+        pull: None,
+        repo: None,
+        read: false,
+    };
+    let words: Vec<&str> = what.split_whitespace().collect();
+    let args = match words.as_slice() {
+        [gh, "pr", "merge", args @ ..] if gh.rsplit('/').next() == Some("gh") => args,
+        _ => return found,
+    };
+    found.read = true;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match *arg {
+            "-R" | "--repo" => found.repo = args.next().map(|repo| (*repo).to_owned()),
+            "--match-head-commit" => _ = args.next(),
+            "-m" | "--merge" | "-s" | "--squash" | "-r" | "--rebase" | "-d" | "--delete-branch"
+            | "--auto" | "--admin" => {}
+            arg if arg.starts_with("--match-head-commit=") => {}
+            arg if arg.starts_with("--repo=") => {
+                found.repo = arg.split_once('=').map(|(_, repo)| repo.to_owned());
+            }
+            arg if arg.starts_with('-') || found.pull.is_some() => found.read = false,
+            arg => found.pull = Some(arg.to_owned()),
+        }
+    }
+    let address = found.pull.as_deref().filter(|pull| pull.contains("://"));
+    if let Some((repo, _)) = address.and_then(|address| address.split_once("/pull/")) {
+        found.repo = Some(repo.to_owned());
+    }
+    found
+}
+
+impl Merging {
+    /// Whether the pull request is of the repository checked out at `root`.
+    pub fn is_into(&self, root: &Path) -> bool {
+        let Some(repo) = &self.repo else {
+            return true;
+        };
+        let mut named = repo.trim_end_matches(".git").rsplit('/');
+        let (Some(name), Some(owner)) = (named.next(), named.next()) else {
+            return true;
+        };
+        let remotes = Git::quick(root)
+            .trimmed(&["remote", "-v"])
+            .unwrap_or_default();
+        (remotes.lines())
+            .filter_map(|line| line.split_whitespace().nth(1))
+            .filter_map(crate::server::credential::owner_and_name)
+            .any(|(theirs, its)| {
+                theirs.eq_ignore_ascii_case(owner) && its.eq_ignore_ascii_case(name)
+            })
+    }
+
+    /// Where a merge run from `cwd` lands in the repository checked out at `root`, and the
+    /// commit it merges. GitHub is asked for the branch it goes into.
+    pub fn reach(&self, root: &Path, cwd: &Path) -> (Reach, Option<String>) {
+        if !self.read {
+            return (Reach::Project, None);
+        }
+        let mut view = sikemux_process::user_environment::command("gh");
+        view.current_dir(cwd)
+            .env("GH_PROMPT_DISABLED", "1")
+            .args(["pr", "view"])
+            .args(&self.pull)
+            .args(["--json", "baseRefName,headRefOid"]);
+        if let Some(repo) = &self.repo {
+            view.args(["--repo", repo]);
+        }
+        let found = (view.output().ok())
+            .filter(|output| output.status.success())
+            .and_then(|output| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok());
+        let field = |name: &str| found.as_ref()?.get(name)?.as_str().map(str::to_owned);
+        let reach =
+            field("baseRefName").map_or(Reach::Project, |base| branch_reach(&base, "origin", root));
+        (reach, field("headRefOid"))
+    }
+}
+
 /// The remote a push with none named goes to, from `@{push}`.
 fn push_remote(cwd: &Path) -> Option<String> {
     let full = Git::quick(cwd)

@@ -325,28 +325,44 @@ fn check_call(
         }
     }
     let pushed_in = push::run_in(&ship.what, cwd);
-    if ship.kind == ShipKind::Push && !same_repository(&pushed_in, &project) {
+    let merging = (ship.kind == ShipKind::Merge).then(|| push::merging(&ship.what));
+    let sent_from_here = match &merging {
+        Some(merging) => merging.repo.is_none(),
+        None => ship.kind == ShipKind::Push,
+    };
+    if sent_from_here && !same_repository(&pushed_in, &project) {
         let Some(top) = sikemux_process::files::repo_root(&pushed_in) else {
             return Ok(None);
         };
         project = core.workspaces().project_of(top);
     }
     let mut sends = None;
+    let from = [project.clone(), checkout_of(&pushed_in, &project)];
+    let from_one = |deploys: &dyn Fn(&str) -> bool| from.iter().find(|root| deploys(root)).cloned();
+    let on_vercel = |root: &str| places::found::vercel_deploys_pushes(Path::new(root));
+    let to_vercel = |ship: Ship| Ship {
+        kind: ShipKind::Deploy,
+        target: Some(Target::Vercel { production: true }),
+        what: ship.what,
+    };
+    if let Some(merging) = &merging {
+        let deployed = from_one(&|root| on_vercel(root) && merging.is_into(Path::new(root)));
+        if let Some(deployed) = deployed {
+            let (reach, head) = merging.reach(Path::new(&deployed), &pushed_in);
+            if reach == Reach::Project {
+                project = deployed;
+                sends = head;
+                ship = to_vercel(ship);
+            }
+        }
+    }
     if ship.kind == ShipKind::Push {
-        let from = [project.clone(), checkout_of(&pushed_in, &project)];
-        let from_one =
-            |deploys: &dyn Fn(&str) -> bool| from.iter().find(|root| deploys(root)).cloned();
         match push::reach(&ship.what, cwd) {
             Reach::Branches => return Ok(None),
             Reach::Project => {
-                let on_vercel = |root: &str| places::found::vercel_deploys_pushes(Path::new(root));
                 if let Some(deployed) = from_one(&on_vercel) {
                     project = deployed;
-                    ship = Ship {
-                        kind: ShipKind::Deploy,
-                        target: Some(Target::Vercel { production: true }),
-                        what: ship.what,
-                    };
+                    ship = to_vercel(ship);
                 }
             }
             Reach::Tags(names) => {
@@ -398,13 +414,17 @@ fn check_call(
         }
         return hold(core, agent_id, &project, ship, cwd, call, None);
     }
+    // A pull request's commits needn't be the checkout's, so a yes to a merge is kept for
+    // that merge rather than for the work in the checkout.
+    let work_here = || work::of(cwd).filter(|_| merging.is_none());
     let name = core.names().name_or_id(agent_id);
     let judged = places::judge(core, &project, &ship, &name, addresses);
     let place = judged.place.as_ref().map(|place| place.name().to_owned());
     let deploy = |call: Option<String>, telling: Option<Telling>| {
         let followed = ship.kind == ShipKind::Deploy || call.is_some() || telling.is_some();
         place.as_ref().filter(|_| followed).map(|name| Deploy {
-            head: Git::quick(cwd).trimmed(&["rev-parse", "HEAD"]).ok(),
+            head: (Git::quick(cwd).trimmed(&["rev-parse", "HEAD"]).ok())
+                .filter(|_| merging.is_none()),
             agent_id: agent_id.to_owned(),
             project: project.clone(),
             environment: name.clone(),
@@ -424,7 +444,7 @@ fn check_call(
                 reason = "a judgement that tells always names its place"
             )]
             let told = judged.place.as_ref().expect("a place tells");
-            let work = work::of(cwd);
+            let work = work_here();
             let (key, _) = key_of(
                 told,
                 &ship,
@@ -441,7 +461,7 @@ fn check_call(
                 reason = "a judgement that asks always names its place"
             )]
             let gated = judged.place.clone().expect("a place asks");
-            let work = work::of(cwd);
+            let work = work_here();
             let (key, once) = key_of(
                 &gated,
                 &ship,
