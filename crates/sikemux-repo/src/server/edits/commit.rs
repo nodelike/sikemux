@@ -759,7 +759,7 @@ pub fn commit(
                 if let Some(signer) = signer.as_ref().filter(|_| !attributed) {
                     committer::record(core, &diff.top, &commit, signer);
                 }
-                tidy(&diff.top, &changes, &unformatted);
+                tidy(core, &diff.top, agent_id, &changes, &unformatted);
                 underway.finish();
                 let resolved = !underway.merged.is_empty();
                 let note = share(&diff.top, &changes, &blobs, resolved).err();
@@ -859,14 +859,27 @@ fn format(
 
 /// Writes the formatted content of each change back to its file, when the file still holds just
 /// what was committed before formatting.
-fn tidy(top: &Path, changes: &[Change], unformatted: &[Option<Vec<u8>>]) {
+fn tidy(
+    core: &Core,
+    top: &Path,
+    agent_id: &str,
+    changes: &[Change],
+    unformatted: &[Option<Vec<u8>>],
+) {
     for (change, before) in changes.iter().zip(unformatted) {
         let (Some(before), Some(content)) = (before, &change.content) else {
             continue;
         };
         let file = top.join(&change.path);
-        if std::fs::read(&file).is_ok_and(|now| now == *before) {
-            let _ = std::fs::write(&file, content);
+        if std::fs::read(&file).is_ok_and(|now| now == *before)
+            && std::fs::write(&file, content).is_ok()
+        {
+            if let (Ok(before_text), Ok(after_text)) =
+                (std::str::from_utf8(before), std::str::from_utf8(content))
+            {
+                core.edits()
+                    .record_formatted(core, top, agent_id, &file, before_text, after_text);
+            }
         }
     }
 }
@@ -1153,7 +1166,18 @@ impl Planner<'_> {
             .chain(removed_by.values())
             .copied()
             .collect();
-        let whole = may_whole && !authors.iter().any(|author| self.theirs(*author));
+        let uncertain_theirs: Vec<usize> = self
+            .diff
+            .uncertain
+            .get(path)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|author| self.theirs(*author))
+            .collect();
+        let uncertain_other = !uncertain_theirs.is_empty();
+        let whole =
+            may_whole && !uncertain_other && !authors.iter().any(|author| self.theirs(*author));
         let leave = |by: BTreeSet<Option<usize>>, left: &mut Vec<Left>| {
             let open: Vec<String> = (by.iter().flatten())
                 .filter(|at| self.theirs(**at))
@@ -1175,7 +1199,14 @@ impl Planner<'_> {
                 .iter()
                 .any(|author| self.is_mine(*author, may_whole))
         {
-            leave(authors.iter().map(|at| Some(*at)).collect(), left);
+            leave(
+                authors
+                    .iter()
+                    .chain(&uncertain_theirs)
+                    .map(|at| Some(*at))
+                    .collect(),
+                left,
+            );
             return Ok(());
         }
         let entry = self.before.get(path);
@@ -1233,11 +1264,22 @@ impl Planner<'_> {
         let mine = |author: Option<usize>| {
             whole || author.is_some_and(|author| self.is_mine(author, may_whole))
         };
-        let theirs = |author: Option<usize>| !whole && author.is_some_and(|at| self.theirs(at));
+        let theirs = |author: Option<usize>| {
+            !whole
+                && match author {
+                    Some(at) => self.theirs(at),
+                    None => uncertain_other,
+                }
+        };
         let mut tally = Tally::default();
         let content = splice(&old, &new, &hunks, &mut tally, owner, removal, mine, theirs)
             .ok_or_else(|| format!("{path} changed while it was read; call this again"))?;
         if !tally.left.is_empty() {
+            if uncertain_other && tally.left.contains(&None) {
+                tally
+                    .left
+                    .extend(uncertain_theirs.iter().copied().map(Some));
+            }
             leave(std::mem::take(&mut tally.left), left);
         }
         if tally.added + tally.removed == 0 {

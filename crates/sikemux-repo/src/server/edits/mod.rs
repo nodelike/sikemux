@@ -20,6 +20,7 @@ pub mod push;
 pub mod queue;
 pub mod workflows;
 
+use crate::server::chat_state::ChatParts;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::edits::CommitParams;
@@ -317,6 +318,59 @@ impl Edits {
         let _ = self.jobs.send(Job::Done(done));
     }
 
+    pub fn record_formatted(
+        &self,
+        core: &Core,
+        top: &Path,
+        agent_id: &str,
+        path: &Path,
+        before: &str,
+        after: &str,
+    ) {
+        let top = sikemux_process::files::real_path(top).unwrap_or_else(|_| top.to_owned());
+        let path = sikemux_process::files::real_path(path).unwrap_or_else(|_| path.to_owned());
+        let abs = path.to_string_lossy().into_owned();
+        let lines = changed(before, after, 1);
+        if !lines.is_empty() {
+            let project = core.workspaces().project_of(&top);
+            let named = core.names().get(agent_id);
+            let (cli, model, feed, turn) = match core.chats().get(agent_id) {
+                Some(chat) => (
+                    chat.provider().to_owned(),
+                    chat.current_launch().model,
+                    chat.feed.id().to_owned(),
+                    chat.feed.turn_start(),
+                ),
+                None => (String::new(), None, String::new(), None),
+            };
+            let edit = Edit {
+                at: epoch_ms(),
+                agent_id: agent_id.to_owned(),
+                shared: Vec::new(),
+                name: named.map(|named| named.name),
+                cli,
+                model,
+                feed,
+                turn,
+                tool_call_id: "format".to_owned(),
+                path: abs.clone(),
+                lines,
+                total: Some(line_count(after)),
+            };
+            self.store.append(&project, &[edit]);
+        }
+        if let Ok(meta) = std::fs::metadata(&path) {
+            self.store.priors(&top, |priors| {
+                priors.keep(&abs, Some((after, &meta)));
+            });
+        }
+    }
+
+    pub fn kept_snapshot(&self, top: &Path, abs: &str) -> Option<String> {
+        let top = sikemux_process::files::real_path(top).unwrap_or_else(|_| top.to_owned());
+        self.store.kept_snapshot(&top, abs)
+    }
+
     /// The edits in a project that `filter` matches, oldest first.
     pub fn read(&self, project: &str, filter: &Filter) -> Vec<Edit> {
         self.matching(project, |edit| {
@@ -388,6 +442,22 @@ impl Store {
         let done = work(priors);
         priors.save();
         done
+    }
+
+    fn kept_snapshot(&self, top: &Path, abs: &str) -> Option<String> {
+        let mut priors = self.priors.locked();
+        let priors = priors
+            .entry(top.to_owned())
+            .or_insert_with(|| prior::Priors::load(self.stem(&top.to_string_lossy()), top));
+        if let prior::Before::Kept(text) = priors.before(abs) {
+            return Some(text);
+        }
+        let real = sikemux_process::files::real_path(Path::new(abs)).ok()?;
+        let real = real.to_string_lossy();
+        match priors.before(&real) {
+            prior::Before::Kept(text) => Some(text),
+            _ => None,
+        }
     }
 
     fn matching(&self, project: &str, keep: impl Fn(&Edit) -> bool) -> Vec<Edit> {

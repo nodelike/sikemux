@@ -53,14 +53,12 @@ pub fn owners_at(core: &Core, dir: &Path, staged: bool) -> Result<Owners, String
     else {
         return owners(core, dir, staged);
     };
-    type Read = HashMap<(PathBuf, bool), (u64, Arc<Diff>)>;
-    static READ: Mutex<Option<Read>> = Mutex::new(None);
+    static READ: Mutex<Option<ReadCache>> = Mutex::new(None);
     let at = (dir.to_path_buf(), staged);
     let kept = READ
         .locked()
-        .get_or_insert_with(HashMap::new)
-        .get(&at)
-        .map(|(read_at, diff)| (*read_at, diff.clone()));
+        .get_or_insert_with(ReadCache::default)
+        .get(&at);
     let diff = match kept {
         Some((read_at, diff)) if read_at == generation => diff,
         kept => {
@@ -75,16 +73,48 @@ pub fn owners_at(core: &Core, dir: &Path, staged: bool) -> Result<Owners, String
                 Some(diff) => diff?,
                 None => read_diff(dir, staged, true, None, false)?,
             });
-            let mut read = READ.locked();
-            let read = read.get_or_insert_with(HashMap::new);
-            if read.len() >= REMEMBERED_CHECKOUTS && !read.contains_key(&at) {
-                read.clear();
-            }
-            read.insert(at, (generation, diff.clone()));
+            READ.locked().get_or_insert_with(ReadCache::default).insert(
+                at,
+                generation,
+                diff.clone(),
+            );
             diff
         }
     };
     Ok(record_over(core, dir, staged, &diff))
+}
+
+#[derive(Default)]
+struct ReadCache {
+    clock: u64,
+    entries: HashMap<(PathBuf, bool), (u64, Arc<Diff>, u64)>,
+}
+
+impl ReadCache {
+    fn get(&mut self, key: &(PathBuf, bool)) -> Option<(u64, Arc<Diff>)> {
+        self.clock += 1;
+        let tick = self.clock;
+        self.entries.get_mut(key).map(|(generation, diff, used)| {
+            *used = tick;
+            (*generation, diff.clone())
+        })
+    }
+
+    fn insert(&mut self, key: (PathBuf, bool), generation: u64, diff: Arc<Diff>) {
+        self.clock += 1;
+        let tick = self.clock;
+        if self.entries.len() >= REMEMBERED_CHECKOUTS && !self.entries.contains_key(&key) {
+            if let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, (_, _, used))| *used)
+                .map(|(k, _)| k.clone())
+            {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.entries.insert(key, (generation, diff, tick));
+    }
 }
 
 /// How long a read may be carried forward by asking again only of moved
@@ -92,7 +122,7 @@ pub fn owners_at(core: &Core, dir: &Path, staged: bool) -> Result<Owners, String
 /// it is read whole again after this.
 const PATCHED_LIFETIME: Duration = Duration::from_secs(30);
 
-const REMEMBERED_CHECKOUTS: usize = 32;
+const REMEMBERED_CHECKOUTS: usize = 512;
 
 /// The diff `traced` laid the record over.
 #[derive(Clone)]
@@ -102,6 +132,8 @@ pub struct Diff {
     pub base: Option<String>,
     pub changed: HashMap<String, Vec<Hunk>>,
     pub untracked: HashSet<String>,
+    /// Authors whose recorded edits to a path lost exact line tracking due to an unrecorded change.
+    pub uncertain: HashMap<String, Vec<usize>>,
     /// What the working tree changed beyond the index, read only for staged.
     unstaged: HashMap<String, Vec<Hunk>>,
     /// The files whose index entry differs from `base`, when asked for and
@@ -112,8 +144,10 @@ pub struct Diff {
 }
 
 pub fn traced(core: &Core, dir: &Path, staged: bool) -> Result<(Owners, Diff), String> {
-    let diff = read_diff(dir, staged, false, None, false)?;
-    Ok((record_over(core, dir, staged, &diff), diff))
+    let mut diff = read_diff(dir, staged, false, None, false)?;
+    let (owners, uncertain) = record_over_traced(core, dir, staged, &diff);
+    diff.uncertain = uncertain;
+    Ok((owners, diff))
 }
 
 /// Who wrote each line staged in `index`, or in the checkout's own index, and
@@ -178,6 +212,7 @@ pub fn read_diff(
         base,
         changed,
         untracked,
+        uncertain: HashMap::new(),
         unstaged,
         staged_files,
         read_at: Instant::now(),
@@ -315,6 +350,15 @@ fn top_and_base(dir: &Path, amend: bool) -> Result<(PathBuf, Option<String>), St
 
 /// The record of agents' edits laid over what `diff` says changed.
 fn record_over(core: &Core, dir: &Path, staged: bool, diff: &Diff) -> Owners {
+    record_over_traced(core, dir, staged, diff).0
+}
+
+fn record_over_traced(
+    core: &Core,
+    dir: &Path,
+    staged: bool,
+    diff: &Diff,
+) -> (Owners, HashMap<String, Vec<usize>>) {
     let Diff {
         top,
         changed,
@@ -328,6 +372,7 @@ fn record_over(core: &Core, dir: &Path, staged: bool, diff: &Diff) -> Owners {
         .map(|path| (top.join(path).to_string_lossy().into_owned(), path.clone()))
         .collect();
     let mut owners = Owners::default();
+    let mut uncertain = HashMap::new();
     if !paths.is_empty() {
         let project = core.workspaces().project_of(dir);
         let wanted = paths.keys().cloned().collect();
@@ -340,18 +385,31 @@ fn record_over(core: &Core, dir: &Path, staged: bool, diff: &Diff) -> Owners {
         }
         let mut files = Vec::new();
         for (abs, edits) in by_path {
+            let Some(path) = paths.get(abs) else {
+                continue;
+            };
             let mut replay = Replay::default();
             for (author, edit) in edits {
                 replay.apply(edit, author);
             }
-            if replay.total.is_some()
-                && read_text(Path::new(abs)).as_deref().map(line_count) != replay.total
-            {
-                continue;
+            if let Some(expected) = replay.total {
+                let disk = read_text(Path::new(abs));
+                if disk.as_deref().map(line_count) != Some(expected) {
+                    let snapshot = core.edits().kept_snapshot(top, abs);
+                    match (disk.as_deref(), snapshot.as_deref()) {
+                        (Some(disk), Some(snapshot)) if line_count(snapshot) == expected => {
+                            let diff_lines = super::changed(snapshot, disk, 1);
+                            replay.project(
+                                &diff_lines,
+                                line_count(disk),
+                                changed.get(path).map(Vec::as_slice),
+                                untracked.contains(path),
+                            );
+                        }
+                        _ => replay.abandon_positions(),
+                    }
+                }
             }
-            let Some(path) = paths.get(abs) else {
-                continue;
-            };
             let index = |line| {
                 if staged {
                     in_index(unstaged.get(path).map_or(&[][..], Vec::as_slice), line)
@@ -371,8 +429,11 @@ fn record_over(core: &Core, dir: &Path, staged: bool, diff: &Diff) -> Owners {
                     notes: Vec::new(),
                 });
             }
+            if !replay.uncertain.is_empty() {
+                uncertain.insert(path.clone(), replay.uncertain.into_iter().collect());
+            }
         }
-        owners = agents.owners(core, files);
+        owners = agents.owners(core, files, &mut uncertain);
         for file in &mut owners.files {
             let changes: Vec<(u64, u64)> = match changed.get(&file.path) {
                 Some(hunks) => hunks.iter().map(|hunk| (hunk.start, hunk.count)).collect(),
@@ -384,7 +445,7 @@ fn record_over(core: &Core, dir: &Path, staged: bool, diff: &Diff) -> Owners {
             file.notes = notes(&changes, &file.lines);
         }
     }
-    owners
+    (owners, uncertain)
 }
 
 /// Who wrote each line `commit` changed in `dir`, from `wrote`: each agent's name
@@ -557,7 +618,12 @@ impl<'a> Agents<'a> {
     }
 
     /// `files` with their agents numbered again among only those they name.
-    fn owners(self, core: &Core, mut files: Vec<FileOwners>) -> Owners {
+    fn owners(
+        self,
+        core: &Core,
+        mut files: Vec<FileOwners>,
+        uncertain: &mut HashMap<String, Vec<usize>>,
+    ) -> Owners {
         for file in &mut files {
             file.lines.retain(|run| !self.person(run.author));
             for run in &mut file.lines {
@@ -566,6 +632,10 @@ impl<'a> Agents<'a> {
             file.removed.retain(|removal| !self.person(removal.author));
         }
         files.retain(|file| !file.lines.is_empty() || !file.removed.is_empty());
+        for authors in uncertain.values_mut() {
+            authors.retain(|author| !self.person(*author));
+        }
+        uncertain.retain(|_, authors| !authors.is_empty());
         let mut numbers: Vec<Option<usize>> = vec![None; self.latest.len()];
         let mut authors = Vec::new();
         let open = core.names().open_with(core.open_agents());
@@ -591,6 +661,13 @@ impl<'a> Agents<'a> {
                 renumber(&mut removal.author);
             }
         }
+        for lost in uncertain.values_mut() {
+            for agent in lost.iter_mut() {
+                renumber(agent);
+            }
+            lost.sort_unstable();
+            lost.dedup();
+        }
         Owners { authors, files }
     }
 }
@@ -615,10 +692,59 @@ struct Line {
 struct Replay {
     lines: Vec<Line>,
     removed: Vec<(u64, usize)>,
+    uncertain: HashSet<usize>,
     total: Option<u64>,
 }
 
 impl Replay {
+    fn abandon_positions(&mut self) {
+        self.uncertain
+            .extend(self.lines.iter().map(|line| line.author));
+        self.uncertain
+            .extend(self.removed.iter().map(|(_, by)| *by));
+        self.lines.clear();
+        self.removed.clear();
+    }
+
+    fn project(
+        &mut self,
+        diff_lines: &Lines,
+        new_total: u64,
+        hunks: Option<&[Hunk]>,
+        untracked: bool,
+    ) {
+        let blocks = blocks(diff_lines);
+        let mut lines = Vec::with_capacity(self.lines.len());
+        for line in self.lines.drain(..) {
+            match place(&blocks, line.at) {
+                Ok(at) => lines.push(Line { at, ..line }),
+                Err(block) => {
+                    let active = untracked
+                        || blocks
+                            .get(block)
+                            .is_some_and(|block| block_overlaps_hunks(&block.new, hunks));
+                    if active {
+                        self.uncertain.insert(line.author);
+                    }
+                }
+            }
+        }
+        self.removed = self
+            .removed
+            .iter()
+            .filter_map(|&(at, by)| match place_gap(&blocks, at) {
+                Some(at) => Some((at, by)),
+                None => {
+                    self.uncertain.insert(by);
+                    None
+                }
+            })
+            .collect();
+        lines.sort_unstable_by_key(|line| line.at);
+        self.lines = lines;
+        self.total = Some(new_total);
+    }
+
     fn apply(&mut self, edit: &Edit, author: usize) {
         let grown: i64 = edit
             .lines
@@ -631,8 +757,7 @@ impl Replay {
         };
         self.total = edit.total;
         if edit.lines.is_empty() || !follows {
-            self.lines.clear();
-            self.removed.clear();
+            self.abandon_positions();
             if edit.lines.is_empty() {
                 return;
             }
@@ -696,6 +821,23 @@ impl Replay {
             .collect();
         (runs(lines), removed)
     }
+}
+
+fn block_overlaps_hunks(block: &Hunk, hunks: Option<&[Hunk]>) -> bool {
+    let Some(hunks) = hunks else {
+        return false;
+    };
+    let block_end = block.start.saturating_add(block.count);
+    hunks.iter().any(|hunk| {
+        let hunk_end = hunk.start.saturating_add(hunk.count);
+        if block.count == 0 {
+            hunk.start <= block.start && block.start <= hunk_end
+        } else if hunk.count == 0 {
+            block.start <= hunk.start && hunk.start <= block_end
+        } else {
+            hunk.start < block_end && block.start < hunk_end
+        }
+    })
 }
 
 /// An edit's parts in order, each with where it stood in the file before it.
