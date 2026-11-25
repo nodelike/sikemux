@@ -36,6 +36,7 @@ pub const METRICS: [(Metric, &str); 5] = [
 /// open says.
 pub fn stage(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> AnyElement {
     GLOWING.set(false);
+    crate::ui::grain::welcome_stage_begin();
     let stage = stage_shown(bench, window, cx);
     crate::ui::grain::glow_shown(GLOWING.get(), cx);
     stage
@@ -172,6 +173,16 @@ fn under_header(
     ui::pane_frame(cx)
         .flex()
         .flex_col()
+        .when(glow > 0. && !cx.reduce_motion(), |frame| {
+            let bench = cx.weak_entity();
+            frame.on_mouse_move(move |event, _, cx| {
+                if crate::ui::grain::welcome_pointer_move(event.position, cx) {
+                    let _ = bench.update(cx, |bench, cx| {
+                        bench.parts.redraw(&bench.parts.stage, cx);
+                    });
+                }
+            })
+        })
         .child(crate::ui::grain::pane_ground(agent, cx)(glow))
         .children(header)
         .child(
@@ -287,20 +298,16 @@ pub fn welcome_over(
         .child(div().w_full().child(under))
 }
 
-/// Sikemux's mark in dots of the accent, as the setup's poster draws it, its dots thinning
-/// away as `shown` falls to 0.
 fn logo(shown: f32, cx: &App) -> AnyElement {
-    match crate::ui::grain::poster_mark(shown, LOGO_DOTS, cx) {
-        Some(mark) => mark.size(px(LOGO_SIZE)).into_any_element(),
+    match crate::ui::grain::welcome_mark(shown, LOGO_SIZE, cx) {
+        Some(mark) => mark.into_any_element(),
         None => ui::icon(Icon::Logo, LOGO_SIZE)
             .text_color(Tokens::get(cx).accent)
             .into_any_element(),
     }
 }
 
-const LOGO_SIZE: f32 = 110.;
-/// How far apart the mark's dots are, in points.
-const LOGO_DOTS: f32 = 2.;
+const LOGO_SIZE: f32 = 116.;
 
 /// Asking what is being made in the project.
 fn greeting(project: SharedString, cx: &App) -> impl IntoElement {
@@ -309,32 +316,45 @@ fn greeting(project: SharedString, cx: &App) -> impl IntoElement {
     let (before, after) = asked
         .split_once("{project}")
         .unwrap_or(("What are we making in", "?"));
-    div().flex().items_center().justify_center().child(
-        div()
-            .min_w_0()
-            .flex()
-            .items_center()
-            .text_size(theme::ui_text(TEXT_XL))
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(t.text_primary)
-            .child(before.trim_end())
-            .child(
-                ui::icon(Icon::Folder, 17.)
-                    .ml(SPACE_2)
-                    .mr(SPACE_1H)
-                    .text_color(t.live),
+    div()
+        .relative()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            gpui::canvas(
+                |bounds, _, _| crate::ui::grain::welcome_note_quiet(bounds),
+                |_, (), _, _| {},
             )
-            .child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .font_family(theme::mono_font())
-                    .font_weight(FontWeight::NORMAL)
-                    .text_size(theme::ui_text(18.))
-                    .child(project),
-            )
-            .child(after),
-    )
+            .absolute()
+            .inset_0(),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .text_size(theme::ui_text(TEXT_XL))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(t.text_primary)
+                .child(before.trim_end())
+                .child(
+                    ui::icon(Icon::Folder, 17.)
+                        .ml(SPACE_2)
+                        .mr(SPACE_1H)
+                        .text_color(t.live),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .font_family(theme::mono_font())
+                        .font_weight(FontWeight::NORMAL)
+                        .text_size(theme::ui_text(18.))
+                        .child(project),
+                )
+                .child(after),
+        )
 }
 
 /// The welcome in the middle of the space it is given, across and down.

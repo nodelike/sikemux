@@ -184,6 +184,54 @@ impl Render for Field {
     }
 }
 
+struct WelcomeView;
+
+impl Render for WelcomeView {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = Tokens::get(cx).clone();
+        grain::welcome_stage_begin();
+        div()
+            .relative()
+            .size_full()
+            .bg(t.surface_sunken)
+            .child(grain::pane_ground(None, cx)(1.))
+            .child(
+                div()
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(24.))
+                    .children(grain::welcome_mark(1., 116., cx))
+                    .child(
+                        div()
+                            .relative()
+                            .text_size(px(20.))
+                            .text_color(t.text_primary)
+                            .child(
+                                gpui::canvas(
+                                    |bounds, _, _| grain::welcome_note_quiet(bounds),
+                                    |_, (), _, _| {},
+                                )
+                                .absolute()
+                                .inset_0(),
+                            )
+                            .child("What are we making in sikemux?"),
+                    )
+                    .child(
+                        div()
+                            .w(px(620.))
+                            .h(px(110.))
+                            .rounded(theme::radius_3())
+                            .border_1()
+                            .border_color(t.border)
+                            .bg(t.surface_composer),
+                    ),
+            )
+    }
+}
+
 /// Each kind's frames drawn offscreen, against frames with no backdrop.
 fn offscreen(frames: usize) -> anyhow::Result<()> {
     use gpui::HeadlessAppContext;
@@ -266,6 +314,52 @@ fn offscreen(frames: usize) -> anyhow::Result<()> {
         );
         cx.update_window(window.into(), |_, window, _| window.remove_window())?;
     }
+    let prefs = Preferences::default();
+    let pal = sikemux_corekit::themes::palette(&sikemux_corekit::themes::Shelf::default(), &prefs);
+    cx.update(|cx| {
+        theme::apply(&pal, cx);
+        grain::set(&prefs, cx);
+        grain::glow_shown(false, cx);
+        grain::glow_shown(true, cx);
+    });
+    let window = cx.update(|cx| {
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds {
+                    origin: gpui::point(px(0.), px(0.)),
+                    size: size(px(WINDOW_SIZE.0), px(WINDOW_SIZE.1)),
+                })),
+                focus: false,
+                show: false,
+                ..Default::default()
+            },
+            |_, cx| cx.new(|_| WelcomeView),
+        )
+    })?;
+    cx.run_until_parked();
+    let mut took = Vec::with_capacity(frames);
+    for frame in 0..frames + 10 {
+        let started = std::time::Instant::now();
+        cx.update_window(window.into(), |_, window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx)
+        })?;
+        cx.capture_screenshot(window.into())?;
+        if frame >= 10 {
+            took.push(started.elapsed().as_secs_f64() * 1000.);
+        }
+    }
+    took.sort_by(f64::total_cmp);
+    let mean = took.iter().sum::<f64>() / took.len() as f64;
+    let p95 = *took
+        .get(took.len() * 95 / 100)
+        .context("no frames were timed")?;
+    println!(
+        "{:>8}: {mean:.3} ms a frame (p95 {p95:.3}), {:+.3} ms over no backdrop",
+        "welcome",
+        mean - empty
+    );
+    cx.update_window(window.into(), |_, window, _| window.remove_window())?;
     Ok(())
 }
 

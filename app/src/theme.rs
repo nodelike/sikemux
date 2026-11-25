@@ -541,6 +541,7 @@ pub fn apply(palette: &Palette, cx: &mut App) {
     kit.highlight_theme = std::sync::Arc::new(highlight);
     kit.tokens = ThemeTokens::from(&kit.colors);
     cx.set_global(tokens);
+    crate::ui::grain::welcome_theme_changed(cx);
 }
 
 fn bytes(color: Rgba) -> [u8; 3] {

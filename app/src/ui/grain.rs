@@ -43,7 +43,8 @@ static PICTURE: RawShaderProgram = program!("picture");
 static SKY: RawShaderProgram = program!("sky");
 static POSTER_MARK: RawShaderProgram = program!("poster_mark");
 static TILE: RawShaderProgram = program!("tile");
-static GLOW: RawShaderProgram = program!("glow");
+static WELCOME_FIELD: RawShaderProgram = program!("welcome_field");
+static WELCOME_MARK: RawShaderProgram = program!("welcome_mark");
 static EDGE: RawShaderProgram = program!("edge");
 static BURST: RawShaderProgram = program!("burst");
 
@@ -57,16 +58,23 @@ const MARK_FINE_PITCH: f32 = 4.;
 const FRAMES_PER_SECOND: u64 = 30;
 /// Slower on battery, where every frame is paid for out of the charge.
 const BATTERY_FRAMES_PER_SECOND: u64 = 20;
+const POINTER_FRAMES_PER_SECOND: u64 = 60;
+const POINTER_BATTERY_FRAMES_PER_SECOND: u64 = 30;
 const FIELD_SPEED: f32 = 0.5;
 /// How far the grid scrolls in a second at full drift, in points.
 const GRID_DRIFT: f32 = 8.;
 const SKY_SPEED: f32 = 0.35;
-const GLOW_SPEED: f32 = 1.;
 const TILE_SPEED: f32 = 1.2;
 /// The setup's tiles and mark move in seconds.
 const BREATHE_SPEED: f32 = 1.;
 /// Where the clock stands for a person who asked for less motion, so everything holds still.
 const STILL: f32 = 2.5;
+const WELCOME_PLAYS_FOR: f32 = 12.;
+const WELCOME_PLAYS_AFTER_POINTER: f32 = 5.;
+const WELCOME_SETTLES_FOR: f32 = 1.8;
+const WELCOME_POINTER_ACTIVE_FOR: f32 = 1.8;
+const WELCOME_STILL_TIME: f32 = 9.;
+const WELCOME_MARK_PAD: f32 = 48.;
 /// High, because the grain's dots are the only paint and nothing is drawn between them.
 const FIELD_OPACITY: f32 = 0.85;
 const PICTURE_OPACITY: f32 = 0.6;
@@ -154,6 +162,7 @@ struct Paces {
     burst: Option<Burst>,
     /// The count of the latest moment taken, so each plays once.
     celebrated: u64,
+    welcome_awake: bool,
 }
 
 /// A burst playing in the pane of `agent` from the shader time `started`.
@@ -194,8 +203,290 @@ impl Default for Paces {
             breathing_until: 0.,
             burst: None,
             celebrated: 0,
+            welcome_awake: false,
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct WelcomeState {
+    clock_offset: f32,
+    anchor_t: f32,
+    until: f32,
+    awake: bool,
+    pointer_x: f32,
+    pointer_y: f32,
+    sweep_x: f32,
+    sweep_y: f32,
+    moved_at: f32,
+    strength: f32,
+    last_redraw: f32,
+}
+
+impl Default for WelcomeState {
+    fn default() -> Self {
+        Self {
+            clock_offset: 4.,
+            anchor_t: 0.,
+            until: 0.,
+            awake: false,
+            pointer_x: 0.,
+            pointer_y: 0.,
+            sweep_x: 0.,
+            sweep_y: 0.,
+            moved_at: -1000.,
+            strength: 0.,
+            last_redraw: -1000.,
+        }
+    }
+}
+
+impl WelcomeState {
+    fn sim_time(&self, now: f32) -> f32 {
+        if self.until <= self.anchor_t {
+            return self.clock_offset;
+        }
+        let u = now.clamp(self.anchor_t, self.until);
+        let settle_start = self.anchor_t.max(self.until - WELCOME_SETTLES_FOR);
+        let d = (self.until - settle_start).max(0.001);
+        if u <= settle_start {
+            return self.clock_offset + (u - self.anchor_t);
+        }
+        let s = u - settle_start;
+        let eased = 0.5 * (s + (d / std::f32::consts::PI) * (std::f32::consts::PI * s / d).sin());
+        self.clock_offset + (settle_start - self.anchor_t) + eased
+    }
+}
+
+#[derive(Default)]
+struct WelcomeZones {
+    marks: Vec<Bounds<Pixels>>,
+    quiets: Vec<Bounds<Pixels>>,
+}
+
+thread_local! {
+    static WELCOME: RefCell<WelcomeState> = RefCell::new(WelcomeState::default());
+    static WELCOME_ZONES: RefCell<WelcomeZones> = RefCell::new(WelcomeZones::default());
+}
+
+fn pack_pair(a: f32, b: f32) -> f32 {
+    let hi = a.clamp(0., 4095.).floor();
+    let lo = b.clamp(0., 4095.).floor();
+    hi * 4096. + lo
+}
+
+fn pack_rgb(color: Rgba) -> f32 {
+    packed(color.r * 255., color.g * 255., color.b * 255.)
+}
+
+fn mix_rgb(a: Rgba, b: Rgba, t: f32) -> Rgba {
+    Rgba {
+        r: a.r + (b.r - a.r) * t,
+        g: a.g + (b.g - a.g) * t,
+        b: a.b + (b.b - a.b) * t,
+        a: 1.,
+    }
+}
+
+fn welcome_palette(cx: &App) -> ([f32; 4], bool) {
+    let t = Tokens::get(cx);
+    let mut tint = t.accent.to_rgb();
+    let low = tint.r.min(tint.g).min(tint.b);
+    let high = tint.r.max(tint.g).max(tint.b);
+    let mut alt = theme::color(&t.highlight.function).to_rgb();
+    let alt_diff = (alt.r - tint.r).abs() + (alt.g - tint.g).abs() + (alt.b - tint.b).abs();
+    if alt_diff < 0.14 {
+        let turned = mix_rgb(
+            tint,
+            Rgba {
+                r: tint.b,
+                g: tint.r,
+                b: tint.g,
+                a: 1.,
+            },
+            0.42,
+        );
+        let t_low = turned.r.min(turned.g).min(turned.b);
+        let t_high = turned.r.max(turned.g).max(turned.b);
+        if t_high - t_low > 0.02 {
+            let remap = |c: f32| low + ((c - t_low) / (t_high - t_low)) * (high - low);
+            alt = Rgba {
+                r: remap(turned.r),
+                g: remap(turned.g),
+                b: remap(turned.b),
+                a: 1.,
+            };
+        } else {
+            alt = theme::color(&t.highlight.string).to_rgb();
+        }
+    }
+    let (deep, bright) = if t.dark {
+        if high - low < 0.12 {
+            tint = mix_rgb(
+                tint,
+                Rgba {
+                    r: 0.72,
+                    g: 0.75,
+                    b: 0.88,
+                    a: 1.,
+                },
+                0.3,
+            );
+        }
+        let deep = Rgba {
+            r: tint.r * 0.22 + tint.r * tint.r * 0.42,
+            g: tint.g * 0.22 + tint.g * tint.g * 0.42,
+            b: tint.b * 0.22 + tint.b * tint.b * 0.42,
+            a: 1.,
+        };
+        let bright = mix_rgb(
+            tint,
+            Rgba {
+                r: 1.,
+                g: 1.,
+                b: 1.,
+                a: 1.,
+            },
+            0.84,
+        );
+        (deep, bright)
+    } else {
+        let ink = t.text_primary.to_rgb();
+        let deep = mix_rgb(tint, ink, 0.42);
+        let bright = mix_rgb(
+            tint,
+            Rgba {
+                r: tint.r * 0.85,
+                g: tint.g * 0.85,
+                b: tint.b * 0.85,
+                a: 1.,
+            },
+            0.25,
+        );
+        (deep, bright)
+    };
+    (
+        [
+            pack_rgb(tint),
+            pack_rgb(deep),
+            pack_rgb(alt),
+            pack_rgb(bright),
+        ],
+        t.dark,
+    )
+}
+
+fn welcome_clock_and_pointer(
+    origin: gpui::Point<Pixels>,
+    reduce_motion: bool,
+) -> ([f32; 3], [f32; 4]) {
+    if reduce_motion {
+        return ([WELCOME_STILL_TIME, 0., 0.], [0., 0., -1000., 0.]);
+    }
+    WELCOME.with_borrow(|state| {
+        let px = state.pointer_x - f32::from(origin.x);
+        let py = state.pointer_y - f32::from(origin.y);
+        let sx = ((state.sweep_x / 1500.).clamp(-1., 1.) * 0.5 + 0.5) * 255.;
+        let sy = ((state.sweep_y / 1500.).clamp(-1., 1.) * 0.5 + 0.5) * 255.;
+        let st = state.strength.clamp(0., 1.) * 255.;
+        (
+            [state.clock_offset, state.anchor_t, state.until],
+            [px, py, state.moved_at, packed(sx, sy, st)],
+        )
+    })
+}
+
+fn welcome_wake(seconds: f32, cx: &mut App) {
+    if cx.reduce_motion() {
+        return;
+    }
+    let now = cx.try_global::<Paces>().map_or(0., Paces::time);
+    let woke = WELCOME.with_borrow_mut(|state| {
+        let sim = state.sim_time(now);
+        state.clock_offset = sim;
+        state.anchor_t = now;
+        state.until = state.until.max(now + seconds);
+        let woke = !state.awake;
+        state.awake = true;
+        woke
+    });
+    if woke {
+        let mut paces = cx.try_global::<Paces>().cloned().unwrap_or_default();
+        if !paces.welcome_awake {
+            paces.welcome_awake = true;
+            cx.set_global(paces);
+        }
+    }
+}
+
+pub fn welcome_theme_changed(cx: &mut App) {
+    if cx.try_global::<Grain>().is_some_and(|grain| grain.glowing) {
+        welcome_wake(WELCOME_PLAYS_FOR, cx);
+    }
+}
+
+pub fn welcome_stage_begin() {
+    WELCOME_ZONES.with_borrow_mut(|zones| {
+        zones.marks.clear();
+        zones.quiets.clear();
+    });
+}
+
+pub fn welcome_note_quiet(bounds: Bounds<Pixels>) {
+    WELCOME_ZONES.with_borrow_mut(|zones| {
+        if zones.quiets.len() < 8 {
+            zones.quiets.push(bounds);
+        }
+    });
+}
+
+pub fn welcome_pointer_move(pos: gpui::Point<Pixels>, cx: &mut App) -> bool {
+    if cx.reduce_motion() || !cx.try_global::<Grain>().is_some_and(|grain| grain.glowing) {
+        return false;
+    }
+    let now = cx.try_global::<Paces>().map_or(0., Paces::time);
+    let (x, y) = (f32::from(pos.x), f32::from(pos.y));
+    let (woke, should_redraw) = WELCOME.with_borrow_mut(|state| {
+        let elapsed = now - state.moved_at;
+        if elapsed > 0. && elapsed < 0.25 {
+            let dt = elapsed.max(0.004);
+            let vx = (x - state.pointer_x) / dt;
+            let vy = (y - state.pointer_y) / dt;
+            let speed = vx.hypot(vy).max(1.);
+            let cap = (1500. / speed).min(1.);
+            state.sweep_x = (state.sweep_x + vx * cap) * 0.5;
+            state.sweep_y = (state.sweep_y + vy * cap) * 0.5;
+            state.strength += (1. - state.strength) * (1. - (-dt * 22.).exp());
+        } else {
+            state.sweep_x = 0.;
+            state.sweep_y = 0.;
+            state.strength = 0.55;
+        }
+        state.pointer_x = x;
+        state.pointer_y = y;
+        state.moved_at = now;
+
+        let sim = state.sim_time(now);
+        state.clock_offset = sim;
+        state.anchor_t = now;
+        state.until = state.until.max(now + WELCOME_PLAYS_AFTER_POINTER);
+        let woke = !state.awake;
+        state.awake = true;
+
+        let redraw = now - state.last_redraw >= 0.015;
+        if redraw {
+            state.last_redraw = now;
+        }
+        (woke, redraw)
+    });
+    if woke {
+        let mut paces = cx.try_global::<Paces>().cloned().unwrap_or_default();
+        if !paces.welcome_awake {
+            paces.welcome_awake = true;
+            cx.set_global(paces);
+        }
+    }
+    should_redraw
 }
 
 impl Global for Paces {}
@@ -537,7 +828,7 @@ impl Grain {
             PaneBackdrop::Picture => self.wanted.is_none(),
             _ => self.worn.look.speed > 0.,
         };
-        self.skies > 0 || self.glowing || (paced && self.shown && self.strength() > 0. && drawn)
+        self.skies > 0 || (paced && self.shown && self.strength() > 0. && drawn)
     }
 
     /// The person's pane strength laid over what is worn, held where text over it still reads.
@@ -712,8 +1003,8 @@ pub fn pane_ground(agent: Option<&str>, cx: &App) -> impl Fn(f32) -> AnyElement 
     let field = field_at(agent, cx);
     let edge = agent.and_then(|agent| waiting_edge(agent, cx));
     let welcome_picture = welcome_picture(cx);
-    let accent = Tokens::get(cx).accent.to_rgb();
-    let (start, speed) = clock(GLOW_SPEED, cx);
+    let (palette, dark) = welcome_palette(cx);
+    let reduce_motion = cx.reduce_motion();
     move |glow| {
         div()
             .absolute()
@@ -734,15 +1025,51 @@ pub fn pane_ground(agent: Option<&str>, cx: &App) -> impl Fn(f32) -> AnyElement 
                 canvas(
                     |_, _, _| {},
                     move |bounds, (), window, _| {
+                        let width = f32::from(bounds.size.width);
+                        let height = f32::from(bounds.size.height);
+                        let (mark_cx, mark_cy, mark_span, quiet_bottom) = WELCOME_ZONES
+                            .with_borrow(|zones| {
+                                let mark = zones
+                                    .marks
+                                    .iter()
+                                    .find(|mark| bounds.contains(&mark.center()));
+                                let (cx, cy, span) = match mark {
+                                    Some(mark) => (
+                                        f32::from(mark.center().x - bounds.origin.x),
+                                        f32::from(mark.center().y - bounds.origin.y),
+                                        f32::from(mark.size.width),
+                                    ),
+                                    None => (width * 0.5, height * 0.34, 116.),
+                                };
+                                let quiet_bottom = zones
+                                    .quiets
+                                    .iter()
+                                    .find(|quiet| bounds.contains(&quiet.center()))
+                                    .map_or(height * 0.72, |quiet| {
+                                        (f32::from(quiet.bottom() - bounds.origin.y) + 152.)
+                                            .min(height)
+                                    });
+                                (cx, cy, span, quiet_bottom)
+                            });
+                        let (clock, pointer) =
+                            welcome_clock_and_pointer(bounds.origin, reduce_motion);
+                        let opacity_signed = if dark { glow } else { -glow };
                         let mut params = [0.; gpui::RAW_SHADER_PARAMS];
                         params[..4].copy_from_slice(&[
-                            start,
-                            speed,
-                            window.ground_scale(),
-                            inner_radius(),
+                            clock[0],
+                            clock[1],
+                            clock[2],
+                            opacity_signed,
                         ]);
-                        params[4..8].copy_from_slice(&[accent.r, accent.g, accent.b, glow]);
-                        let _ = window.paint_ground_shader(bounds, &GLOW, params, None);
+                        params[4..8].copy_from_slice(&palette);
+                        params[8..12].copy_from_slice(&[
+                            window.scale_factor(),
+                            inner_radius(),
+                            pack_pair(mark_cx, mark_cy),
+                            pack_pair(mark_span, quiet_bottom),
+                        ]);
+                        params[12..16].copy_from_slice(&pointer);
+                        let _ = window.paint_raw_shader(bounds, &WELCOME_FIELD, params, None);
                     },
                 )
                 .absolute()
@@ -1031,12 +1358,29 @@ fn kind_field(
     })
 }
 
-/// Keeps the ground moving while a new chat's glow is on screen.
+/// Wakes a new chat's particle animation when one opens, and stops it once none are shown.
 pub fn glow_shown(shown: bool, cx: &mut App) {
     let mut grain = cx.try_global::<Grain>().cloned().unwrap_or_default();
-    if grain.glowing != shown {
+    let changed = grain.glowing != shown;
+    if changed {
         grain.glowing = shown;
         cx.set_global(grain);
+    }
+    if changed && shown {
+        welcome_wake(WELCOME_PLAYS_FOR, cx);
+    } else if changed && !shown {
+        WELCOME.with_borrow_mut(|state| {
+            state.awake = false;
+            state.until = 0.;
+            state.strength = 0.;
+            state.moved_at = -1000.;
+        });
+        if let Some(mut paces) = cx.try_global::<Paces>().cloned() {
+            if paces.welcome_awake {
+                paces.welcome_awake = false;
+                cx.set_global(paces);
+            }
+        }
     }
 }
 
@@ -1123,6 +1467,57 @@ fn mark_shape() -> Option<Arc<RenderImage>> {
             Some(Arc::new(RenderImage::new([image::Frame::new(pixels)])))
         })
         .clone()
+}
+
+/// The Sikemux mark on a new chat's welcome screen as crisp, pointer-reactive particles.
+pub fn welcome_mark(shown: f32, span: f32, cx: &App) -> Option<impl IntoElement + Styled> {
+    let shape = mark_shape()?;
+    let (palette, dark) = welcome_palette(cx);
+    let reduce_motion = cx.reduce_motion();
+    Some(
+        div().relative().size(px(span)).child(
+            canvas(
+                |bounds, _, _| {
+                    let mark = Bounds::new(
+                        point(
+                            bounds.origin.x + px(WELCOME_MARK_PAD),
+                            bounds.origin.y + px(WELCOME_MARK_PAD),
+                        ),
+                        size(
+                            (bounds.size.width - px(2. * WELCOME_MARK_PAD)).max(px(1.)),
+                            (bounds.size.height - px(2. * WELCOME_MARK_PAD)).max(px(1.)),
+                        ),
+                    );
+                    WELCOME_ZONES.with_borrow_mut(|zones| {
+                        if zones.marks.len() < 8 {
+                            zones.marks.push(mark);
+                        }
+                    });
+                },
+                move |bounds, (), window, _| {
+                    let (clock, pointer) = welcome_clock_and_pointer(bounds.origin, reduce_motion);
+                    let shown_signed = if dark { shown } else { -shown };
+                    let mut params = [0.; gpui::RAW_SHADER_PARAMS];
+                    params[..4].copy_from_slice(&[clock[0], clock[1], clock[2], shown_signed]);
+                    params[4..8].copy_from_slice(&palette);
+                    params[8..12].copy_from_slice(&[
+                        window.scale_factor(),
+                        WELCOME_MARK_PAD,
+                        span,
+                        0.,
+                    ]);
+                    params[12..16].copy_from_slice(&pointer);
+                    if let Err(error) =
+                        window.paint_raw_shader(bounds, &WELCOME_MARK, params, Some(&shape))
+                    {
+                        eprintln!("sikemux: the welcome mark does not draw: {error}");
+                    }
+                },
+            )
+            .absolute()
+            .inset(px(-WELCOME_MARK_PAD)),
+        ),
+    )
 }
 
 /// The mark as a dither in the accent, come in as far as `resolved` says, with its dots
@@ -1288,7 +1683,9 @@ fn should_tick(window: &Window, cx: &App) -> bool {
         && !cx.reduce_motion()
         && cx.try_global::<Grain>().is_some_and(|grain| {
             let paces = cx.try_global::<Paces>();
+            let welcome_awake = grain.glowing && paces.is_some_and(|paces| paces.welcome_awake);
             grain.moving(paces.is_some_and(Paces::moving))
+                || welcome_awake
                 || (grain.worn.look.mood && paces.is_some_and(Paces::breathing))
                 || paces.is_some_and(|paces| paces.bursting().is_some())
         })
@@ -1301,20 +1698,51 @@ fn spawn_tick<V: 'static>(
 ) -> Task<()> {
     cx.spawn_in(window, async move |bench, cx| loop {
         let Ok(wait) = bench.update_in(cx, |bench, window, cx| {
-            match cx
-                .try_global::<Grain>()
-                .is_some_and(|grain| grain.skies > 0 || grain.glowing)
-            {
+            let now = cx.try_global::<Paces>().map_or(0., Paces::time);
+            let (welcome_settled, pointer_hot) = WELCOME.with_borrow_mut(|state| {
+                let settled = state.awake && now >= state.until;
+                if settled {
+                    state.clock_offset = state.sim_time(now);
+                    state.anchor_t = state.until;
+                    state.awake = false;
+                }
+                let hot = state.awake && (now - state.moved_at) < WELCOME_POINTER_ACTIVE_FOR;
+                (settled, hot)
+            });
+            let grain = cx.try_global::<Grain>();
+            let skies = grain.is_some_and(|grain| grain.skies > 0);
+            let glowing = grain.is_some_and(|grain| grain.glowing);
+            let welcome_awake = glowing
+                && cx
+                    .try_global::<Paces>()
+                    .is_some_and(|paces| paces.welcome_awake);
+            match skies || welcome_awake || welcome_settled {
                 true => {
                     window.present_shaders();
                     #[cfg(feature = "drive")]
-                    SKY_PRESENTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if skies {
+                        SKY_PRESENTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    #[cfg(feature = "drive")]
+                    if welcome_awake || welcome_settled {
+                        WELCOME_PRESENTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
                 }
                 false => window.present_ground(),
             }
-            let rate = match on_battery(bench) {
-                true => BATTERY_FRAMES_PER_SECOND,
-                false => FRAMES_PER_SECOND,
+            if welcome_settled {
+                if let Some(mut paces) = cx.try_global::<Paces>().cloned() {
+                    if paces.welcome_awake {
+                        paces.welcome_awake = false;
+                        cx.set_global(paces);
+                    }
+                }
+            }
+            let rate = match (on_battery(bench), glowing && pointer_hot) {
+                (false, true) => POINTER_FRAMES_PER_SECOND,
+                (true, true) => POINTER_BATTERY_FRAMES_PER_SECOND,
+                (false, false) => FRAMES_PER_SECOND,
+                (true, false) => BATTERY_FRAMES_PER_SECOND,
             };
             Duration::from_millis(1000 / rate)
         }) else {
@@ -1327,6 +1755,8 @@ fn spawn_tick<V: 'static>(
 /// How many frames the tick has shown a sky moving on, for the test bundle's driver.
 #[cfg(feature = "drive")]
 static SKY_PRESENTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "drive")]
+static WELCOME_PRESENTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// How many skies are up, how many frames have moved them on, and what the tick waits on, for
 /// the test bundle's driver.
@@ -1335,6 +1765,8 @@ pub fn drive_state(window: &Window, cx: &App) -> serde_json::Value {
     serde_json::json!({
         "skies": cx.try_global::<Grain>().map(|grain| grain.skies),
         "presents": SKY_PRESENTS.load(std::sync::atomic::Ordering::Relaxed),
+        "welcomeAwake": cx.try_global::<Paces>().is_some_and(|paces| paces.welcome_awake),
+        "welcomePresents": WELCOME_PRESENTS.load(std::sync::atomic::Ordering::Relaxed),
         "active": window.is_window_active(),
         "visible": window.is_visible(),
         "reduceMotion": cx.reduce_motion(),

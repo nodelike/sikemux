@@ -1,0 +1,14 @@
+# A new chat's welcome with its calm, pointer-reactive particles on dark and light themes.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer paneBackdrop theme
+project storefront shop
+chat Wren
+settle 6
+front Wren
+settle 2
+snap dark
+prefer themeId aura-day
+settle 2
+snap light
