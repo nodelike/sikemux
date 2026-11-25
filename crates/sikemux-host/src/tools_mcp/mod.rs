@@ -734,7 +734,7 @@ fn call(
     if name == offer.manifest().guide_name() {
         let topic = arguments.get("topic").and_then(Value::as_str);
         return match offer.manifest().guide_text(topic) {
-            Ok(guide) => content(vec![text(guide)], false),
+            Ok(guide) => content(vec![text(&bound::bounded_text(guide))], false),
             Err(message) => invalid(&message),
         };
     }
@@ -788,26 +788,32 @@ fn call_gateway(
         let setup = offer.setup.load(Ordering::Relaxed);
         if let Some(tool_name) = tool {
             return match manifest.tool_schema_text(&plugins, setup, tool_name) {
-                Ok(schema) => content(vec![text(&schema)], false),
-                Err(message) => content(vec![text(&message)], true),
+                Ok(schema) => content(vec![text(&bound::bounded_text(&schema))], false),
+                Err(message) => content(vec![text(&bound::bounded_text(&message))], true),
             };
         }
         return match manifest.guide_text(topic) {
             Ok(guide) if topic == Some(SETUP_OFFER) => {
                 offer.setup.swap(true, Ordering::Relaxed);
-                content(vec![text(guide), text(SETUP_GATEWAY_LISTED)], false)
+                content(
+                    vec![
+                        text(&bound::bounded_text(guide)),
+                        text(SETUP_GATEWAY_LISTED),
+                    ],
+                    false,
+                )
             }
             Ok(guide) if topic.is_none() => {
                 let summary = manifest.offered_summary(&plugins, setup);
-                let mut blocks = vec![text(guide)];
+                let mut blocks = vec![text(&bound::bounded_text(guide))];
                 if !summary.is_empty() {
-                    blocks.push(text(&format!(
-                        "Available Sikemux tools (invoke via {GATEWAY_CALL}):\n{summary}"
-                    )));
+                    let listed =
+                        format!("Available Sikemux tools (invoke via {GATEWAY_CALL}):\n{summary}");
+                    blocks.push(text(&bound::bounded_text(&listed)));
                 }
                 content(blocks, false)
             }
-            Ok(guide) => content(vec![text(guide)], false),
+            Ok(guide) => content(vec![text(&bound::bounded_text(guide))], false),
             Err(message) => invalid(&message),
         };
     }

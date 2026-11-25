@@ -282,7 +282,7 @@ fn every_plugin_keeps_its_tools_within_budget() {
 #[test]
 fn the_guide_explains_what_the_schemas_no_longer_say() {
     let manifest = Manifest::load();
-    let guide = manifest.guide_text(Some("all")).expect("the whole guide");
+    let guide = manifest.guide_source();
     for tool in manifest.declarations(&[], false) {
         let name = field(&tool, "name");
         if name == manifest.guide_name() {
@@ -414,13 +414,21 @@ fn the_guide_opening_stays_small_and_lists_every_topic() {
         .filter_map(Value::as_str)
         .collect();
     assert!(topics.len() > 5);
-    for topic in topics.iter().filter(|topic| **topic != "all") {
+    assert!(!topics.contains(&"all"));
+    assert!(manifest.guide_text(Some("all")).is_err());
+    for topic in &topics {
         assert!(
             opening.contains(&format!("`{topic}`")),
             "the opening does not offer {topic}"
         );
         let section = manifest.guide_text(Some(topic)).expect("a topic");
         assert!(section.starts_with(&format!("## {topic}: ")));
+        assert!(
+            section.len() <= bound::BUDGET,
+            "{topic} is {} bytes, past the {} byte bound",
+            section.len(),
+            bound::BUDGET
+        );
         assert!(
             !section.get(3..).unwrap_or_default().contains("\n## "),
             "{topic} runs into the next topic"

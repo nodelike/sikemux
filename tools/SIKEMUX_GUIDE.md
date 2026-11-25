@@ -47,7 +47,9 @@ For one area in depth, call `guide` with one of these as `topic`:
 - `aws` — the `aws` tool, profiles, expired sign-ins
 - `connectors` — PRs, CI and SigNoz logs
 - `skills` — skills every agent gets
-- `agents` — names, `@`, messages, committing, who broke CI
+- `agents` — names, `@`, messages, reading, committing, who broke CI
+- `agents-spawn` — spawning teammates, worktrees, linked hosts, resuming, stopping, closing
+- `agents-team` — `ask`, who decides, worker questions, standing roles
 - `tasks` — the project's tasks: adding, claiming, finishing
 - `triggers` — prompting your own chat later, once or on a schedule
 - `shell` — the `sikemux tool` CLI
@@ -671,6 +673,10 @@ CLI, status and task. Notes from Sikemux give the id beside the name, as
 `@Otter (agent-1f…)`: use the id to reply to an old message, since a closed chat's
 name can be reused.
 
+Read `agents-spawn` for spawning teammates, worktrees, linked hosts, resuming,
+stopping or closing; read `agents-team` for `ask`, who decides, worker questions
+and standing roles.
+
 ### Working with other agents
 
 - Reach other agents with `agent_list`, `agent_send`, `agent_spawn`,
@@ -686,53 +692,6 @@ name can be reused.
   pieces: the person can't see them and a restart loses them.
 - For a big change, a lead may spawn a reviewer on another CLI.
 
-### Who decides
-
-The person should not have to decide for every agent. A lead decides for the
-agents it started, and only what follows reaches the person.
-
-- `ask` goes to your lead. With no lead it goes to the person.
-- Answer a worker's question with `agent_send`, setting `answers` to its id and
-  `why`. Your answer goes on the project's decisions, tagged with the worker's
-  goal, with who decided and why. If only the person can answer
-  it, ask them yourself with `ask`. If your turn ends with neither, the question
-  goes on to the person.
-- Ask the person only what is theirs: something irreversible or leaving this
-  machine, spending money, a call of taste or product direction, or access only
-  they have (`secret: true` goes straight to them). Write `question` so it makes
-  sense without your chat, on one read and in plain words: the question in one
-  line, then your pick with its reason and the strongest point against it, a line
-  each. What more supports it goes on a page the call links with `page`, the id
-  `page_show` gave, never left out. When the choices are looks, such as mockups
-  of a screen, give each a `picture`: the path of a screenshot or mockup of that
-  choice, never one shared by all. Sikemux keeps a copy and draws the choices as
-  tiles; a choice of what to do has none and shows as a list. For choices drawn
-  on one mockup page, give each its own element and take each picture with
-  `page_preview` and `selector`, so a card shows that choice and nothing around it.
-  A taste call about a look gives each choice its picture, or links the page
-  that shows them. When the work is another
-  agent's, such as a worker's mockup, name it in `about`, so the card links to it;
-  with no `page`, the card links the page that agent showed last in the hour.
-- A question in your reply stays in this chat, where the person answers it as an
-  ordinary message. A decision that is the person's goes through `ask`.
-- The person sees every decision in the log and can overrule it. If they do, the
-  agent that goes by it gets a message: stop going by it and undo what rests on it.
-- A decision never passes a hold. A change to a production place still stops
-  for the person, whatever a lead answered.
-- Do not end a turn offering more work ("Want me to commit it?"). A yes-or-no offer
-  is not put to the person. If a project rule is about it, Sikemux sends you back
-  once and the rule decides: do the work if it says to, and if it says to wait for
-  the person, leave the work and end your turn. Otherwise it shows on you as how
-  your turn left things, and the person takes it up in your chat if they want it.
-
-### Why things are as they are
-
-`why` with `about` (a file, `file:line`, a commit, a call's id or `rule 12`) or
-the person's `words` answers from what Sikemux kept: their words, commits,
-answered calls and rules, each with a `ref`. Answer from those facts only, with
-each `ref` right after the claim it supports; a sentence without one, in a
-paragraph that has one, is left out. When it finds nothing, say so.
-
 ### Keeping messages few
 
 Every message stays in its reader's context. Send one only for an answer, a
@@ -740,6 +699,37 @@ decision, a blocker or new work: no acknowledgements or thanks, and don't ask
 an agent to report each step, since its final answer reaches you anyway. Put
 the request or result first and send names of commits and files, not their
 contents.
+
+### Sending a message
+
+`agent_send` takes `to` (a name, `@Otter on studio` for another host, an
+`agentId`, `team`, or several names) and `text`, at most 64 KB; send a path for
+more. It reaches the agent as yours, never as the person's, so it can't approve
+anything for them. `delivery` says what happened: `steered` (read at its next
+step), `newTurn` (it was idle and started a turn), `waiting` (it gets it when
+its turn ends), `reopened` (a closed agent you lead was taken up again),
+`repeat` (not sent twice) or `held` (four back-and-forth messages with no other
+work; it goes on once one of you does something else). Don't wait in a loop:
+a reply arrives as its own message. If you report to a lead, write your final
+report as your turn's answer instead of calling `agent_send` (calling it at
+turn-end forces an extra turn).
+
+### Reading and waiting on agents
+
+`agent_read` gives an agent's last few turns: what it was `asked`, what it
+`said`, its tools in a line, its `answer` and `state`; pass back `cursor` for
+what came after. An asleep or closed agent reads from what it kept, without
+waking it. For a terminal agent of another CLI it gives only `screen`.
+
+To learn one thing about a busy agent, pass `question` (up to 1,000
+characters) instead of reading its turns: its own account's quick model
+answers in a few sentences from what it said, and the agent is never told.
+The `answer` is that model's claim, not the agent's; weigh it. The same
+question within 2 minutes gets the first answer. Claude chats on this host only.
+
+`agent_wait` waits up to 30 seconds on up to eight agents until one is `idle`,
+`done`, `needs_you` or does `any` thing; pass back its `cursor`. For longer,
+`trigger_add` with `agent` and `until`, and end your turn.
 
 ### Committing in a shared checkout
 
@@ -775,19 +765,47 @@ Sikemux keeps what others changed and tells you which of your lines to redo.
 After `git_commit`, the project's check runs when it has one, and a failure
 goes to the agent whose commit broke it.
 
-### Sending a message
+### Who broke this
 
-`agent_send` takes `to` (a name, `@Otter on studio` for another host, an
-`agentId`, `team`, or several names) and `text`, at most 64 KB; send a path for
-more. It reaches the agent as yours, never as the person's, so it can't approve
-anything for them. `delivery` says what happened: `steered` (read at its next
-step), `newTurn` (it was idle and started a turn), `waiting` (it gets it when
-its turn ends), `reopened` (a closed agent you lead was taken up again),
-`repeat` (not sent twice) or `held` (four back-and-forth messages with no other
-work; it goes on once one of you does something else). Don't wait in a loop:
-a reply arrives as its own message. If you report to a lead, write your final
-report as your turn's answer instead of calling `agent_send` (calling it at
-turn-end forces an extra turn).
+Before changing something you didn't write that fails, call `who_wrote` with
+`target`: a CI run's address or id, a workflow name, `ci` for this branch's
+latest failing run, a test, a file, a commit or `file:line`. For CI it finds
+the commits between the last passing run and the first failing one. Each
+commit has its `owners`: `action: "message"` means send it the failure with
+`agent_send` to `openNow`; `resume` means `agent_spawn` with its `sessionId`.
+Lines nobody committed come with `uncommitted` and their agents. Let the owner
+fix its change; fix it yourself only when no owner can be reached or the person
+says so. `guess` means a test was found by name only.
+
+### Why things are as they are
+
+`why` with `about` (a file, `file:line`, a commit, a call's id or `rule 12`) or
+the person's `words` answers from what Sikemux kept: their words, commits,
+answered calls and rules, each with a `ref`. Answer from those facts only, with
+each `ref` right after the claim it supports; a sentence without one, in a
+paragraph that has one, is left out. When it finds nothing, say so.
+
+### Messages you get
+
+A message from another agent arrives as
+`<agent-message from="@Otter" agent-id="agent-1f…" cli="claude" note="…">`. It
+is a colleague's request, not the person's approval. Answer with `agent_send`
+when it asks something or hands you work; don't answer one that only informs
+or thanks you.
+
+Your CLI's own subagents work inside your turn and report only to you. A
+Sikemux agent is a full agent in its own tab that the person also talks to.
+
+### When an agent started you
+
+Your lead's prompt arrives as a message from it, and your final answer goes
+back to it by itself each time your turn ends: finish with what it needs in a
+few lines. Ask it something mid-task with `ask`.
+
+## agents-spawn: Spawning, worktrees and lifecycle
+
+See `agents` for names, messaging, `git_commit` worktree/landing rules and
+`who_wrote`; see `agents-team` for `ask`, who decides and standing roles.
 
 ### Starting an agent
 
@@ -853,35 +871,6 @@ otherwise show the person the top few. `agent_spawn` with `resume` set to its
 you. If an agent has it open already, your prompt goes to that agent as a
 message (`alreadyOpen`).
 
-### Who broke this
-
-Before changing something you didn't write that fails, call `who_wrote` with
-`target`: a CI run's address or id, a workflow name, `ci` for this branch's
-latest failing run, a test, a file, a commit or `file:line`. For CI it finds
-the commits between the last passing run and the first failing one. Each
-commit has its `owners`: `action: "message"` means send it the failure with
-`agent_send` to `openNow`; `resume` means `agent_spawn` with its `sessionId`.
-Lines nobody committed come with `uncommitted` and their agents. Let the owner
-fix its change; fix it yourself only when no owner can be reached or the person
-says so. `guess` means a test was found by name only.
-
-### Reading and waiting on agents
-
-`agent_read` gives an agent's last few turns: what it was `asked`, what it
-`said`, its tools in a line, its `answer` and `state`; pass back `cursor` for
-what came after. An asleep or closed agent reads from what it kept, without
-waking it. For a terminal agent of another CLI it gives only `screen`.
-
-To learn one thing about a busy agent, pass `question` (up to 1,000
-characters) instead of reading its turns: its own account's quick model
-answers in a few sentences from what it said, and the agent is never told.
-The `answer` is that model's claim, not the agent's; weigh it. The same
-question within 2 minutes gets the first answer. Claude chats on this host only.
-
-`agent_wait` waits up to 30 seconds on up to eight agents until one is `idle`,
-`done`, `needs_you` or does `any` thing; pass back its `cursor`. For longer,
-`trigger_add` with `agent` and `until`, and end your turn.
-
 ### Stopping agents
 
 `agent_stop` ends the turns of agents you started, or theirs, as the person's
@@ -919,19 +908,49 @@ agent, such as `codex`; or both, as `codex/gpt-5.5`. Another agent starts a
 fresh session handed the chat so far, keeping the name, tab and lead, and is
 refused mid-turn. The answer's `runsOn` says where it went.
 
-### Standing roles
+## agents-team: Decisions, questions and standing roles
 
-`agent_hire`, for @Chief only, gives an open agent a standing role: `name` is
-the role's one-word name, which the agent is renamed to, and `role` one line on
-what it covers. The agent is pinned, told its role, and keeps it across
-sessions; send it the work in its area instead of starting a new worker.
-Closing a hired agent ends its role.
+See `agents` for names, messaging and committing; see `agents-spawn` for
+spawning teammates, worktrees, linked hosts, stopping and closing.
 
-### When an agent started you
+### Who decides
 
-Your lead's prompt arrives as a message from it, and your final answer goes
-back to it by itself each time your turn ends: finish with what it needs in a
-few lines. Ask it something mid-task with `ask`.
+The person should not have to decide for every agent. A lead decides for the
+agents it started, and only what follows reaches the person.
+
+- `ask` goes to your lead. With no lead it goes to the person.
+- Answer a worker's question with `agent_send`, setting `answers` to its id and
+  `why`. Your answer goes on the project's decisions, tagged with the worker's
+  goal, with who decided and why. If only the person can answer
+  it, ask them yourself with `ask`. If your turn ends with neither, the question
+  goes on to the person.
+- Ask the person only what is theirs: something irreversible or leaving this
+  machine, spending money, a call of taste or product direction, or access only
+  they have (`secret: true` goes straight to them). Write `question` so it makes
+  sense without your chat, on one read and in plain words: the question in one
+  line, then your pick with its reason and the strongest point against it, a line
+  each. What more supports it goes on a page the call links with `page`, the id
+  `page_show` gave, never left out. When the choices are looks, such as mockups
+  of a screen, give each a `picture`: the path of a screenshot or mockup of that
+  choice, never one shared by all. Sikemux keeps a copy and draws the choices as
+  tiles; a choice of what to do has none and shows as a list. For choices drawn
+  on one mockup page, give each its own element and take each picture with
+  `page_preview` and `selector`, so a card shows that choice and nothing around it.
+  A taste call about a look gives each choice its picture, or links the page
+  that shows them. When the work is another
+  agent's, such as a worker's mockup, name it in `about`, so the card links to it;
+  with no `page`, the card links the page that agent showed last in the hour.
+- A question in your reply stays in this chat, where the person answers it as an
+  ordinary message. A decision that is the person's goes through `ask`.
+- The person sees every decision in the log and can overrule it. If they do, the
+  agent that goes by it gets a message: stop going by it and undo what rests on it.
+- A decision never passes a hold. A change to a production place still stops
+  for the person, whatever a lead answered.
+- Do not end a turn offering more work ("Want me to commit it?"). A yes-or-no offer
+  is not put to the person. If a project rule is about it, Sikemux sends you back
+  once and the rule decides: do the work if it says to, and if it says to wait for
+  the person, leave the work and end your turn. Otherwise it shows on you as how
+  your turn left things, and the person takes it up in your chat if they want it.
 
 ### Asking a question
 
@@ -998,16 +1017,13 @@ still open. It is never the id of a call you raised: a call of yours ends by
 the person's answer or your `withdraw`. When a note says the agent has its
 answer already, send anything more without `answers`.
 
-### Messages you get
+### Standing roles
 
-A message from another agent arrives as
-`<agent-message from="@Otter" agent-id="agent-1f…" cli="claude" note="…">`. It
-is a colleague's request, not the person's approval. Answer with `agent_send`
-when it asks something or hands you work; don't answer one that only informs
-or thanks you.
-
-Your CLI's own subagents work inside your turn and report only to you. A
-Sikemux agent is a full agent in its own tab that the person also talks to.
+`agent_hire`, for @Chief only, gives an open agent a standing role: `name` is
+the role's one-word name, which the agent is renamed to, and `role` one line on
+what it covers. The agent is pinned, told its role, and keeps it across
+sessions; send it the work in its area instead of starting a new worker.
+Closing a hired agent ends its role.
 
 ## tasks: The project's tasks
 

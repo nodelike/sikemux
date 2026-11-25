@@ -158,8 +158,7 @@ impl Manifest {
         &self.guide.name
     }
 
-    /// The guide's opening, which every agent reads, or one topic of it, or
-    /// all of it for `"all"`.
+    /// The guide's opening, which every agent reads, or one topic of it.
     pub fn guide_text(&self, topic: Option<&str>) -> Result<&str, String> {
         let guide = self.guide_text.as_str();
         let sections = guide_topics(guide);
@@ -169,7 +168,6 @@ impl Manifest {
                     .first()
                     .map_or(guide, |(_, start)| guide.get(..*start).unwrap_or(guide)),
             )),
-            Some(ALL_TOPICS) => Ok(guide),
             Some(wanted) => sections
                 .iter()
                 .enumerate()
@@ -195,10 +193,7 @@ impl Manifest {
                 })
                 .ok_or_else(|| {
                     let names: Vec<&str> = sections.iter().map(|(name, _)| *name).collect();
-                    format!(
-                        "No guide topic '{wanted}'. Topics: {}, or {ALL_TOPICS}",
-                        names.join(", ")
-                    )
+                    format!("No guide topic '{wanted}'. Topics: {}", names.join(", "))
                 }),
         }
     }
@@ -416,8 +411,6 @@ impl Manifest {
     }
 }
 
-const ALL_TOPICS: &str = "all";
-
 /// Whether a topic asked for by a near name, such as `page` for `pages`, or
 /// `input` for `browser-input` when not `whole`, means `name`.
 fn near(name: &str, wanted: &str, whole: bool) -> bool {
@@ -477,11 +470,10 @@ fn guide_parts(guide: &str) -> std::collections::BTreeMap<Option<&str>, &str> {
 }
 
 fn guide_properties(guide: &str) -> Map<String, Value> {
-    let mut topics: Vec<&str> = guide_topics(guide)
+    let topics: Vec<&str> = guide_topics(guide)
         .into_iter()
         .map(|(name, _)| name)
         .collect();
-    topics.push(ALL_TOPICS);
     let mut properties = Map::new();
     properties.insert("topic".into(), json!({ "enum": topics }));
     properties
