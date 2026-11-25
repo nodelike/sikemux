@@ -125,11 +125,12 @@ pub fn change_device(core: &Core, change: DeviceChange) -> CoreResult<RemotePair
     Ok(pairing(core))
 }
 
-/// Tells the app what changed, and answers with the same status.
+/// Tells the app what changed and who was let in, and answers with the same status.
 pub fn announce(core: &Core) -> RemoteStatus {
     if let Some(core) = core.arc() {
         tokio::spawn(async move { crate::server::account::show(&core).await });
     }
+    tell_admitted(core);
     core.changed(What::Read(Topic::Hosts));
     let status = core.remote().status();
     core.changed(What::Event(&Event::Remote {
@@ -147,9 +148,15 @@ impl Remote {
         TrustedKeys::for_this_build()
     }
 
-    pub fn add_device(&self, mut device: DeviceInfo, account: Option<String>) -> CoreResult<()> {
+    pub fn add_device(
+        &self,
+        mut device: DeviceInfo,
+        account: Option<String>,
+        how: AdmittedBy,
+    ) -> CoreResult<()> {
         self.change(|stored| {
             stored.forget(&device.id);
+            stored.admitting.insert(device.id.clone(), how);
             if stored.removed_here.remove(&device.id) == Some(DeviceAccess::Watch) {
                 device.access = DeviceAccess::Watch;
             }

@@ -383,6 +383,8 @@ pub(super) fn remote_above() -> RemoteAbove {
         hooks_connect: hooks::connect,
         hosts_halt: hosts::halt,
         hosts_unlink: hosts::unlink,
+        hosts_admitted: hosts::admitted::post,
+        hosts_remove_device: hosts::admitted::post_removed,
         hosts_unlinked: hosts::unlinked,
         person_calls_asked_by: person_calls::asked_by,
         person_calls_open_call: person_calls::open_call,

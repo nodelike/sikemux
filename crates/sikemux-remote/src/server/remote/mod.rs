@@ -5,7 +5,7 @@
 
 use serde_json::{json, Value};
 pub use sikemux_corekit::usage::remote_file as file_path;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -45,6 +45,7 @@ use window::confirmed;
 pub use window::{asks_in_window, secret_kept};
 
 pub mod account;
+pub mod admissions;
 pub mod held;
 mod links;
 pub mod listening;
@@ -54,6 +55,7 @@ pub mod push;
 mod window;
 
 pub use account::*;
+pub use admissions::*;
 pub use held::*;
 pub use listening::*;
 pub use pairing::*;
@@ -140,6 +142,16 @@ pub struct Stored {
     /// one keeps it here, so its key never comes back as one that signs.
     #[serde(default)]
     pub hands_only: BTreeSet<String>,
+    /// Each device and host let in, here or on a linked host that said so. Leaving, signing
+    /// out and distrusting the file keep them.
+    #[serde(default)]
+    pub admissions: Vec<Admission>,
+    /// Keys the person was told of, or already had, oldest first.
+    #[serde(default)]
+    pub told: VecDeque<String>,
+    /// Why each key being added by this change is let in.
+    #[serde(skip)]
+    pub admitting: BTreeMap<String, AdmittedBy>,
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -419,10 +431,15 @@ impl Stored {
     }
 
     /// Keeps a host this one is now linked with, replacing what it knew of it.
-    fn link(&mut self, link: StoredLink) -> CoreResult<()> {
+    fn link(&mut self, link: StoredLink, how: AdmittedBy) -> CoreResult<()> {
         if !self.admits(&link.id, Joining::Host) {
             return Err("the person here has not allowed that host".into());
         }
+        let how = match self.approved_hosts.contains(&link.id) {
+            true => AdmittedBy::Person,
+            false => how,
+        };
+        self.admitting.insert(link.id.clone(), how);
         self.forget(&link.id);
         self.declined_links.remove(&link.id);
         self.removed_here.remove(&link.id);
@@ -538,6 +555,8 @@ pub struct Inner {
     /// account lets it go.
     pub retired: Option<SecretKey>,
     pub stored: Stored,
+    /// Who was let in since the person and the linked hosts were last told.
+    pub news: Vec<News>,
     pub running: Option<Running>,
     pub connected: HashMap<String, usize>,
     pub pending: Vec<Pending>,
@@ -770,6 +789,7 @@ impl Remote {
                 via,
             },
             Some(account),
+            AdmittedBy::Ticket,
         )
     }
 
@@ -972,18 +992,20 @@ impl Remote {
                     via,
                 },
                 Some(pending.account),
+                AdmittedBy::Person,
             )?,
             (Asking::Device { .. }, None) => {}
             (Asking::Linking { addresses }, Some(_)) => self.change(|stored| {
                 stored.approve_host(&device.device_id);
-                stored.link(StoredLink {
+                let link = StoredLink {
                     id: device.device_id,
                     name: device.name,
                     platform: device.platform,
                     linked_at: epoch_ms(),
                     last_seen: Some(epoch_ms()),
                     addresses,
-                })
+                };
+                stored.link(link, AdmittedBy::Person)
             })?,
             (Asking::Listed, Some(_)) => self.approve_host(&device.device_id)?,
             (Asking::Linking { .. } | Asking::Listed, None) => self.change(|stored| {
@@ -1028,6 +1050,7 @@ impl Remote {
                     }),
                 },
                 owner,
+                AdmittedBy::SignIn,
             )?;
             if let Some(waiting) = waiting {
                 let _ = waiting.answer.send(Some(device.access));
@@ -1166,7 +1189,11 @@ impl Remote {
 
     pub fn change<T>(&self, edit: impl FnOnce(&mut Stored) -> CoreResult<T>) -> CoreResult<T> {
         let mut inner = self.inner.locked();
+        let already = inner.stored.record_admissions(epoch_ms());
+        inner.news.extend(already);
         let result = edit(&mut inner.stored)?;
+        let news = inner.stored.record_admissions(epoch_ms());
+        inner.news.extend(news);
         self.save(&mut inner)?;
         Ok(result)
     }

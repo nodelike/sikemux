@@ -18,6 +18,7 @@ use sikemux_calls::hosts::HostRow;
 use sikemux_calls::outside::OutsideView;
 use sikemux_calls::plugins::PluginOutcome;
 use sikemux_calls::project_roots::RootEntry;
+use sikemux_calls::remote::Admission;
 use sikemux_calls::share::ShareView;
 use sikemux_calls::ssh::SshHost;
 use sikemux_calls::stash::ShownStash;
@@ -89,11 +90,13 @@ pub enum Read {
     HostStats,
     /// The programs outside Sikemux this host lets in, and those waiting to be.
     Outside,
+    /// Everyone this host and its linked hosts let in.
+    Admissions,
 }
 
 impl Read {
     /// What the window watches from the moment it opens.
-    pub const FROM_THE_START: [Read; 14] = [
+    pub const FROM_THE_START: [Read; 15] = [
         Read::Theme,
         Read::Plugins,
         Read::Hosts,
@@ -108,6 +111,7 @@ impl Read {
         Read::Preferences,
         Read::WhatsNew,
         Read::Outside,
+        Read::Admissions,
     ];
 
     /// What the core in front is watched for while its project is in front. A feed's `leave`
@@ -136,6 +140,7 @@ impl Read {
             Read::Theme => (call::Theme::METHOD, &[Topic::Preferences]),
             Read::Plugins => (call::Plugins::METHOD, &[Topic::Plugins]),
             Read::Hosts => (call::Hosts::METHOD, &[Topic::Hosts]),
+            Read::Admissions => (call::Admissions::METHOD, &[Topic::Hosts]),
             Read::Update => (call::UpdateStatus::METHOD, &[Topic::Update]),
             Read::Trust => (call::TrustAsks::METHOD, &[Topic::Trust]),
             Read::Questions => (call::Questions::METHOD, &[Topic::Questions]),
@@ -272,6 +277,8 @@ pub struct Reads {
     pub ssh_hosts: Vec<SshHost>,
     /// The programs outside Sikemux this host lets in, and those waiting to be.
     pub outside: Option<OutsideView>,
+    /// Everyone this host and its linked hosts let in, newest first.
+    pub admissions: Vec<Admission>,
 }
 
 impl Reads {
@@ -657,6 +664,11 @@ impl Workbench {
                     return;
                 }
                 self.outside_read(cx);
+            }
+            Read::Admissions => {
+                if !keep_decoded(&mut self.reads.admissions, value, "admissions") {
+                    return;
+                }
             }
             Read::HostStats => {
                 if let Some(stats) = decoded(value, "host stats") {

@@ -12,6 +12,7 @@ use gpui_kit::{
 use sikemux_calls::account::DeviceParams;
 use sikemux_calls::call;
 use sikemux_calls::params::NoParams;
+use sikemux_calls::remote::Admission;
 use sikemux_wire::protocol::{
     DeviceAccess, DeviceInfo, HeldTrust, NotificationState, RemoteStatus,
 };
@@ -101,6 +102,113 @@ pub fn devices(bench: &Workbench, query: &str, t: &Tokens, cx: &mut Context<Work
                 .child(div().ml_auto().child(remote_access(bench, status, t, cx))),
         )
         .child(list)
+        .children(let_in_before(bench, query, t, cx))
+}
+
+/// Those this host let in who left, and those its linked hosts let in, unless they are on this
+/// host now.
+fn let_in_before(
+    bench: &Workbench,
+    query: &str,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> Option<Div> {
+    let devices = (bench.remote.iter()).flat_map(|status| &status.devices);
+    let hosts = bench.reads.hosts.iter().filter_map(|host| host.id.as_ref());
+    let mut listed: Vec<&str> = devices.map(|device| device.id.as_str()).collect();
+    listed.extend(hosts.map(String::as_str));
+    let gone: Vec<&Admission> = (bench.reads.admissions.iter())
+        .filter(|one| one.left_at.is_some() || one.told_by.is_some())
+        .filter(|one| !listed.contains(&one.key.as_str()))
+        .filter(|one| {
+            query.is_empty()
+                || one.name.to_lowercase().contains(query)
+                || platform_name(&one.platform).to_lowercase().contains(query)
+        })
+        .collect();
+    if gone.is_empty() {
+        return None;
+    }
+    let rows: Vec<AnyElement> = (gone.iter().enumerate())
+        .map(|(at, one)| let_in_row(one, at, t, cx))
+        .collect();
+    Some(
+        div()
+            .mt(SPACE_5)
+            .flex()
+            .flex_col()
+            .gap(SPACE_3)
+            .child(ui::caps(t!("Let in before"), cx))
+            .child(
+                div()
+                    .rounded(radius_4())
+                    .border(crate::theme::border())
+                    .border_color(hair(t))
+                    .overflow_hidden()
+                    .children(rows),
+            ),
+    )
+}
+
+fn let_in_row(one: &Admission, at: usize, t: &Tokens, cx: &mut Context<Workbench>) -> AnyElement {
+    let name = match one.name.is_empty() {
+        true => t!("Unnamed device").to_owned(),
+        false => one.name.clone(),
+    };
+    let mut line = vec![platform_name(&one.platform).to_owned()];
+    line.retain(|platform| !platform.is_empty());
+    line.push(match &one.told_by {
+        Some(host) => t!(
+            "let in by {host} {when}",
+            host = host,
+            when = crate::ui::time::ago(one.at)
+        ),
+        None => t!("joined {when}", when = crate::ui::time::ago(one.at)),
+    });
+    line.extend((one.left_at).map(|left| t!("left {when}", when = crate::ui::time::ago(left))));
+    let remove = one.left_at.is_none().then(|| {
+        let (key, named) = (one.key.clone(), name.clone());
+        ui::IconButton::new(
+            SharedString::from(format!("let-in-remove-{at}")),
+            Icon::Trash,
+            t!("Remove {name} from your account", name = name),
+        )
+        .on_click(cx.listener(move |bench, _, _, cx| {
+            bench.remove_from_account(key.clone(), named.clone(), cx);
+        }))
+    });
+    div()
+        .min_h(px(44.))
+        .px(SPACE_4)
+        .py(SPACE_2)
+        .flex()
+        .items_center()
+        .gap(SPACE_3)
+        .when(at > 0, |row| {
+            row.border_t(crate::theme::border()).border_color(hair(t))
+        })
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .truncate()
+                        .text_size(crate::theme::ui_text(TEXT_SM))
+                        .text_color(t.text_secondary)
+                        .child(name),
+                )
+                .child(
+                    div()
+                        .text_size(crate::theme::ui_text(TEXT_2XS_H))
+                        .text_color(t.text_tertiary)
+                        .child(line.join(" · ")),
+                ),
+        )
+        .children(remove)
+        .into_any_element()
 }
 
 fn matches(device: &DeviceInfo, query: &str) -> bool {

@@ -9,6 +9,7 @@
 //! back.
 
 pub(crate) mod account;
+pub(crate) mod admitted;
 mod calls;
 pub mod chat_move;
 mod chief_copy;

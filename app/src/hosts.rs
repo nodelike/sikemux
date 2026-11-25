@@ -836,7 +836,8 @@ impl Workbench {
         .detach();
     }
 
-    /// Says a device or host joined the account, with a way to take it off again (ADR 0018).
+    /// Says a device or host joined the account or a host on it, with a way to take it off
+    /// again (ADR 0018).
     pub fn new_account_device(&mut self, key: String, name: String, cx: &mut Context<Self>) {
         let name = if name.is_empty() {
             t!("a device").to_owned()
@@ -844,39 +845,36 @@ impl Workbench {
             name
         };
         let asks = self.asks.clone();
-        let note = toast::info(t!("New device on your account: {name}", name = name)).action(
-            move |_, _, cx| {
-                let (note, asks, key, name) =
-                    (cx.entity(), asks.clone(), key.clone(), name.clone());
-                gpui_kit::component::button::Button::new("remove-account-device")
-                    .label(t!("Remove"))
-                    .on_click(move |_, window, cx| {
-                        let removed = core::Target::here(&asks)
-                            .request_typed::<call::RemoveAccountDevice>(DeviceParams {
-                                key: key.clone(),
-                                name: None,
-                            });
-                        let name = name.clone();
-                        window
-                            .spawn(cx, async move |cx| {
-                                if let Err(error) = removed.await {
-                                    let _ = cx.update(|window, cx| {
-                                        window.push_notification(
-                                            toast::error(t!(
-                                                "Remove {name}: {error}",
-                                                name = name,
-                                                error = error
-                                            )),
-                                            cx,
-                                        )
-                                    });
-                                }
-                            })
-                            .detach();
-                        note.update(cx, |note, cx| note.dismiss(window, cx));
-                    })
-            },
-        );
+        let note = toast::info(t!("New device: {name}", name = name)).action(move |_, _, cx| {
+            let (note, asks, key, name) = (cx.entity(), asks.clone(), key.clone(), name.clone());
+            gpui_kit::component::button::Button::new("remove-account-device")
+                .label(t!("Remove"))
+                .on_click(move |_, window, cx| {
+                    let removed = core::Target::here(&asks)
+                        .request_typed::<call::RemoveAccountDevice>(DeviceParams {
+                            key: key.clone(),
+                            name: None,
+                        });
+                    let name = name.clone();
+                    window
+                        .spawn(cx, async move |cx| {
+                            if let Err(error) = removed.await {
+                                let _ = cx.update(|window, cx| {
+                                    window.push_notification(
+                                        toast::error(t!(
+                                            "Remove {name}: {error}",
+                                            name = name,
+                                            error = error
+                                        )),
+                                        cx,
+                                    )
+                                });
+                            }
+                        })
+                        .detach();
+                    note.update(cx, |note, cx| note.dismiss(window, cx));
+                })
+        });
         self.notify(note, cx);
     }
 

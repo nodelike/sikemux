@@ -1,5 +1,8 @@
-use crate::server::remote;
+use crate::server::access::Peer;
+use crate::server::connection::ClientConn;
+use crate::server::remote::{self, AdmittedBy};
 use crate::server::remote_state::RemoteParts;
+use crate::server::serving::ServeCore;
 use crate::server::Core;
 use sikemux_client::join::{self, JoinHello, JoinReply};
 use sikemux_wire::protocol::PendingDevice;
@@ -15,7 +18,7 @@ use crate::join::vector::{vector, Vector};
 use crate::server::join::*;
 use sikemux_client::join::JOIN_ALPN;
 use sikemux_wire::accounts::protocol::JoinTicket;
-use sikemux_wire::protocol::ask;
+use sikemux_wire::protocol::{ask, Event, ServerMessage};
 use sikemux_wire::protocol::{AllowedDevice, BuildIdentity, DeviceAccess, RemoteStatus};
 
 const ACCOUNT: &str = "user_2vectorTest";
@@ -208,6 +211,54 @@ async fn a_phone_with_a_ticket_from_the_account_joins_at_full_access_without_ask
     assert!(status.pending.is_empty());
     assert_eq!(status.devices.len(), 1);
     assert_eq!(status.devices[0].access, DeviceAccess::Full);
+    remote::stop(&host.core).await;
+}
+
+/// The names the host said had joined, of those the app was sent by now.
+fn said_to_join(frames: &mut tokio::sync::mpsc::UnboundedReceiver<Arc<[u8]>>) -> Vec<String> {
+    let mut names = Vec::new();
+    while let Ok(frame) = frames.try_recv() {
+        let frame = sikemux_wire::protocol::read_frame_sync(&mut &frame[..])
+            .unwrap()
+            .unwrap();
+        if let Ok(ServerMessage::Event {
+            event: Event::AccountDevice { name, .. },
+        }) = serde_json::from_slice(&frame.payload)
+        {
+            names.push(name);
+        }
+    }
+    names
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_let_in_by_ticket_is_told_of_before_its_answer_and_unpairing_keeps_its_record() {
+    let vector = vector();
+    let host = host(&vector).await;
+    let (app, mut frames) = ClientConn::inside(&host.core, Peer::Local);
+    host.core.register_client(app);
+    let key = SecretKey::generate();
+    let id = key.public().to_string();
+    let endpoint = phone(&key).await;
+    let hello = hello(ticket(&vector, &host, &key));
+
+    join::join(&endpoint, host.addr(), &hello).await.unwrap();
+    assert_eq!(said_to_join(&mut frames), ["Pixel 8"]);
+    let admitted = host.core.remote().admissions();
+    assert_eq!(admitted.len(), 1);
+    assert_eq!(admitted[0].key, id);
+    assert_eq!(admitted[0].how, AdmittedBy::Ticket);
+    assert_eq!(admitted[0].left_at, None);
+
+    remote::forget_leaving(&host.core, &id).unwrap();
+    assert!(host.status().devices.is_empty());
+    let left = host.core.remote().admissions();
+    assert_eq!(left.len(), 1);
+    assert!(left[0].left_at.is_some());
+
+    join::join(&endpoint, host.addr(), &hello).await.unwrap();
+    assert!(said_to_join(&mut frames).is_empty(), "once for each device");
+    assert_eq!(host.core.remote().admissions().len(), 2);
     remote::stop(&host.core).await;
 }
 

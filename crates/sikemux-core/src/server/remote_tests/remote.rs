@@ -160,6 +160,9 @@ fn the_devices_survive_a_write_and_read() {
         removed_here: BTreeMap::new(),
         declined_links: BTreeSet::new(),
         hands_only: BTreeSet::new(),
+        admissions: Vec::new(),
+        told: Default::default(),
+        admitting: BTreeMap::new(),
         approved_hosts: BTreeSet::from([SecretKey::generate().public().to_string()]),
         devices: vec![DeviceInfo {
             id: SecretKey::generate().public().to_string(),

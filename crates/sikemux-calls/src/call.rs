@@ -343,6 +343,7 @@ crate::calls! {
     "modelProviderAdd" ModelProviderAdd (crate::model_providers::Entered) -> crate::model_providers::ModelProvider;
     "agentAvailability" AgentAvailability (crate::agent_accounts::Account) -> crate::agent_accounts::Availability;
     "pairing" RemotePairing (crate::params::NoParams) -> crate::remote::RemotePairing;
+    "admissions" Admissions (crate::params::NoParams) -> Vec<crate::remote::Admission>;
     "answerPairing" AnswerPairing (crate::remote::PairingAnswer) -> crate::remote::RemotePairing;
     "changeDevice" ChangeDevice (crate::remote::DeviceChange) -> crate::remote::RemotePairing;
     "codeHostPulls" CodeHostPulls (crate::codehost::PullsParams) -> crate::plugins::PluginOutcome;

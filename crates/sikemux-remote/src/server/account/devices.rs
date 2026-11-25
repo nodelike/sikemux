@@ -241,17 +241,22 @@ pub async fn rename_device(core: &Core, params: DeviceParams) -> CoreResult<()> 
 }
 
 /// Takes a device or host off the account, which revokes it on every host at once.
-/// A host the account already lost is only forgotten here.
+/// A host the account already lost is only forgotten here, and a device it never listed is
+/// taken off this host and the hosts linked with it.
 pub async fn remove_device(core: &Core, params: DeviceParams) -> CoreResult<()> {
     let Err(error) = host_request(core, Method::DELETE, &device_path(&params.key)?, None).await
     else {
         return Ok(());
     };
-    let hosts: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
+    let mut hosts: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
     (core.remote_above().forget_hosts_off_account)(core, &hosts)?;
-    if hosts.devices.iter().any(|host| host.key == params.key) {
+    let clients: DeviceList = as_host(core, Method::GET, "/v1/devices?role=client", None).await?;
+    hosts.devices.extend(clients.devices);
+    if hosts.devices.iter().any(|listed| listed.key == params.key) {
         return Err(error);
     }
+    crate::server::remote::revoke(core, &params.key)?;
+    (core.remote_above().hosts_remove_device)(core, &params.key);
     Ok(())
 }
 
@@ -298,7 +303,7 @@ fn unpaired_phones(devices: Vec<Device>, paired: &[DeviceInfo]) -> Vec<Device> {
 }
 
 /// Tells the app that a device or host joined the account, by the name the
-/// account gives it.
+/// account gives it, unless it was told when the device came to a host.
 pub fn tell_joined(core: &Arc<Core>, key: String) {
     let core = core.clone();
     tokio::spawn(async move {
@@ -310,6 +315,9 @@ pub fn tell_joined(core: &Arc<Core>, key: String) {
         else {
             return;
         };
+        if !core.remote().first_told(&key) {
+            return;
+        }
         core.changed(What::Event(&Event::AccountDevice {
             key,
             name: device.name,

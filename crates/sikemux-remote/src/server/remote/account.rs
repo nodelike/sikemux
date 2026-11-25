@@ -478,6 +478,16 @@ fn take_off(core: &Core, id: &str, by_the_person: bool) -> CoreResult<RemoteStat
                 stored
                     .removed_here
                     .insert(id.to_owned(), DeviceAccess::Full);
+            } else if stored
+                .admissions
+                .iter()
+                .any(|admission| admission.key == id)
+            {
+                // One that already left waits for the person too, should it come back.
+                stored
+                    .removed_here
+                    .entry(id.to_owned())
+                    .or_insert(DeviceAccess::Full);
             }
         }
         Ok(linked)

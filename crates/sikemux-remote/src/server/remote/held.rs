@@ -66,6 +66,9 @@ pub async fn trust_held(core: &Arc<Core>) -> CoreResult<RemoteStatus> {
                 stored
                     .joined_through
                     .insert(device.id.clone(), owner.clone());
+                stored
+                    .admitting
+                    .insert(device.id.clone(), AdmittedBy::Person);
                 stored.devices.push(DeviceInfo {
                     last_seen: None,
                     ..device
@@ -77,6 +80,7 @@ pub async fn trust_held(core: &Arc<Core>) -> CoreResult<RemoteStatus> {
                 continue;
             };
             if Some(&link.id) != own.as_ref() && kept(stored, &link.id) {
+                stored.admitting.insert(link.id.clone(), AdmittedBy::Person);
                 stored.links.push(StoredLink {
                     name: host.name.clone(),
                     last_seen: None,

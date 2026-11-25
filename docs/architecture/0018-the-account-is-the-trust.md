@@ -3,7 +3,7 @@
 - Status: Accepted
 - Decision date: 2026-10-21
 - Amended: 2026-11-25, so the lock also covers the links this host makes and the vault keys it
-  seals, not only what asks it
+  seals, not only what asks it; and so each host keeps its own record of who it lets in
 
 ## Context
 
@@ -37,8 +37,12 @@ for whoever is signed in to the GitHub account.
   instead of asking.
 - **The account guards the door.** Signing a new device or host in to the account takes a code
   sent to the account's email, a provider's sign-in, or approval at app.sikemux.com. Every device
-  the person already has hears "New device on your account: nodelike's MacBook Pro", with a
-  **Remove** that revokes it on every host at once, as removing a device already does.
+  the person already has hears "New device: nodelike's MacBook Pro", with a **Remove** that
+  revokes it on every host at once, as removing a device already does.
+- **Each host tells for itself.** A host writes down every device and host it lets in, and says
+  "New device" in its own apps before it answers, so neither rests on the accounts server. It
+  passes the record to the hosts linked to it. Unpairing marks the record as left; it stays under
+  **Let in before** in Settings, Devices.
 - **A lock for those who want the old rule.** Each host keeps a **Require approval for new
   devices** setting, off by default. While it is on, the host asks before letting a device in as
   ADR 0009 described, and the request reaches the person as a notification and a card on every
@@ -82,7 +86,10 @@ for whoever is signed in to the GitHub account.
   Tailscale and VS Code tunnels make. The lock is the answer for a host that cannot accept it.
 - The accounts server's ticket signing key is now as sensitive as a key to every host. It must be
   kept apart from the API's other secrets, rotated on any suspicion, and hosts must accept a new
-  one without being signed in again.
+  one without being signed in again. Whoever holds it can join any host at full access without
+  asking; **Require approval for new devices** stops it. The record and notice only detect: a
+  device with full access can edit that host's own record, and a host with no app open and no
+  linked host has nobody to tell.
 - `sikemux pair`, the link prompt, the app's link step, "Show … in this app" and the new-item
   menu's rows for each host go away. A headless host is set up by `sikemux login` alone.
 - Hosts link to every other host on the account automatically, so an agent on any host can start

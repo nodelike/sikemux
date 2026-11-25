@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use iroh::endpoint::Connection;
 use sikemux_calls::hosts::{HostRow, LinkedHost};
+use sikemux_calls::remote::Admission;
 use sikemux_plugin_api::vault::Book;
 use sikemux_view::inbox::InboxItem;
 use sikemux_view::push::ActivityGlance;
@@ -32,6 +33,10 @@ pub struct RemoteAbove {
     /// The person here removed the link with `host`: the other host hears of it
     /// if it can, and the agents working across the link are let go.
     pub hosts_unlink: fn(&Core, &str),
+    /// A device or host was let in here: the linked hosts are told, so each keeps a copy.
+    pub hosts_admitted: fn(&Core, &Admission),
+    /// The person removed a device the account does not list: the linked hosts take it off too.
+    pub hosts_remove_device: fn(&Core, &str),
     /// `host` is no longer linked with this one, for the reason `why`: what
     /// waits for it is dropped, and the leads of workers there are told.
     pub hosts_unlinked: fn(&Core, &str, &str),

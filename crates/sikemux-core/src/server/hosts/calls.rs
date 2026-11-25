@@ -9,12 +9,13 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 
+use super::super::remote::Admission;
 use super::super::Core;
 use super::link::{Answer, Kind, Received, Refusal};
 use super::receipts::Stands;
 use super::{
-    answered, chat_move, chief_copy, code, copies, introduction, machine, not_linked, open, peers,
-    record, rehome, reopen, route, search, spawn, transfer,
+    admitted, answered, chat_move, chief_copy, code, copies, introduction, machine, not_linked,
+    open, peers, record, rehome, reopen, route, search, spawn, transfer,
 };
 
 /// One ask between hosts: what it is called and what it carries, shared by the host asking
@@ -70,6 +71,8 @@ host_asks! {
     RecordAct "recordAct" record::RecordAct;
     SearchChats "searchChats" search::SearchParams;
     RecordTakeIn "recordTakeIn" record::TakeIn;
+    Admitted "admitted" Admission;
+    RemoveDevice "removeDevice" admitted::Removed;
     Agent "agent" peers::LinkedAgentParams;
 }
 
@@ -207,6 +210,8 @@ async fn dispatch(
         }
         PassOn::METHOD => route::pass_on_here(core, host, read::<PassOn>(params)?),
         Copies::METHOD => copies::heard(core, host, read::<Copies>(params)?),
+        Admitted::METHOD => admitted::heard(core, host, read::<Admitted>(params)?),
+        RemoveDevice::METHOD => admitted::heard_removed(core, &read::<RemoveDevice>(params)?),
         ChiefCopy::METHOD => chief_copy::heard(core, read::<ChiefCopy>(params)?),
         RecordCopy::METHOD => record::heard(core, host, read::<RecordCopy>(params)?),
         RecordAct::METHOD => record::act_here(core, read::<RecordAct>(params)?).await,

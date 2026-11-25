@@ -412,6 +412,7 @@ calls! { core, client, method, params;
     "stopShare" = StopShare: Owner => share::stop(&core, &params.id)?,
     "shares" = Shares: Full, any_program => share::list(&core),
     "pairing" = RemotePairing: Owner, any_program => remote::pairing(&core),
+    "admissions" = Admissions: Owner => core.remote().admissions(),
     "deviceChallenge": Owner => answer(super::account::devices::device_challenge(&core).await?),
     "approveHostSignIn": NoDevice, signs("Let another computer sign in to your Sikemux account.") => {
         answer(super::account::devices::approve_host_sign_in(&core, parse(params)?).await?)

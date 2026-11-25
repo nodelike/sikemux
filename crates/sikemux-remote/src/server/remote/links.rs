@@ -70,8 +70,8 @@ impl Remote {
     }
 
     /// Keeps a host this one is now linked with, unless it has to wait for the person first.
-    pub fn add_link(&self, link: StoredLink) -> CoreResult<()> {
-        self.change(|stored| stored.link(link))?;
+    pub fn add_link(&self, link: StoredLink, how: AdmittedBy) -> CoreResult<()> {
+        self.change(|stored| stored.link(link, how))?;
         self.settle_listed();
         Ok(())
     }

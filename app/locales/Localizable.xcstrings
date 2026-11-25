@@ -49609,6 +49609,58 @@
         }
       }
     },
+    "joined {when}": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a rejoint {when}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "se unió {when}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "beigetreten {when}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入于 {when}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参加：{when}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참여: {when}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "подключено {when}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "entrou {when}"
+          }
+        }
+      }
+    },
     "Jump to latest message": {
       "localizations": {
         "fr": {
@@ -51945,6 +51997,162 @@
           "stringUnit": {
             "state": "translated",
             "value": "{name} encerrado para liberar memória"
+          }
+        }
+      }
+    },
+    "left {when}": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "parti {when}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "salió {when}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gegangen {when}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离开于 {when}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出：{when}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나감: {when}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "отключено {when}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "saiu {when}"
+          }
+        }
+      }
+    },
+    "Let in before": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admis auparavant"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admitidos antes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Früher zugelassen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前允许过"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前に許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전에 허용됨"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Допущены ранее"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitidos antes"
+          }
+        }
+      }
+    },
+    "let in by {host} {when}": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "admis par {host} {when}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "admitido por {host} {when}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zugelassen von {host} {when}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由 {host} 允许，{when}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} が許可：{when}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host}에서 허용: {when}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "допущено хостом {host} {when}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "permitido por {host} {when}"
           }
         }
       }
@@ -59749,54 +59957,54 @@
         }
       }
     },
-    "New device on your account: {name}": {
+    "New device: {name}": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nouvel appareil sur votre compte : {name}"
+            "value": "Nouvel appareil : {name}"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nuevo dispositivo en tu cuenta: {name}"
+            "value": "Nuevo dispositivo: {name}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neues Gerät auf deinem Account: {name}"
+            "value": "Neues Gerät: {name}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的账户上有新设备：{name}"
+            "value": "新设备：{name}"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アカウントの新しいデバイス：{name}"
+            "value": "新しいデバイス：{name}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "계정의 새 기기: {name}"
+            "value": "새 기기: {name}"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Новое устройство в вашей учётной записи: {name}"
+            "value": "Новое устройство: {name}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Novo dispositivo na sua conta: {name}"
+            "value": "Novo dispositivo: {name}"
           }
         }
       }
@@ -80181,6 +80389,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sair e parar tudo"
+          }
+        }
+      }
+    },
+    "Remove {name} from your account": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retirer {name} de votre compte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitar {name} de tu cuenta"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} aus deinem Account entfernen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从你的账户移除 {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントから {name} を削除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정에서 {name} 제거"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить {name} из учётной записи"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover {name} da sua conta"
           }
         }
       }

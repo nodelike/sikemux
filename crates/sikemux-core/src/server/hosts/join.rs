@@ -141,7 +141,7 @@ pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResul
         ),
         platform => platform,
     };
-    core.remote().add_link(StoredLink {
+    let link = StoredLink {
         id: ticket.host.clone(),
         name: if name.is_empty() {
             clean(
@@ -155,7 +155,8 @@ pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResul
         linked_at: epoch_ms(),
         last_seen: Some(epoch_ms()),
         addresses: known,
-    })?;
+    };
+    core.remote().add_link(link, remote::AdmittedBy::ThisHost)?;
     adopt(core, &ticket.host, connection);
     remote::announce(core);
     Ok(Linking::Linked)
@@ -232,15 +233,15 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
             }
         }
     } else {
-        let linked = core.remote().add_link(StoredLink {
+        let link = StoredLink {
             id: host.clone(),
             name: if name.is_empty() { "Host".into() } else { name },
             platform,
             linked_at: epoch_ms(),
             last_seen: Some(epoch_ms()),
             addresses,
-        });
-        if let Err(error) = linked {
+        };
+        if let Err(error) = core.remote().add_link(link, remote::AdmittedBy::Ticket) {
             let refused = json!({ "result": "refused", "reason": error.to_string() });
             finish(incoming, &connection, refused).await;
             return;
