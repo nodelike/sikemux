@@ -108,8 +108,10 @@ when its home goes away.
   public key of the host that wrapped it, as an org's does, and a host takes a copy in that form
   only from itself or a host the vault lists as holding the key. Hosts read that form now but
   still wrap the key in the old one, which names no sealer, and take an old-form copy from anyone,
-  so a stable host that reads only the old form keeps its vault. Once a stable release reads the
-  new form, hosts will wrap in it, replace an old-form key and then take no other. The recovery
+  so a stable host that reads only the old form keeps its vault. v0.6.3 is the first stable that
+  reads the new form. Before hosts wrap in it, each must keep the key it opened, as it keeps an
+  org's: it opens its copy again every round, so it would lose the vault once the host that wrapped
+  that copy left the account. Then hosts replace an old-form key and take no other. The recovery
   wrap names no sealer and opens with the recovery key alone, so a server could seal a key of its
   own for it and a host recovering would take that key. This is accepted: a check against holders
   the server lists would stop none of that, and would fail when the host that sealed the wrap is
