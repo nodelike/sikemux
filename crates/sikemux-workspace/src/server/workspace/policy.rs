@@ -2,6 +2,7 @@
 //! launcher reviews.
 
 use super::*;
+use crate::agent_accounts::by_hand;
 
 /// Why nothing can start when the core found no agent at all.
 const NO_AGENTS: &str = "Sikemux found no agent it can start on this host; install one first";
@@ -73,6 +74,11 @@ impl Workspaces {
         let private_home = crate::agent_catalog::agent(provider)
             .and_then(|agent| agent.home.as_ref())
             .is_some_and(|home| home.private.is_some());
+        let by_hand = self.chosen_by_hand(provider);
+        let lead_own = lead_own.filter(|own| {
+            let on = own.account.as_ref().map(|account| &account.id);
+            by_hand.as_ref().is_none_or(|chosen| on == Some(chosen))
+        });
         let own = lead_own.filter(|_| as_lead && !private_home);
         if let Some(own) = own {
             let mut launch = own.clone();
@@ -89,15 +95,20 @@ impl Workspaces {
                 .iter()
                 .filter(|launcher| launcher.agent.provider == provider)
                 .collect();
-            let lead_own = offered
-                .iter()
-                .find(|launcher| Some(&launcher.id) == lead.launcher.as_ref());
-            if same && lead_own.is_none() && offered.len() > 1 {
+            let by_hand = by_hand.map(|chosen| LauncherId::on(provider, &chosen).to_string());
+            let wanted = by_hand.as_ref().or(lead.launcher.as_ref());
+            let wanted = (offered.iter()).find(|launcher| Some(&launcher.id) == wanted);
+            if by_hand.is_some() && wanted.is_none() && offered.len() > 1 {
+                return Err(format!(
+                    "The {provider} account the person chose cannot start an agent, and only they may start one on another"
+                ));
+            }
+            if same && wanted.is_none() && offered.len() > 1 {
                 return Err(format!(
                     "Sikemux cannot tell which {provider} account you run on, so it will not start one on another; pick another cli or ask the person to start it"
                 ));
             }
-            let launcher = lead_own.or_else(|| offered.first()).ok_or_else(|| {
+            let launcher = wanted.or_else(|| offered.first()).ok_or_else(|| {
                 let mut known: Vec<&str> = launchers
                     .iter()
                     .map(|launcher| launcher.agent.provider.as_str())
@@ -138,6 +149,11 @@ impl Workspaces {
         Ok((launch, Some(launcher.id)))
     }
 
+    /// The account the person chose for `provider`'s agents, when only they choose among them.
+    fn chosen_by_hand(&self, provider: &str) -> Option<String> {
+        by_hand(provider).then(|| self.accounts().unwrap_or_default().chosen(provider))
+    }
+
     /// How the board starts an agent of its own in `cwd`: with the launcher
     /// named, else the first the app offers that works, in that launcher's own
     /// permission mode. A launcher gone is to be picked again `picked_in`.
@@ -153,7 +169,13 @@ impl Workspaces {
         let chosen = {
             let published = self.published.locked();
             let launchers = &published.launchers;
-            let usable = |launcher: &&Launcher| launcher.refusal().is_none();
+            let book = published.saved.accounts.clone().unwrap_or_default();
+            let usable = |launcher: &&Launcher| {
+                let kind = &launcher.agent.provider;
+                launcher.refusal().is_none()
+                    && (!by_hand(kind)
+                        || launcher.id == LauncherId::on(kind, &book.chosen(kind)).to_string())
+            };
             match launcher {
                 Some(id) => launchers
                     .iter()

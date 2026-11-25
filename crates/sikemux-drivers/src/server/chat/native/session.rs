@@ -371,6 +371,9 @@ pub trait SinkPort: Send + Sync {
     /// Whether the provider has a saved session to load.
     fn has_answered(&self) -> bool;
 
+    /// Whether the chat moved to another account its agent has not opened it on yet.
+    fn account_moved(&self) -> bool;
+
     /// Whether a turn this side prompted is being answered.
     fn running(&self) -> bool;
 

@@ -9,8 +9,12 @@ use sikemux_process::user_environment::shell_var;
 
 use crate::agent_catalog::{AgentKind, Home};
 
+/// The folder `key` names in the person's shell. A variable of Sikemux's own is set for one
+/// chat's account, never by the person.
 pub fn environment_path(key: &str) -> Option<PathBuf> {
-    shell_var(key).map(PathBuf::from)
+    (!key.starts_with("SIKEMUX_"))
+        .then(|| shell_var(key))?
+        .map(PathBuf::from)
 }
 
 impl AgentKind {

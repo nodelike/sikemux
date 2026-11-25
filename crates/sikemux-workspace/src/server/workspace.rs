@@ -28,7 +28,7 @@ use sikemux_process::sync::Locked;
 use tokio::sync::Notify;
 
 use crate::agent_accounts::status::{self, AgentStatus};
-use crate::agent_accounts::Book;
+use crate::agent_accounts::{by_hand, Book};
 use crate::agent_catalog::{AgentKind, AGENTS};
 use crate::cli::protocol::is_tool_agent_id;
 use crate::launch::providers::{Helper, Providers, Wiring};
@@ -64,7 +64,7 @@ pub use recent::*;
 
 /// Bumped by a change to what [`Saved`] holds that an earlier file needs
 /// carried over to.
-const VERSION: u32 = 6;
+const VERSION: u32 = 7;
 const MAX_PROJECTS: usize = 512;
 const MAX_SPACES: usize = 64;
 const MAX_PINNED: usize = 256;
@@ -132,6 +132,9 @@ pub struct Kept {
     /// person opening or messaging it wakes it, never mail waiting for it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub held: bool,
+    /// It moved to another account, which its agent has yet to open the chat on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub moved: bool,
     #[serde(default, skip_serializing_if = "ListPlace::is_empty")]
     pub place: ListPlace,
 }
@@ -524,13 +527,16 @@ impl Workspaces {
             migrate::mark_terminals(&mut saved);
         }
         if saved.version < 4 {
-            migrate::name_accounts(&mut saved);
+            migrate::name_accounts(&mut saved, |agent| agent.accounts);
         }
         if saved.version < 5 {
             migrate::untitle_chiefs(&mut saved);
         }
         if saved.version < 6 {
             migrate::unsettle_by_core(&mut saved, &read);
+        }
+        if saved.version < 7 {
+            migrate::name_accounts(&mut saved, |agent| agent.accounts_by_hand);
         }
         saved.version = VERSION;
         let workspaces = Self {
@@ -888,6 +894,7 @@ impl Workspaces {
                     accounts: BTreeMap::new(),
                     program: None,
                     held: false,
+                    moved: false,
                     place: ListPlace::default(),
                 }),
             }
@@ -921,7 +928,7 @@ impl Workspaces {
             if provider_changed && agent.profile_id.is_none() {
                 if let Some(id) = remembered.get(&agent.provider) {
                     let book = saved.accounts.clone().unwrap_or_default();
-                    if book.can_keep(&agent.provider, id, &agent.cwd) {
+                    if by_hand(&agent.provider) || book.can_keep(&agent.provider, id, &agent.cwd) {
                         agent.profile_id = Some(id.clone());
                     }
                 }
@@ -1001,6 +1008,22 @@ impl Workspaces {
     /// agent they set going again.
     pub fn held(&self, agent_id: &str) -> bool {
         (self.published.locked().saved.kept(agent_id)).is_some_and(|kept| kept.held)
+    }
+
+    /// Whether the agent moved to another account it has yet to open its chat on.
+    pub fn moved(&self, agent_id: &str) -> bool {
+        (self.published.locked().saved.kept(agent_id)).is_some_and(|kept| kept.moved)
+    }
+
+    pub fn note_moved(&self, agent_id: &str, moved: bool) {
+        if self.moved(agent_id) != moved {
+            let _ = self.change(|saved| {
+                if let Some(kept) = saved.kept_mut(agent_id) {
+                    kept.moved = moved;
+                }
+                Ok(())
+            });
+        }
     }
 
     /// The agent started, so mail waiting for it wakes it again when it sleeps.

@@ -11,6 +11,7 @@ use gpui_kit::{
     div, px, AnyElement, App, Context, Div, InteractiveElement, IntoElement, ParentElement, Render,
     SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
+use sikemux_agents::agent_accounts::{by_hand, Profile};
 use sikemux_calls::agent_accounts::Authenticate;
 use sikemux_calls::agent_accounts::ChatAccountsParams;
 use sikemux_calls::call;
@@ -612,15 +613,24 @@ pub(super) fn trouble(
             let name = bench.agent_name(&agent.provider);
             let (said, sign_in) = match &agent.place {
                 crate::hosts::Place::This => {
-                    let (this, provider) = (this.clone(), agent.provider.clone());
+                    let (this, chat) = (this.clone(), agent.id.clone());
+                    let provider = agent.provider.clone();
+                    let kept_apart = chat_account(bench, agent, None)
+                        .filter(|on| by_hand(&on.provider) && on.config_path.is_some())
+                        .map(|on| on.id.clone());
                     let sign_in = Button::new(
                         "chat-sign-in-agent",
                         t!("Sign in to {name}", name = name),
                         Variant::Outline,
                     )
                     .on_click(move |_, window, cx| {
-                        this.update(cx, |bench, cx| bench.sign_in_agent(&provider, window, cx))
-                            .ok();
+                        this.update(cx, |bench, cx| match &kept_apart {
+                            Some(account) => crate::accounts::sign_in_then_move(
+                                bench, &chat, account, window, cx,
+                            ),
+                            None => bench.sign_in_agent(&provider, window, cx),
+                        })
+                        .ok();
                     });
                     (
                         t!("{agent} isn't signed in", agent = name),
@@ -680,7 +690,7 @@ pub(super) fn trouble(
             .map(|failed| failed.can.as_slice())
             .unwrap_or_default();
         if can.contains(&Remedy::OtherAccount) {
-            buttons.extend(other_account(bench, agent, failure, &this, cx));
+            buttons.extend(other_accounts(bench, agent, failure, &this, cx));
         }
         let carry_on_with = failure.and_then(|failure| failure.carry_on_with.clone());
         if let Some(other) = carry_on_with {
@@ -832,35 +842,46 @@ fn quiet(
     })
 }
 
-/// "Use another account": the accounts the core says can take the chat on, once the one it
-/// runs on is at its limit, to move it to as the chat's account control does.
-fn other_account(
-    bench: &Workbench,
+/// The account the chat runs on, or ran on when its turn failed.
+fn chat_account<'a>(
+    bench: &'a Workbench,
     agent: &AgentRow,
     failure: Option<&sikemux_view::chat::ChatFailure>,
-    this: &WeakEntity<Workbench>,
-    cx: &mut Context<Workbench>,
-) -> Option<AnyElement> {
-    if !matches!(
-        bench.chat_target(&agent.id).place(),
-        crate::hosts::Place::This
-    ) {
-        return None;
-    }
+) -> Option<&'a Profile> {
     let saved = bench.shown().and_then(|view| {
         view.workspace
             .agents
             .iter()
             .find(|saved| saved.id == agent.id)
     });
-    let on = failure
+    failure
         .and_then(|failure| failure.account.as_deref())
         .or_else(|| saved.and_then(|saved| saved.profile_id.as_deref()))
         .and_then(|id| bench.accounts.profile(id))
         .or_else(|| bench.accounts.current(&agent.provider))
-        .cloned()?;
-    let takers = crate::accounts::takers(bench, &agent.id, &on.id, cx)?;
-    let others: Vec<(sikemux_agents::agent_accounts::Profile, String)> = (takers.others.iter())
+}
+
+/// The accounts the core says can take the chat on, once the one it runs on is at its limit, to
+/// move it to as the chat's account control does: a button each for an agent whose chats only the
+/// person moves, else one menu of them.
+fn other_accounts(
+    bench: &Workbench,
+    agent: &AgentRow,
+    failure: Option<&sikemux_view::chat::ChatFailure>,
+    this: &WeakEntity<Workbench>,
+    cx: &mut Context<Workbench>,
+) -> Vec<AnyElement> {
+    if !matches!(
+        bench.chat_target(&agent.id).place(),
+        crate::hosts::Place::This
+    ) {
+        return Vec::new();
+    }
+    let on = chat_account(bench, agent, failure).map(|on| on.id.clone());
+    let Some(takers) = on.and_then(|on| crate::accounts::takers(bench, &agent.id, &on, cx)) else {
+        return Vec::new();
+    };
+    let others: Vec<(Profile, String)> = (takers.others.iter())
         .filter_map(|other| bench.accounts.profile(&other.id).cloned())
         .map(|other| {
             let status = crate::accounts::status(bench, &other).and_then(|s| s.as_ref().ok());
@@ -868,8 +889,11 @@ fn other_account(
             (other, name)
         })
         .collect();
+    if by_hand(&agent.provider) {
+        return carry_on_with(bench, agent, others, this);
+    }
     if others.is_empty() {
-        return None;
+        return Vec::new();
     }
     let (this, chat) = (this.clone(), agent.id.clone());
     let trigger = Button::new(
@@ -877,28 +901,70 @@ fn other_account(
         t!("Use another account"),
         Variant::Outline,
     );
-    Some(
-        ui::menu_button(
-            "chat-other-account-menu",
-            gpui_kit::Anchor::BottomRight,
-            trigger,
-            move |mut popup, _, cx| {
-                for (other, name) in &others {
-                    let (this, chat, other) = (this.clone(), chat.clone(), other.clone());
-                    popup = popup.item(ui::MenuRow::new(name.clone()).item(cx).on_click(
-                        move |_, _, cx| {
-                            this.update(cx, |bench, cx| {
-                                crate::accounts::move_chat(bench, &chat, &other, cx)
-                            })
-                            .ok();
-                        },
-                    ));
-                }
-                popup
-            },
-        )
-        .into_any_element(),
+    vec![ui::menu_button(
+        "chat-other-account-menu",
+        gpui_kit::Anchor::BottomRight,
+        trigger,
+        move |mut popup, _, cx| {
+            for (other, name) in &others {
+                let (this, chat, other) = (this.clone(), chat.clone(), other.clone());
+                popup = popup.item(ui::MenuRow::new(name.clone()).item(cx).on_click(
+                    move |_, _, cx| {
+                        this.update(cx, |bench, cx| {
+                            crate::accounts::move_chat(bench, &chat, &other, cx)
+                        })
+                        .ok();
+                    },
+                ));
+            }
+            popup
+        },
     )
+    .into_any_element()]
+}
+
+/// "Carry on with Work · 62% left" for each account, the roomiest first and those not read last.
+fn carry_on_with(
+    bench: &Workbench,
+    agent: &AgentRow,
+    others: Vec<(Profile, String)>,
+    this: &WeakEntity<Workbench>,
+) -> Vec<AnyElement> {
+    let left = |profile: &Profile| {
+        crate::accounts::used(bench, profile).map(|used| (100. - used).clamp(0., 100.).floor())
+    };
+    let mut others: Vec<(Profile, String, Option<f64>)> = (others.into_iter())
+        .map(|(profile, name)| {
+            let left = left(&profile);
+            (profile, name, left)
+        })
+        .collect();
+    others.sort_by(|a, b| b.2.unwrap_or(-1.).total_cmp(&a.2.unwrap_or(-1.)));
+    (others.into_iter())
+        .map(|(profile, name, left)| {
+            let label = match left {
+                Some(left) => t!(
+                    "Carry on with {name} · {left}% left",
+                    name = name,
+                    left = left
+                ),
+                None => t!("Carry on with {name}", name = name),
+            };
+            let (this, chat) = (this.clone(), agent.id.clone());
+            Button::new(
+                SharedString::from(format!("chat-carry-on-{}", profile.id)),
+                label,
+                Variant::Outline,
+            )
+            .on_click(move |_, _, cx| {
+                this.update(cx, |bench, cx| {
+                    crate::accounts::move_chat(bench, &chat, &profile, cx)
+                })
+                .ok();
+            })
+            .into_any_element()
+        })
+        .collect()
 }
 
 fn action(
@@ -934,18 +1000,7 @@ fn account_ways(
     ) {
         return Vec::new();
     }
-    let saved = bench.shown().and_then(|view| {
-        view.workspace
-            .agents
-            .iter()
-            .find(|saved| saved.id == agent.id)
-    });
-    let on = failure
-        .and_then(|failure| failure.account.as_deref())
-        .or_else(|| saved.and_then(|saved| saved.profile_id.as_deref()))
-        .and_then(|id| bench.accounts.profile(id))
-        .or_else(|| bench.accounts.current(&agent.provider))
-        .cloned();
+    let on = chat_account(bench, agent, failure).cloned();
     let name = match &on {
         Some(profile) => profile.name.clone(),
         None => bench
@@ -961,6 +1016,7 @@ fn account_ways(
         "chat-retry-signed-in",
         |bench, agent| bench.account_call::<call::RetryFailed>(agent),
     );
+    let on = on.filter(|on| !crate::accounts::signs_in_itself(on));
     if on.is_none() {
         let methods: Vec<Button> = (capabilities.sign_in_methods.iter())
             .filter_map(|method| {

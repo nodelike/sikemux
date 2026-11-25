@@ -23,6 +23,7 @@ use sikemux_view::chat::StopReason;
 use crate::acp::failure::{sounds_offline, Failure};
 use crate::acp::pickers;
 use crate::acp::{air, native, permission_mode_id};
+use crate::agent_accounts::antigravity as accounts;
 use crate::agent_catalog::ChatDriver;
 use crate::launch::PermissionMode;
 use crate::server::chat::prompt::{command_parts, prompt_blocks};
@@ -622,7 +623,14 @@ pub struct Acp {
 
 impl Acp {
     async fn begin(launch: &ChatLaunch, sink: Sink) -> Result<(Self, Opened), String> {
-        let (args, extra_env) = if is_antigravity(launch) {
+        let account = match is_antigravity(launch) {
+            true => accounts::added_in(&launch.env)?
+                .map(|added| added.chat())
+                .transpose(),
+            false => Ok(None),
+        };
+        let account = account.inspect_err(|_| sink.needs_sign_in())?;
+        let (mut args, mut extra_env) = if is_antigravity(launch) {
             (
                 antigravity::launch_args(launch.permission_mode),
                 antigravity::launch_env(&launch.env),
@@ -630,6 +638,10 @@ impl Acp {
         } else {
             (Vec::new(), Vec::new())
         };
+        if let Some(account) = &account {
+            args.extend(account.args());
+            extra_env.push(account.env());
+        }
         let (process, writer, lines) = Process::spawn(launch, args, extra_env)?;
         let driver = Driver {
             rpc: Rpc::new(writer, true),
@@ -654,10 +666,14 @@ impl Acp {
             .map_err(failed)?;
         let command =
             crate::agent_catalog::agent(&launch.provider).map_or("", |entry| entry.command);
-        let sign_in = crate::acp::sign_in::methods(&initialized, command);
+        let sign_in = match account {
+            Some(_) => Vec::new(),
+            None => crate::acp::sign_in::methods(&initialized, command),
+        };
         let key_sign_in = crate::agent_catalog::AgentKind::from_name(&launch.provider)
+            .filter(|_| account.is_none())
             .and_then(|agent| agent.ops().key_sign_in(&launch.env));
-        let signs_in = !sign_in.is_empty();
+        let signs_in = !sign_in.is_empty() || account.is_some();
         let initialized: InitializeResponse =
             serde_json::from_value(initialized).map_err(|error| failed(error.to_string()))?;
         if let Some(agent) = &initialized.agent_info {
@@ -699,7 +715,21 @@ impl Acp {
             }
             Err(Refused::SignIn(error) | Refused::Other(error)) => return Err(failed(error)),
         };
+        if let Some(account) = account {
+            if !account.confirmed().await {
+                return Err(accounts::WRONG_STORE.to_owned());
+            }
+        }
         driver.sink.loaded();
+        if driver.antigravity
+            && launch
+                .resume_id
+                .as_ref()
+                .is_some_and(|id| *id != session_id)
+            && driver.sink.account_moved()
+        {
+            driver.sink.update(&session_id, sikemux_fold::update::notice("warning", "This chat starts fresh on this account", Some("Antigravity could not open the conversation on this account, so it does not remember what is above.")));
+        }
 
         let mut acp = Self {
             process,
@@ -839,7 +869,16 @@ impl Acp {
             Err(_) if driver.sink.reloading() && !driver.sink.has_answered() => {
                 Self::open_new(driver, launch, servers).await
             }
-            Err(error) => Err(Refused::of(&error)),
+            Err(error) => match Refused::of(&error) {
+                Refused::Other(said)
+                    if driver.antigravity
+                        && driver.sink.account_moved()
+                        && !sounds_offline(&said) =>
+                {
+                    Self::open_new(driver, launch, servers).await
+                }
+                refused => Err(refused),
+            },
         }
     }
 

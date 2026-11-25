@@ -4,6 +4,7 @@
 use crate::ui::Clicks;
 use std::rc::Rc;
 
+use gpui_kit::component::input::InputState;
 use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::prelude::FluentBuilder;
@@ -11,7 +12,7 @@ use gpui_kit::{
     div, px, Anchor, AnyElement, App, ClickEvent, Context, Entity, IntoElement, ParentElement,
     SharedString, Styled, Window,
 };
-use sikemux_agents::agent_accounts::Profile;
+use sikemux_agents::agent_accounts::{by_hand, Profile};
 
 use crate::accounts::{self, SignIn};
 use crate::icons::Icon;
@@ -194,7 +195,8 @@ fn account_row(
             (folder, project.name.clone(), allowed)
         })
         .collect();
-    let more = (signed_in || removable || !projects.is_empty()).then(|| {
+    let itself = accounts::signs_in_itself(profile);
+    let more = ((signed_in && !itself) || removable || !projects.is_empty()).then(|| {
         let (sign_out, remove, choose) = (this.clone(), this.clone(), this.clone());
         let (out_id, remove_id) = (id.clone(), id.clone());
         let remove_label: SharedString = t!("Remove {name}", name = name).into();
@@ -207,7 +209,7 @@ fn account_row(
                 t!("More for {name}", name = name),
             ),
             move |mut popup, _, _| {
-                if signed_in {
+                if signed_in && !itself {
                     let (sign_out, id) = (sign_out.clone(), out_id.clone());
                     popup = popup.item(
                         PopupMenuItem::new(t!("Sign out"))
@@ -312,7 +314,7 @@ pub fn smart(
     let row = rows::row_with(
         None,
         t!("Move between accounts"),
-        Some(t!("Starts each chat on the account whose week ends soonest and moves on at a limit. Check each provider's terms first.").into()),
+        Some(t!("Starts each chat on the account whose week ends soonest and moves on at a limit. Antigravity's chats move only when you move them. Check each provider's terms first.").into()),
         Switch::new("smart-accounts")
             .checked(bench.accounts.smart())
             .on_change(move |on: &bool, _, cx| {
@@ -513,6 +515,9 @@ fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_
             })
             .child(cancel())
         }
+        (Some(profile), Some(SignIn::Waiting { url, code })) if by_hand(&profile.provider) => {
+            pasted_sign_in(profile, url.clone(), code.as_ref(), mark, &label, this, cx)
+        }
         (Some(profile), Some(SignIn::Waiting { url, code })) => {
             let id = profile.id.clone();
             let help = url.clone().map(|url| match code {
@@ -608,6 +613,79 @@ fn one_sign_in(mark: AnyElement, label: &str, this: &Entity<Workbench>) -> sign_
             .wide()
             .on_click(on(this, |bench, _, cx| accounts::close_dialog(bench, cx))),
     )
+}
+
+/// A sign-in whose page shows a code to paste here, as it does wherever its agent has no browser
+/// of its own to come back to.
+fn pasted_sign_in(
+    profile: &Profile,
+    url: Option<String>,
+    code: Option<&Entity<InputState>>,
+    mark: AnyElement,
+    label: &str,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> sign_in::Screen {
+    let screen = sign_in::Screen::new(
+        "account-dialog",
+        mark,
+        t!("Sign in to {name}", name = profile.name),
+    );
+    let close = on(this, |bench, _, cx| accounts::close_dialog(bench, cx));
+    let id = profile.id.clone();
+    match (url, code) {
+        (Some(url), Some(field)) => screen
+            .lede(t!(
+                "Choose the Google account to add, then paste the code the page shows."
+            ))
+            .child(sign_in::Field::new(t!("Code from the page"), field).mono())
+            .child(
+                ui::Button::new("sign-in-send-code", t!("Sign in"), ui::Variant::Primary)
+                    .wide()
+                    .on_click(on(this, move |bench, _, cx| {
+                        accounts::submit_code(bench, &id, cx)
+                    })),
+            )
+            .child(
+                sign_in::links()
+                    .child(
+                        sign_in::link("sign-in-page", t!("Open the page again"), cx)
+                            .clicks(move |_, _, cx| cx.open_url(&url)),
+                    )
+                    .child(sign_in::link("account-dialog-cancel", t!("Cancel"), cx).clicks(close)),
+            ),
+        (Some(url), None) => screen
+            .lede(t!(
+                "The page opens in your browser and gives you a code to paste here."
+            ))
+            .child(
+                ui::Button::new(
+                    "sign-in-open-page",
+                    t!("Open the sign-in page"),
+                    ui::Variant::Primary,
+                )
+                .wide()
+                .on_click(on(this, move |bench, window, cx| {
+                    cx.open_url(&url);
+                    accounts::ask_code(bench, &id, window, cx)
+                })),
+            )
+            .child(
+                sign_in::links()
+                    .child(sign_in::link("account-dialog-cancel", t!("Cancel"), cx).clicks(close)),
+            ),
+        (None, _) => screen
+            .lede(t!(
+                "This account is signed in apart from the one {label} already has.",
+                label = label
+            ))
+            .child(sign_in::waiting(
+                "account-dialog-waiting",
+                t!("Waiting for {label}", label = label),
+                close,
+                cx,
+            )),
+    }
 }
 
 /// Who the account signed in as, with the way to start using it while another is in use.

@@ -580,8 +580,8 @@ impl AgentOps for Claude {
         false
     }
 
-    fn account_sign_in(&self) -> Option<&'static [&'static str]> {
-        Some(&["auth", "login", "--claudeai"])
+    fn account_sign_in(&self, _config_path: Option<&str>) -> Option<Vec<String>> {
+        Some(["auth", "login", "--claudeai"].map(str::to_owned).to_vec())
     }
 
     fn account_sign_out(&self) -> Option<&'static [&'static str]> {

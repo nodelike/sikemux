@@ -516,6 +516,13 @@ pub(crate) async fn move_account(
                 found => found,
             };
             let chosen = target.and_then(|target| {
+                let kind = crate::agent_catalog::agent(&target.cli);
+                if let Some(kind) = kind.filter(|kind| kind.accounts_by_hand) {
+                    return Err(format!(
+                        "only the person moves {}'s chats to another account",
+                        kind.label
+                    ));
+                }
                 let takers = super::chat::accounts(&here, &target.agent_id)
                     .map_err(|error| error.to_string())?;
                 let named = |other: &&sikemux_wire::protocol::ChatAccount| {

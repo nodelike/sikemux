@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::agent_accounts::{by_hand, BUILT_IN};
 use crate::agent_catalog::AgentKind;
 use crate::launch::homes;
 use crate::launch::terminal::{self, TerminalRun};
@@ -85,6 +86,9 @@ pub(crate) fn clear_temp(core: &Core, agent_id: &str) {
         let _ = std::fs::remove_dir_all(data.join(TEMP_FOLDERS).join(agent_id));
     }
 }
+
+const TERMINAL_FIRST_ONLY: &str =
+    "Antigravity's own terminal runs only on its first account. Start a chat to use another.";
 
 /// Gives a terminal agent its tools, its account and the connected model providers, and
 /// answers with what keeps its token for them good. A launch that cannot be told about the
@@ -230,6 +234,11 @@ async fn launch_terminal(
     let project = core.workspaces().project_info(&agent.project);
     let book = core.workspaces().accounts().unwrap_or_default();
     let profile = agent.profile_id.as_deref().and_then(|id| book.profile(id));
+    let first = profile.is_some_and(|profile| profile.config_path.is_none())
+        || (agent.profile_id.as_deref()).is_none_or(|id| id.starts_with(BUILT_IN));
+    if by_hand(&agent.provider) && !first {
+        return Err(TERMINAL_FIRST_ONLY.into());
+    }
     let run = TerminalRun {
         resume_id: agent.resume_id.as_deref(),
         permission_mode: agent.permission_mode,
@@ -529,6 +538,9 @@ async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
         return None;
     }
     let kind = named.kind.to_owned();
+    if by_hand(&kind) {
+        return None;
+    }
     let book = core.workspaces().accounts().unwrap_or_default();
     let accounts = (book.clone().with_built_ins().profiles.iter())
         .filter(|profile| profile.provider == kind)
@@ -994,6 +1006,18 @@ pub(crate) async fn start_terminal_at(
     Ok(json!({ "ptyId": pty }))
 }
 
+/// Whether the terminal would run an agent on an account its terminal cannot be held to.
+fn on_added_account(spawn: &TerminalSpawn) -> bool {
+    let agent = spawn
+        .context
+        .as_ref()
+        .and_then(|context| context.agent_type.as_deref());
+    agent.is_some_and(by_hand)
+        && (spawn.direct_command.as_ref())
+            .and_then(|command| command.profile.as_ref())
+            .is_some_and(|profile| profile.config_path.is_some())
+}
+
 pub(crate) async fn spawn(
     core: Arc<Core>,
     launch: LaunchIdentity,
@@ -1003,6 +1027,9 @@ pub(crate) async fn spawn(
     let mut model_grant = None;
     if let SpawnTarget::Terminal(spawn) = target.as_mut() {
         core.spares().note_size(spawn.cols, spawn.rows);
+        if on_added_account(spawn) {
+            return Err(TERMINAL_FIRST_ONLY.into());
+        }
         model_grant = terminal_agent(&core, spawn).await;
     }
     blocking(move || {

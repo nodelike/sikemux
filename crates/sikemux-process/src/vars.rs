@@ -60,6 +60,12 @@ pub const AGENT_SEARCH: &str = "SIKEMUX_AGENT_SEARCH";
 /// Sikemux starts inherits it; an account's profile sets its own again.
 pub const CLAUDE_HOME: &str = "CLAUDE_CONFIG_DIR";
 
+/// The folder of the added Antigravity account an agent runs on.
+pub const ANTIGRAVITY_HOME: &str = "SIKEMUX_ANTIGRAVITY_HOME";
+
+/// Keeps Antigravity's sign-in in its folder rather than the macOS keychain.
+pub const ANTIGRAVITY_FILE_STORE: &str = "AGY_CLI_FORCE_FILE_TOKEN_STORAGE";
+
 /// The caller a headless Claude Code names on its requests. Plans count the SDK's own names
 /// (`sdk-ts`, `sdk-cli`) against the 5-hour limit about twice as fast: anthropics/claude-code#97074.
 pub const CLAUDE_ENTRYPOINT: (&str, &str) = ("CLAUDE_CODE_ENTRYPOINT", "sikemux");
@@ -69,7 +75,7 @@ pub const CLAUDE_ENTRYPOINT: (&str, &str) = ("CLAUDE_CODE_ENTRYPOINT", "sikemux"
 /// agent's transcript saving off and hand it the session's messaging socket, its Claude home, and
 /// Sikemux's names for that session's agent, which Sikemux sets afresh for each program. Claude
 /// Code's own settings, such as `CLAUDE_CODE_USE_BEDROCK`, are the person's and go through.
-pub const LAUNCHING_SESSION: [&str; 20] = [
+pub const LAUNCHING_SESSION: [&str; 21] = [
     "CLAUDECODE",
     "CLAUDE_CODE_CHILD_SESSION",
     "CLAUDE_CODE_ENTRYPOINT",
@@ -80,6 +86,7 @@ pub const LAUNCHING_SESSION: [&str; 20] = [
     "CLAUDE_EFFORT",
     "CLAUDE_PID",
     CLAUDE_HOME,
+    ANTIGRAVITY_HOME,
     AGENT_ID,
     AGENT_TYPE,
     AGENT_HOOKS,

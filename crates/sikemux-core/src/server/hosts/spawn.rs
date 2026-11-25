@@ -16,7 +16,7 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use crate::agent_accounts::status::AgentStatus as AccountStatus;
-use crate::agent_accounts::usage;
+use crate::agent_accounts::{by_hand, usage};
 use crate::cli::protocol::{is_tool_agent_id, HarnessRequest};
 use crate::server::agent_accounts::{placement, Placing};
 use crate::server::workspace::LauncherId;
@@ -632,6 +632,16 @@ fn account_here(core: &Core, cli: &str) -> Result<Option<String>, String> {
             false => format!("{cli} does not start there"),
         });
     }
+    let book = core.workspaces().accounts().unwrap_or_default();
+    let chosen = LauncherId::on(cli, &book.chosen(cli)).to_string();
+    if by_hand(cli) {
+        return match startable.iter().any(|launcher| launcher.id == chosen) {
+            true => Ok(Some(chosen)),
+            false => Err(format!(
+                "the {cli} account the person chose there is signed out, and only they may start one on another"
+            )),
+        };
+    }
     let now = epoch_ms();
     let limit_ends = |config_path: Option<&str>| -> Option<Option<u64>> {
         let reading = usage::last_reading(cli, config_path)?;
@@ -655,12 +665,10 @@ fn account_here(core: &Core, cli: &str) -> Result<Option<String>, String> {
     let room: Vec<&str> = (room.iter())
         .map(|(launcher, _)| launcher.id.as_str())
         .collect();
-    let book = core.workspaces().accounts().unwrap_or_default();
     let placed = placement(&book, cli, &Placing::default(), |profile| {
         room.contains(&LauncherId::on(cli, &profile.id).to_string().as_str())
     })
     .map(|placed| LauncherId::on(cli, &placed.id).to_string());
-    let chosen = LauncherId::on(cli, &book.chosen(cli)).to_string();
     Ok(placed
         .or_else(|| room.contains(&chosen.as_str()).then_some(chosen))
         .or_else(|| room.first().map(|id| (*id).to_owned())))

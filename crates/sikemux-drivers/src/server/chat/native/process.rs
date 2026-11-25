@@ -15,6 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
+use crate::agent_accounts::antigravity::withheld;
 use crate::git_guard;
 use sikemux_wire::protocol::ChatLaunch;
 
@@ -77,6 +78,9 @@ pub struct Process {
     hand_over: HandOver,
     stderr_task: JoinHandle<Option<AgentOutput>>,
     released: bool,
+    /// Whether what it writes to its error stream stays out of the chat, since it can name the
+    /// account it runs on.
+    private: bool,
     /// How long the agent gets to shut down by itself before it is killed.
     grace: Option<Duration>,
 }
@@ -112,6 +116,9 @@ impl Process {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        for name in withheld(&launch.provider, &launch.env) {
+            command.env_remove(name);
+        }
         if git_guard::identity::note(&launch.cwd) {
             for name in sikemux_process::vars::PERSON_GITHUB_TOKENS {
                 command.env_remove(name);
@@ -127,10 +134,18 @@ impl Process {
                 ),
             })?;
         crate::server::callers::started(pid, &launch.agent_id);
-        Ok(Self::take_up(pid, pipes, exit, Vec::new(), Vec::new()))
+        Ok(Self::take_up(
+            launch,
+            pid,
+            pipes,
+            exit,
+            Vec::new(),
+            Vec::new(),
+        ))
     }
 
     fn take_up(
+        launch: &ChatLaunch,
         pid: u32,
         pipes: Pipes,
         agent: Exit,
@@ -165,6 +180,7 @@ impl Process {
                 },
                 stderr_task,
                 released: false,
+                private: !withheld(&launch.provider, &launch.env).is_empty(),
                 grace: None,
             },
             Writer(input),
@@ -217,6 +233,9 @@ impl Process {
     /// `error`, with the last lines the agent wrote to its error stream before a blank one. The
     /// source lines a config parse error quotes are left out, since they can hold a secret.
     pub fn start_error(&self, error: String) -> String {
+        if self.private {
+            return error;
+        }
         let stderr = self.stderr();
         let mut said: Vec<&str> = stderr
             .lines()

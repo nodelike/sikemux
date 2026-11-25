@@ -1,5 +1,5 @@
-//! Signing the person in and out of their accounts with Claude Code and
-//! Codex on this host, through each CLI's own login. The page a sign-in opens
+//! Signing the person in and out of their accounts with Claude Code, Codex and
+//! Antigravity on this host, through each CLI's own login. The page a sign-in opens
 //! goes to every client, so the person can finish it from any device.
 
 use crate::server::changed::ChangedCore;
@@ -17,10 +17,10 @@ use sikemux_process::command::AsyncCommand;
 use sikemux_process::sync::Locked;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::ChildStdin;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 
 use super::changed::Topic;
-use crate::agent_accounts::{cli, folders::link_shared};
+use crate::agent_accounts::{antigravity, cli, folders::link_shared};
 use crate::agent_catalog::AgentKind;
 
 use super::{Core, CoreError, CoreResult};
@@ -36,6 +36,8 @@ pub(crate) trait AccountExt: Sized {
     fn key(&self) -> String;
 
     async fn command(&self) -> CoreResult<AsyncCommand>;
+
+    fn added_antigravity(&self) -> CoreResult<Option<antigravity::Added>>;
 }
 
 impl AccountExt for Account {
@@ -69,13 +71,38 @@ impl AccountExt for Account {
             BTreeMap::new(),
         ))
     }
+
+    fn added_antigravity(&self) -> CoreResult<Option<antigravity::Added>> {
+        match self.agent {
+            AgentKind::Antigravity => Ok(antigravity::added(self.config_path.as_deref())?),
+            _ => Ok(None),
+        }
+    }
 }
 
 /// A sign-in running for one account, which the person can answer or stop.
 struct SignIn {
+    id: uuid::Uuid,
     input: Option<ChildStdin>,
     stop: Option<oneshot::Sender<()>>,
     page: Option<Page>,
+    /// Ends when the sign-in has.
+    running: watch::Receiver<()>,
+}
+
+/// Takes a sign-in off the list as it ends, unless another took its place.
+struct Entry {
+    key: String,
+    id: uuid::Uuid,
+}
+
+impl Drop for Entry {
+    fn drop(&mut self) {
+        let mut sign_ins = sign_ins();
+        if (sign_ins.get(&self.key)).is_some_and(|own| own.id == self.id) {
+            sign_ins.remove(&self.key);
+        }
+    }
 }
 
 fn sign_ins() -> MutexGuard<'static, HashMap<String, SignIn>> {
@@ -173,10 +200,11 @@ pub(super) async fn sign_in_launcher(core: &Arc<Core>, params: LauncherParams) -
 pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()> {
     account.check()?;
     link_shared(account.agent.as_str(), account.config_path.as_deref());
+    let added = account.added_antigravity()?;
     let args = account
         .agent
         .ops()
-        .account_sign_in()
+        .account_sign_in(account.config_path.as_deref())
         .ok_or(crate::agent_accounts::NO_ACCOUNTS)?;
     let mut command = account.command().await?;
     command.args(args);
@@ -185,19 +213,29 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
         .stdout(sikemux_process::command::Stdio::piped())
         .stderr(sikemux_process::command::Stdio::piped())
         .kill_on_drop(true);
+    // Dropped last, once everything the sign-in wrote is dealt with.
+    let (_running, running) = watch::channel(());
+    let store = added.as_ref().map(antigravity::Added::signing_in);
     let mut child = command
         .spawn()
         .map_err(|_| format!("Could not start the {} sign-in", account.agent.as_str()))?;
     let key = account.key();
+    let id = uuid::Uuid::new_v4();
     let (stop, stopped) = oneshot::channel();
     let previous = sign_ins().insert(
         key.clone(),
         SignIn {
+            id,
             input: child.stdin.take(),
             stop: Some(stop),
             page: None,
+            running,
         },
     );
+    let entry = Entry {
+        key: key.clone(),
+        id,
+    };
     if let Some(stop) = previous.and_then(|previous| previous.stop) {
         let _ = stop.send(());
     }
@@ -228,20 +266,29 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
 
     let mut tail: Vec<String> = Vec::new();
     let mut shown_url = false;
+    // Removing the account while its sign-in was starting found none to stop.
+    account.added_antigravity()?;
     let watch = async {
         tokio::select! {
             status = async {
                 while let Some(line) = lines.recv().await {
                     if !shown_url {
                         if let Some(url) = first_url(&line) {
+                            if let Some(store) = &store {
+                                if !store.confirmed().await {
+                                    return Err(CoreError::from(antigravity::WRONG_STORE));
+                                }
+                            }
                             shown_url = true;
-                            if let Some(running) = sign_ins().get_mut(&key) {
-                                running.page = Some(Page {
+                            let mut sign_ins = sign_ins();
+                            if let Some(own) = (sign_ins.get_mut(&key)).filter(|own| own.id == id) {
+                                own.page = Some(Page {
                                     agent: account.agent.as_str().to_owned(),
                                     config_path: account.config_path.clone(),
                                     url: url.to_owned(),
                                 });
                             }
+                            drop(sign_ins);
                             pages_changed(core);
                         }
                     }
@@ -253,19 +300,35 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
                         }
                     }
                 }
-                child.wait().await
+                Ok(child.wait().await)
             } => Some(status),
             _ = stopped => None,
         }
     };
     let ended = tokio::time::timeout(SIGN_IN_TIMEOUT, watch).await;
-    sign_ins().remove(&key);
+    let _ = child.kill().await;
+    drop(entry);
     pages_changed(core);
     match ended {
-        Ok(Some(Ok(status))) if status.success() => {
+        Ok(Some(Err(refused))) => Err(refused),
+        Ok(Some(Ok(Ok(status)))) if status.success() => {
+            if let Some(added) = added {
+                if let Err(removed) = account.added_antigravity() {
+                    let _ = added.forget_sign_in();
+                    return Err(removed);
+                }
+                if !added.signed_in() {
+                    return Err("Sign-in did not finish".into());
+                }
+                added
+                    .keep_private()
+                    .map_err(|_| "Could not keep this account's sign-in private")?;
+            }
             signed_in(core, &account);
             Ok(())
         }
+        // What agy prints can hold its sign-in link.
+        Ok(Some(_)) if added.is_some() => Err("Sign-in did not finish".into()),
         Ok(Some(_)) => Err(match tail.last() {
             Some(last) => format!("Sign-in did not finish: {last}"),
             None => "Sign-in did not finish".into(),
@@ -308,8 +371,22 @@ pub(super) fn cancel(account: Account) {
     }
 }
 
+/// [`cancel`], answered once the sign-in has ended.
+pub(super) async fn stop(account: Account) {
+    let running = (sign_ins().get(&account.key())).map(|sign_in| sign_in.running.clone());
+    cancel(account);
+    if let Some(mut running) = running {
+        let _ = running.changed().await;
+    }
+}
+
 pub(super) async fn sign_out(account: Account) -> CoreResult<()> {
     account.check()?;
+    if let Some(added) = account.added_antigravity()? {
+        return Ok(added
+            .forget_sign_in()
+            .map_err(|_| "Could not remove this account's sign-in")?);
+    }
     let args = account
         .agent
         .ops()

@@ -168,7 +168,7 @@
         "brand": "#4285f4",
         "maker": "Google",
         "featured": false,
-        "accounts": false,
+        "accounts": true,
         "usage": true,
         "freeModels": false,
         "deletableChats": false,

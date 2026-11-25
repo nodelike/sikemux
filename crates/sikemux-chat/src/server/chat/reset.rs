@@ -144,6 +144,17 @@ impl LimitResumes {
         true
     }
 
+    /// Makes a waiting chat due at once, saying whether it waited.
+    fn due(&self, agent_id: &str) -> bool {
+        let mut slots = self.slots.locked();
+        let Some(Slot::Waiting { waiting, timer }) = slots.get_mut(agent_id) else {
+            return false;
+        };
+        make_due(waiting, timer, epoch_ms());
+        self.save(&slots);
+        true
+    }
+
     /// The chats a reading shows room for, each made due at once.
     fn due_with_room(&self, core: &Core) -> Vec<String> {
         let now = epoch_ms();
@@ -169,10 +180,7 @@ impl LimitResumes {
         let due: Vec<String> = (roomy.into_iter())
             .filter(|agent_id| match slots.get_mut(agent_id) {
                 Some(Slot::Waiting { waiting, timer }) => {
-                    waiting.at = now;
-                    if let Some(timer) = timer.take() {
-                        timer.abort();
-                    }
+                    make_due(waiting, timer, now);
                     true
                 }
                 _ => false,
@@ -200,6 +208,13 @@ impl LimitResumes {
         };
         self.save(&slots);
         Some(waiting.prompt)
+    }
+}
+
+fn make_due(waiting: &mut Waiting, timer: &mut Option<tokio::task::AbortHandle>, now: u64) {
+    waiting.at = now;
+    if let Some(timer) = timer.take() {
+        timer.abort();
     }
 }
 
@@ -380,10 +395,10 @@ fn has_room(core: &Core, agent_id: &str, since: u64, now: u64) -> bool {
     let roomy = |env: &BTreeMap<String, String>| {
         let folder = crate::launch::named_account(&agent.provider, env);
         usage::last_reading(&agent.provider, folder).is_some_and(|reading| {
-            let windows = &reading.usage.windows;
+            let mut windows = reading.usage.deciding().peekable();
             reading.read_at > since
-                && !windows.is_empty()
-                && windows.iter().all(|window| window.used_at(now) < 100.0)
+                && windows.peek().is_some()
+                && windows.all(|window| window.used_at(now) < 100.0)
         })
     };
     let own = takers
@@ -391,7 +406,7 @@ fn has_room(core: &Core, agent_id: &str, since: u64, now: u64) -> bool {
         .as_ref()
         .map_or_else(BTreeMap::new, |account| account.env.clone());
     roomy(&own)
-        || (book.smart
+        || (book.smart_for(&agent.provider)
             && (takers.others.iter())
                 .filter(|other| book.allowed_in(&agent.cwd, &other.id))
                 .any(|other| roomy(&other.env)))
@@ -429,6 +444,15 @@ async fn resume(core: &Arc<Core>, agent_id: String) {
     }
 }
 
+/// Resumes a chat not running that waits for its limit, as it moved to another account.
+pub fn resume_now(core: &Arc<Core>, agent_id: &str) {
+    if !core.chats().resets.due(agent_id) {
+        return;
+    }
+    let (core, agent_id) = (core.clone(), agent_id.to_owned());
+    tokio::spawn(async move { resume(&core, agent_id).await });
+}
+
 /// When the account the chat runs on can be used again, from its usage.
 async fn reset_from_usage(core: &Core, launch: &ChatLaunch) -> Option<u64> {
     let provider = launch.provider.as_str();
@@ -449,10 +473,10 @@ async fn reset_from_usage(core: &Core, launch: &ChatLaunch) -> Option<u64> {
 /// whose own account resets later carries on there instead.
 fn reset_elsewhere(core: &Core, launch: &ChatLaunch) -> Option<u64> {
     let book = core.workspaces().accounts().unwrap_or_default();
-    if !book.smart {
+    let provider = launch.provider.as_str();
+    if !book.smart_for(provider) {
         return None;
     }
-    let provider = launch.provider.as_str();
     (launch.fallbacks.iter())
         .filter(|other| book.allowed_in(&launch.cwd, &other.id))
         .filter_map(|other| {

@@ -3,7 +3,7 @@
 //! way through its own CLI, and some cannot answer at all, so `Unknown` is an
 //! honest answer rather than a failure. Sikemux never reads a credential.
 
-use sikemux_process::command::Stdio;
+use sikemux_process::command::{AsyncCommand, Stdio};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_process::sync::Locked;
 
+use super::antigravity;
 use super::folders::{claude_config_file, link_shared, sessions_root};
 use super::usage::codex_app_server;
 use super::{cli, key};
@@ -181,7 +182,7 @@ pub async fn ask(
 ) -> Checked {
     let _turn = discovery::probe_turn().await;
     if agent_catalog::agent(provider).is_some_and(|agent| agent.accounts) {
-        let account = account(provider, program, config_path).await;
+        let account = account(provider, program, config_path, providers).await;
         return Checked {
             status: sign_in_of(&account),
             account: Some(account),
@@ -300,7 +301,10 @@ async fn exit_code_and_output(
     config_path: Option<&str>,
     args: &[&str],
 ) -> Option<(Option<i32>, String)> {
-    let mut command = cli(provider, program, config_path, BTreeMap::new());
+    answered(cli(provider, program, config_path, BTreeMap::new()), args).await
+}
+
+async fn answered(mut command: AsyncCommand, args: &[&str]) -> Option<(Option<i32>, String)> {
     command
         .args(args)
         .stdin(Stdio::null())
@@ -355,7 +359,7 @@ pub async fn account_sign_in(
     program: &Path,
     config_path: Option<&str>,
 ) -> AgentStatus {
-    sign_in_of(&account(provider, program, config_path).await)
+    sign_in_of(&account(provider, program, config_path, BTreeMap::new()).await)
 }
 
 pub(crate) async fn pi_sign_in(program: &Path, config_path: Option<&str>) -> AgentStatus {
@@ -367,15 +371,38 @@ pub(crate) async fn pi_sign_in(program: &Path, config_path: Option<&str>) -> Age
 
 /// `agy models` answers only when agy is signed in with Google, and a failure that does not
 /// say so, such as no network, is `Unknown`; a Gemini key Sikemux
-/// passes in `providers` stands in for it otherwise.
+/// passes in `providers` stands in for it otherwise. An added account answers only by its own
+/// sign-in.
 pub(crate) async fn antigravity_sign_in(
     program: &Path,
+    config_path: Option<&str>,
     providers: BTreeMap<String, String>,
 ) -> AgentStatus {
+    let account = match antigravity::added(config_path) {
+        Ok(account) => account,
+        Err(reason) => return AgentStatus::Broken { reason },
+    };
+    let mut command = cli("antigravity", program, config_path, BTreeMap::new());
+    if let Some(account) = account {
+        if !account.signed_in() {
+            return AgentStatus::SignedOut;
+        }
+        let Ok(question) = account.question(&mut command) else {
+            return AgentStatus::Unknown;
+        };
+        return match answered(command, &["models"]).await {
+            Some(_) if !question.on_file_store() => AgentStatus::Unknown,
+            Some((Some(0), _)) => AgentStatus::Ready {
+                account: Some("subscription".into()),
+            },
+            Some((_, said)) if says_signed_out(&said) => AgentStatus::SignedOut,
+            Some(_) | None => AgentStatus::Unknown,
+        };
+    }
     let keyed = providers
         .get("GEMINI_API_KEY")
         .is_some_and(|key| !key.trim().is_empty());
-    match exit_code_and_output("antigravity", program, None, &["models"]).await {
+    match answered(command, &["models"]).await {
         Some((Some(0), _)) => AgentStatus::Ready {
             account: Some("subscription".into()),
         },
@@ -509,14 +536,28 @@ async fn account(
     provider: &str,
     program: &Path,
     config_path: Option<&str>,
+    providers: BTreeMap<String, String>,
 ) -> Result<AccountStatus, String> {
     link_shared(provider, config_path);
-    let Some(read) =
-        AgentKind::from_name(provider).and_then(|kind| kind.ops().account(program, config_path))
-    else {
-        return Err(super::NO_ACCOUNTS.into());
+    let kind = AgentKind::from_name(provider).ok_or(super::NO_ACCOUNTS)?;
+    let mut status = match kind.ops().account(program, config_path) {
+        Some(read) => read.await?,
+        None => match check_sign_in(provider, program, config_path, providers).await {
+            AgentStatus::Ready { account } => AccountStatus {
+                signed_in: true,
+                method: account,
+                ..AccountStatus::default()
+            },
+            AgentStatus::SignedOut => AccountStatus::default(),
+            AgentStatus::Broken { reason } => return Err(reason),
+            _ => {
+                return Err(format!(
+                    "{} did not say who is signed in",
+                    kind.entry().label
+                ))
+            }
+        },
     };
-    let mut status = read.await?;
     status.sessions =
         sessions_root(provider, config_path).map(|path| path.to_string_lossy().into_owned());
     Ok(status)

@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::paths::account_dir;
 use sikemux_process::user_environment::shell_var;
 
+use crate::sessions::roots::environment_path;
+
 pub use sikemux_wire::protocol::PermissionMode;
 
 /// One agent, as the person set it up: which program, which account and which
@@ -120,7 +122,7 @@ pub fn account_environment(provider: &str, config_path: Option<&str>) -> Option<
     let variable = account_variable(provider)?;
     let directory = match config_path.map(str::trim).filter(|path| !path.is_empty()) {
         Some(path) => account_dir(path).to_string_lossy().into_owned(),
-        None => shell_var(variable)?,
+        None => environment_path(variable)?.to_string_lossy().into_owned(),
     };
     Some((variable.to_owned(), directory))
 }

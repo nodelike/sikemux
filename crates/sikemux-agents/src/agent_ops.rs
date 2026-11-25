@@ -314,8 +314,9 @@ pub trait AgentOps: Sync {
         true
     }
 
-    /// The arguments its CLI signs an account in with, for agents that keep separate accounts.
-    fn account_sign_in(&self) -> Option<&'static [&'static str]> {
+    /// The arguments its CLI signs the account in `config_path` in with, when Sikemux runs that
+    /// sign-in itself; its own command in a terminal does otherwise.
+    fn account_sign_in(&self, _config_path: Option<&str>) -> Option<Vec<String>> {
         None
     }
 

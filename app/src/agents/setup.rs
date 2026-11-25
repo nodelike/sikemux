@@ -9,6 +9,7 @@ use gpui_kit::{
     div, px, size, AnyElement, Context, Entity, FocusHandle, IntoElement, ParentElement, Pixels,
     Size, Styled, Window,
 };
+use sikemux_agents::agent_accounts::by_hand;
 use sikemux_agents::agent_accounts::status::AgentStatus;
 use sikemux_agents::agent_accounts::status::FREE_MODELS;
 use sikemux_calls::agent_accounts::Account;
@@ -582,8 +583,12 @@ fn start_sign_in(
     }
 }
 
-/// The agent's own sign-in, on the account folder it runs on now.
+/// The agent's own sign-in, on the account folder it runs on now. `None` for one Sikemux signs
+/// in, since the agent's own command would sign in the account it keeps itself.
 pub fn signing_in(agent: &Found, folder: Option<&str>) -> Option<Sheet> {
+    if folder.is_some() && by_hand(&agent.kind) {
+        return None;
+    }
     let args = agent.login.clone()?;
     let program = agent.program.clone().unwrap_or_else(|| agent.kind.clone());
     let shown = std::iter::once(agent.kind.clone())

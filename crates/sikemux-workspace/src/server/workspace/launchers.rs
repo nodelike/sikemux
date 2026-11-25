@@ -2,6 +2,7 @@
 //! behind it, and the launch a chat gets from them.
 
 use super::*;
+use crate::agent_accounts::{by_hand, BUILT_IN};
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::workspace_state::WorkspaceParts;
@@ -56,19 +57,27 @@ pub fn launcher_of(agent: &WorkspaceAgent) -> String {
 }
 
 /// The launcher, of those offered as (id, agent kind), that starts agents of `kind`: the one on the
-/// account the person chose for them, else the first of that kind.
+/// account the person chose for them, else the first of that kind, or the only one of a kind
+/// whose account the person alone picks.
 pub fn launcher_for<'a>(
     offered: impl Iterator<Item = (&'a str, &'a str)> + Clone,
     accounts: Option<&Book>,
     kind: &str,
 ) -> Option<String> {
     let chosen = accounts
-        .and_then(|book| book.selected.get(kind))
-        .map(|account| LauncherId::on(kind, account).to_string());
+        .and_then(|book| match by_hand(kind) {
+            true => Some(book.chosen(kind)),
+            false => book.selected.get(kind).cloned(),
+        })
+        .map(|account| LauncherId::on(kind, &account).to_string());
     let mut of_kind = offered.filter(|(_, provider)| *provider == kind);
     chosen
         .filter(|id| of_kind.clone().any(|(offered, _)| offered == id))
-        .or_else(|| of_kind.next().map(|(id, _)| id.to_owned()))
+        .or_else(|| {
+            of_kind
+                .find(|(id, _)| !by_hand(kind) || *id == kind)
+                .map(|(id, _)| id.to_owned())
+        })
 }
 
 /// The launcher that found `chat`. A chat that left the recent ones keeps no launcher, so
@@ -88,9 +97,10 @@ pub fn chat_launcher<'a>(published: &'a Published, chat: &Recent) -> Option<&'a 
         })
         .or_else(|| {
             chat.launcher.is_empty().then(|| {
-                published
-                    .every_launcher()
-                    .find(|launcher| launcher.agent.provider == chat.provider)
+                published.every_launcher().find(|launcher| {
+                    launcher.agent.provider == chat.provider
+                        && (!by_hand(&chat.provider) || launcher.id == chat.provider)
+                })
             })?
         })
 }
@@ -437,7 +447,7 @@ impl Workspaces {
     /// its agent had accounts asks for, means the account the person chose. One
     /// the last look did not find is still returned, since starting it looks for
     /// its program again and says why it failed; one whose profile is gone falls
-    /// back to its agent's own.
+    /// back to its agent's own, unless the person alone picks that agent's accounts.
     pub fn launcher(&self, id: &str) -> CoreResult<Launcher> {
         let provider = LauncherId::parse(id).kind;
         let wanted = {
@@ -464,12 +474,29 @@ impl Workspaces {
             .iter()
             .find_map(|want| offered.iter().find(|launcher| &launcher.id == want))
             .or_else(|| {
-                offered
-                    .iter()
-                    .find(|launcher| launcher.agent.provider == provider)
+                offered.iter().find(|launcher| {
+                    launcher.agent.provider == provider
+                        && (!by_hand(provider)
+                            || launcher.id == provider
+                                && wanted.iter().all(|want| {
+                                    (LauncherId::parse(want).account)
+                                        .is_none_or(|account| account.starts_with(BUILT_IN))
+                                }))
+                })
             })
             .cloned()
-            .ok_or_else(|| CoreError::from(format!("Sikemux has no agent called {provider}")))
+            .ok_or_else(|| {
+                let known = by_hand(provider)
+                    .then(|| crate::agent_catalog::agent(provider))
+                    .flatten();
+                CoreError::from(match known {
+                    Some(agent) => format!(
+                        "That {} account is not on this computer any more. Pick another for this chat.",
+                        agent.label
+                    ),
+                    None => format!("Sikemux has no agent called {provider}"),
+                })
+            })
     }
 
     /// Keeps the models and effort levels a launcher's session offered, so a chat of it that

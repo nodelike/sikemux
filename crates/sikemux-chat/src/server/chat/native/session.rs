@@ -234,6 +234,10 @@ impl SinkPort for ChatSink {
         self.chat.prompted()
     }
 
+    fn account_moved(&self) -> bool {
+        (self.chat.core.upgrade()).is_some_and(|core| core.workspaces().moved(self.chat.agent_id()))
+    }
+
     fn cli_version(&self, version: &str) {
         self.chat.note_cli_version(version);
     }
@@ -578,6 +582,9 @@ pub async fn run<B: Backend>(
             let started = B::start(&reaching_provider, brief.as_deref(), sink.clone()).await;
             chat.feed.let_out();
             let (backend, opened) = started?;
+            if let Some(core) = chat.core.upgrade() {
+                core.workspaces().note_moved(chat.agent_id(), false);
+            }
             sink.loaded();
             let state = SessionState {
                 session_id: opened.session_id,
@@ -617,7 +624,7 @@ pub async fn run<B: Backend>(
                 asked,
             } = *adopted;
             let [stdin, stdout, stderr] = pipes;
-            let adopted = Process::adopt(&agent, stdin, stdout, stderr)
+            let adopted = Process::adopt(&launch, &agent, stdin, stdout, stderr)
                 .inspect_err(|_| super::process::kill_and_reap(agent.pid))
                 .and_then(|process| B::adopt(&launch, sink(false), kept, process));
             match adopted {
@@ -1661,6 +1668,9 @@ fn switch_to(
     reset::cancel(chat);
     let moved = on_account(provider, launch, account);
     let launch = chat.relaunch(&moved)?;
+    if let Some(core) = chat.core.upgrade().filter(|_| moves) {
+        core.workspaces().note_moved(chat.agent_id(), true);
+    }
     if replay.is_some() {
         chat.start_prompted();
     }

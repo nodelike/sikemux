@@ -280,6 +280,10 @@ pub fn main(
 /// core starts would otherwise inherit.
 #[cfg(unix)]
 fn forget_starting_terminal() {
+    // Without the account's folder beside it, the person set it themselves.
+    if std::env::var_os(vars::ANTIGRAVITY_HOME).is_some() {
+        std::env::remove_var(vars::ANTIGRAVITY_FILE_STORE);
+    }
     for name in OPTIONAL_PTY_ENV.iter().chain(&vars::LAUNCHING_SESSION) {
         std::env::remove_var(name);
     }

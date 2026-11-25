@@ -158,13 +158,19 @@ impl Usage {
             .find(|window| window.window_minutes == Some(300) && window.scope.is_none())
     }
 
+    /// The windows that say whether the account has room. Antigravity's other makers' models have
+    /// a window of their own, which no chat here is sent to.
+    pub fn deciding(&self) -> impl Iterator<Item = &UsageWindow> {
+        let own_only = super::by_hand(&self.provider);
+        (self.windows.iter()).filter(move |window| !own_only || window.scope.is_none())
+    }
+
     /// When the account can be used again, in Unix milliseconds: once each
     /// window it has used up resets. `None` when none reads used up, or one
     /// that does never says when it resets.
     pub fn resets_at(&self) -> Option<u64> {
         let full = self
-            .windows
-            .iter()
+            .deciding()
             .filter(|window| window.used_percent >= 100.0);
         full.map(|window| window.resets_at.as_ref()?.unix_ms())
             .collect::<Option<Vec<u64>>>()?

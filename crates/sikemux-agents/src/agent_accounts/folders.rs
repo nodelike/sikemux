@@ -1,5 +1,5 @@
-//! The folders the person's accounts with Claude Code and Codex keep their
-//! sign-ins in, named by `CLAUDE_CONFIG_DIR` or `CODEX_HOME`.
+//! The folders the person's accounts keep their sign-ins in, named by the agent's variable,
+//! such as `CLAUDE_CONFIG_DIR` or `CODEX_HOME`.
 //!
 //! An account Sikemux adds links its chats, settings and tools to the default
 //! folder, so a chat can move between accounts and only the sign-in differs.
@@ -14,20 +14,31 @@ use crate::launch::{account_variable, named_account};
 use crate::sessions::roots::{account_root, environment_path};
 
 /// Marks a folder as one Sikemux made, whose shared entries it may link.
-const MARKER: &str = ".sikemux-account";
+pub(super) const MARKER: &str = ".sikemux-account";
 
 pub fn home() -> PathBuf {
     sikemux_process::paths::home().unwrap_or_default()
 }
 
-fn shares(provider: &str, name: &str) -> bool {
+/// The entries of the default folder `shared` that an added account links to.
+fn shared_entries(provider: &str, shared: &Path) -> Vec<String> {
     let links = AgentKind::from_name(provider)
         .and_then(|kind| kind.entry().home.as_ref())
         .and_then(|home| home.account_links.as_ref());
     match links {
-        Some(AccountLinks::Only(names)) => names.contains(&name),
-        Some(AccountLinks::AllBut(names)) => name != MARKER && !names.contains(&name),
-        None => false,
+        Some(AccountLinks::Only(names)) => names
+            .iter()
+            .filter(|name| shared.join(name).exists())
+            .map(|name| (*name).to_owned())
+            .collect(),
+        Some(AccountLinks::AllBut(names)) => std::fs::read_dir(shared)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|name| name != MARKER && !names.contains(&name.as_str()))
+            .collect(),
+        None => Vec::new(),
     }
 }
 
@@ -105,27 +116,21 @@ fn link_into(provider: &str, account: &Path, shared: &Path) {
     if let Some(sessions) = sessions {
         let _ = std::fs::create_dir_all(shared.join(sessions));
     }
-    let Ok(entries) = std::fs::read_dir(shared) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        let target = account.join(name);
-        if !shares(provider, name) {
-            continue;
-        }
+    for name in shared_entries(provider, shared) {
+        let (from, target) = (shared.join(&name), account.join(&name));
         let own_folder = target.symlink_metadata().is_ok_and(|meta| meta.is_dir());
-        if Some(name) == sessions && own_folder && !move_into(&target, &entry.path()) {
+        if Some(name.as_str()) == sessions && own_folder && !move_into(&target, &from) {
             eprintln!("Some chats in {target:?} have the names of chats in {shared:?}, so they stay apart");
             continue;
         }
         if target.symlink_metadata().is_ok() {
             continue;
         }
-        if let Err(error) = crate::os::symlink(&entry.path(), &target) {
+        let linked = target
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| crate::os::symlink(&from, &target));
+        if let Err(error) = linked {
             eprintln!("Could not share {name} with the account in {account:?}: {error}");
         }
     }
@@ -320,9 +325,11 @@ mod tests {
         );
         assert!(!account.join("auth.json").exists());
 
-        assert!(shares("claude", "projects"));
-        assert!(!shares("claude", ".credentials.json"));
-        assert!(!shares("claude", "daemon"));
+        let claude = home.path().join(".claude");
+        std::fs::create_dir_all(claude.join("projects")).unwrap();
+        std::fs::create_dir_all(claude.join("daemon")).unwrap();
+        std::fs::write(claude.join(".credentials.json"), "{}").unwrap();
+        assert_eq!(shared_entries("claude", &claude), ["projects"]);
     }
 
     #[test]

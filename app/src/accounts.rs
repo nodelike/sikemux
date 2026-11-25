@@ -14,6 +14,7 @@ use gpui_kit::{
     div, img, px, AppContext, Context, Entity, Image, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
+use sikemux_agents::agent_accounts::by_hand;
 use sikemux_agents::agent_accounts::status::AccountStatus;
 use sikemux_agents::agent_accounts::Book;
 use sikemux_agents::agent_accounts::Profile;
@@ -242,6 +243,11 @@ impl Accounts {
     pub fn smart(&self) -> bool {
         self.book.as_ref().is_none_or(|book| book.smart)
     }
+
+    /// Whether smart accounts picks among `provider`'s accounts.
+    pub fn smart_for(&self, provider: &str) -> bool {
+        self.smart() && !by_hand(provider)
+    }
 }
 
 /// Reads the accounts the core keeps, the first time something shows them.
@@ -382,7 +388,7 @@ pub fn sign_in_then_move(
         .profile(profile_id)
         .map(|profile| profile.provider.clone());
     if let Some(provider) = provider {
-        open_sign_in(bench, &provider, Some(profile_id), window, cx);
+        sign_in_agent(bench, &provider, Some(profile_id), window, cx);
     }
 }
 
@@ -529,8 +535,14 @@ pub fn keeps_several(bench: &Workbench, provider: &str) -> bool {
     (bench.reads.catalog.kind(provider)).is_none_or(|kind| kind.accounts)
 }
 
+/// Whether the account signs in only with its agent's own command in a terminal, as the one
+/// sign-in that agent keeps for itself does.
+pub fn signs_in_itself(profile: &Profile) -> bool {
+    by_hand(&profile.provider) && profile.config_path.is_none()
+}
+
 /// Signs the agent in: with its own command in the sheet over the window when it has one
-/// sign-in, else in the add-account dialog.
+/// sign-in or keeps this one itself, else in the add-account dialog.
 pub fn sign_in_agent(
     bench: &mut Workbench,
     provider: &str,
@@ -538,7 +550,11 @@ pub fn sign_in_agent(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    match keeps_several(bench, provider) {
+    let itself = match id.and_then(|id| bench.accounts.profile(id)) {
+        Some(profile) => signs_in_itself(profile),
+        None => by_hand(provider),
+    };
+    match keeps_several(bench, provider) && !itself {
         true => open_sign_in(bench, provider, id, window, cx),
         false => crate::agents::setup::sign_in(bench, provider, None, cx),
     }
@@ -697,6 +713,9 @@ pub fn sign_in(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>) {
     let Some(profile) = bench.accounts.profile(id).cloned() else {
         return;
     };
+    if signs_in_itself(&profile) {
+        return crate::agents::setup::sign_in(bench, &profile.provider, None, cx);
+    }
     if matches!(bench.accounts.signing.get(id), Some(SignIn::Waiting { .. })) {
         return;
     }
@@ -830,9 +849,12 @@ pub fn submit_code(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>)
             if let Err(why) = answer {
                 return bench.notify(crate::toast::error(why), cx);
             }
-            if let Some(SignIn::Waiting { code, .. }) = bench.accounts.signing.get_mut(&profile.id)
+            if let Some(SignIn::Waiting { url, code }) = bench.accounts.signing.get_mut(&profile.id)
             {
                 *code = None;
+                if by_hand(&profile.provider) {
+                    *url = None;
+                }
             }
             redraw(bench, cx);
         });
@@ -882,6 +904,10 @@ pub fn open_dialog(
 
 /// Signs an account already there in again, from the dialog.
 pub fn sign_in_again(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>) {
+    let itself = bench.accounts.profile(id).is_some_and(signs_in_itself);
+    if itself {
+        bench.accounts.dialog = None;
+    }
     if let Some(dialog) = bench.accounts.dialog.as_mut() {
         dialog.account = Some(id.to_owned());
     }

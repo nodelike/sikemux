@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, Once};
 
+use super::agent_sign_in;
 use super::changed::Topic;
 use super::connection::blocking;
 use super::workspace::refresh_launchers;
@@ -25,9 +26,9 @@ use super::{Core, CoreResult};
 use crate::acp::failure::FailureKind;
 use crate::agent_accounts::allocate::{self, Candidate, Placement};
 use crate::agent_accounts::{
-    chat_account, defaults, folders, status, unpaid, usage, Book, Profile,
+    antigravity, by_hand, chat_account, defaults, folders, status, unpaid, usage, Book, Profile,
 };
-use crate::agent_catalog::{AgentEntry, AGENTS};
+use crate::agent_catalog::{AgentEntry, AgentKind, AGENTS};
 use crate::flights::{shared, Flights};
 use crate::launch::discovery;
 use sikemux_process::sync::Locked;
@@ -126,8 +127,60 @@ pub(super) async fn save(core: &Arc<Core>, saving: Saving) -> CoreResult<Book> {
     .await
 }
 
+/// Takes the account off the list. One signed in by hand goes with the folder that holds its
+/// sign-in, so no chat may be running on it.
 pub(super) async fn remove(core: &Arc<Core>, removing: Removing) -> CoreResult<Book> {
-    change(core, |book| book.remove(&removing.id)).await
+    let book = core.workspaces().accounts().unwrap_or_default();
+    let folder = (book.profile(&removing.id))
+        .filter(|profile| by_hand(&profile.provider))
+        .and_then(|profile| profile.config_path.clone());
+    let (Some(folder), Some(profile)) = (folder, book.profile(&removing.id).cloned()) else {
+        return change(core, |book| book.remove(&removing.id)).await;
+    };
+    let in_use = || {
+        (core.chats().all().iter()).any(|chat| {
+            chat.current_launch()
+                .account
+                .is_some_and(|on| on.id == removing.id)
+        })
+    };
+    const IN_USE: &str = "Close the chats on this account, or move them to another, then remove it";
+    if in_use() {
+        return Err(IN_USE.into());
+    }
+    let account = agent_sign_in::Account {
+        agent: AgentKind::Antigravity,
+        executable_path: None,
+        config_path: Some(folder.clone()),
+    };
+    let before = book;
+    let book = change(core, |book| book.remove(&removing.id)).await?;
+    agent_sign_in::stop(account).await;
+    // A chat that was starting on it as it went.
+    if in_use() {
+        change(core, |book| {
+            book.save(profile);
+            for (agent, id) in before.selected {
+                if id == removing.id {
+                    book.selected.entry(agent).or_insert(id);
+                }
+            }
+            for (project, ids) in before.projects {
+                if ids.contains(&removing.id) {
+                    book.projects
+                        .entry(project)
+                        .or_default()
+                        .push(removing.id.clone());
+                }
+            }
+            Ok(())
+        })
+        .await?;
+        return Err(IN_USE.into());
+    }
+    let removed = tokio::task::spawn_blocking(move || antigravity::remove(&folder)).await;
+    removed.map_err(|error| error.to_string())??;
+    Ok(book)
 }
 
 pub(super) async fn select(core: &Arc<Core>, choosing: Choosing) -> CoreResult<Book> {
@@ -147,7 +200,7 @@ pub(super) async fn pick(core: &Arc<Core>, choosing: Choosing) -> CoreResult<Pic
         Ok(())
     })
     .await?;
-    let (moved, stayed) = match book.smart {
+    let (moved, stayed) = match book.smart || by_hand(&choosing.provider) {
         true => (Vec::new(), Vec::new()),
         false => move_chats(core, &choosing.provider, &choosing.id).await,
     };
@@ -247,7 +300,7 @@ pub(super) async fn set_in_project(core: &Arc<Core>, setting: InProject) -> Core
 /// each with its last reading. Empty while smart is off or fewer than two could, so one account
 /// costs nothing.
 fn candidates(book: &Book, provider: &str) -> Vec<(Profile, Option<usage::Reading>)> {
-    if !book.smart {
+    if !book.smart_for(provider) {
         return Vec::new();
     }
     let signed_in = signed_in(book, provider);
@@ -337,6 +390,7 @@ pub(crate) fn other_agent_with_room(
         let readings: Vec<(Profile, Option<usage::Reading>)> = (signed_in(book, agent.kind)
             .into_iter())
         .filter(|profile| book.allowed_in(cwd, &profile.id))
+        .filter(|profile| !by_hand(agent.kind) || profile.id == book.chosen(agent.kind))
         .map(|profile| {
             let reading = usage::last_reading(agent.kind, profile.config_path.as_deref());
             (profile, reading)
@@ -598,7 +652,7 @@ pub(super) async fn account_status(
     }
     Ok(known
         .account
-        .ok_or("Claude or Codex did not say who is signed in")??)
+        .ok_or("The agent did not say who is signed in")??)
 }
 
 pub(super) async fn usage(core: &Arc<Core>, account: Account) -> CoreResult<usage::Usage> {
@@ -722,7 +776,11 @@ pub(crate) fn turn_ended(
     account: Option<&str>,
     refused: Option<FailureKind>,
 ) {
-    let stopped = matches!(refused, Some(FailureKind::SignIn | FailureKind::Payment));
+    let stopped = match refused {
+        Some(FailureKind::SignIn | FailureKind::Payment) => true,
+        Some(FailureKind::Limit) => by_hand(provider),
+        _ => false,
+    };
     super::account_calls::turn_ended(core, stopped);
     if refused.is_none() && !unpaid::any() {
         return;
@@ -777,7 +835,7 @@ pub(super) fn chat_accounts(core: &Core, chat: ChatAccountsParams) -> CoreResult
 fn smart_pick(core: &Core, agent_id: &str) -> Option<String> {
     let agent = core.workspaces().agent(agent_id)?;
     let book = core.workspaces().accounts().unwrap_or_default();
-    if !book.smart || agent.model_provider.is_some() {
+    if !book.smart_for(&agent.provider) || agent.model_provider.is_some() {
         return None;
     }
     let chat = Placing {
@@ -801,7 +859,9 @@ pub(crate) fn stranded(core: &Core) -> Vec<Stranded> {
         let Some(why) = turn.failed.map(|failed| failed.why) else {
             continue;
         };
-        if !matches!(why, Why::Payment | Why::SignIn) {
+        let limited = why == Why::Limit
+            && (core.workspaces().agent(&agent_id)).is_some_and(|agent| by_hand(&agent.provider));
+        if !limited && !matches!(why, Why::Payment | Why::SignIn) {
             continue;
         }
         let Ok(takers) = super::chat::accounts(core, &agent_id) else {
@@ -810,9 +870,12 @@ pub(crate) fn stranded(core: &Core) -> Vec<Stranded> {
         let Some(account) = takers.current.map(named) else {
             continue;
         };
+        if limited && takers.others.is_empty() {
+            continue;
+        }
         match stranded
             .iter_mut()
-            .find(|held| held.account.id == account.id)
+            .find(|held| held.account.id == account.id && held.why == why)
         {
             Some(held) => held.chats.push(agent_id),
             None => stranded.push(Stranded {

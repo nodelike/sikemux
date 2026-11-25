@@ -134,9 +134,10 @@ pub fn name_accounts(core: &Core, launch: &mut ChatLaunch) {
 /// Whether the person lets a chat move to another of their accounts with its agent when its
 /// own runs out of usage: while smart accounts is on, as it is unless they turned it off.
 pub fn switches_at_limit(chat: &Chat) -> bool {
-    chat.core
-        .upgrade()
-        .is_none_or(|core| core.workspaces().accounts().unwrap_or_default().smart)
+    chat.core.upgrade().is_none_or(|core| {
+        let book = core.workspaces().accounts().unwrap_or_default();
+        book.smart_for(chat.provider())
+    })
 }
 
 /// The account to move to that is signed in and not known to be full for the chat: of those,

@@ -4,10 +4,11 @@
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 use sikemux_view::calls::{CallAsker, CallKind, CallOption, CallOutcome, CallResult, PersonCall};
 use sikemux_view::chat::FailureKind as Why;
 
@@ -17,7 +18,7 @@ use super::person_calls::{self, Raise, ACCOUNT_REFUSED};
 use super::workspace_state::WorkspaceParts;
 use super::Core;
 use crate::agent_accounts::allocate::{self, Candidate};
-use crate::agent_accounts::usage;
+use crate::agent_accounts::{by_hand, usage};
 
 const MOVE: &str = "move:";
 const RETRY: &str = "retry";
@@ -28,6 +29,9 @@ const GATHER: Duration = Duration::from_secs(3);
 /// Whether any of these calls is open: unknown until the first look, then no or yes.
 static OPEN: AtomicU8 = AtomicU8::new(UNKNOWN);
 const UNKNOWN: u8 = 2;
+
+/// The chats the person left stopped, by account, until their stop is over.
+static LEFT: Mutex<BTreeSet<(String, String)>> = Mutex::new(BTreeSet::new());
 
 /// A chat's turn ended, refused for its account or not: the calls are looked at again when that
 /// could change them.
@@ -77,8 +81,16 @@ fn sync(core: &Core) {
     let mut wanted: HashMap<(String, String), (Why, NamedAccount, Vec<NamedAccount>)> =
         HashMap::new();
     let mut stopped: HashMap<(String, String), BTreeSet<String>> = HashMap::new();
-    for held in stranded(core) {
+    let held = stranded(core);
+    let mut left = LEFT.locked();
+    left.retain(|(account, chat)| {
+        (held.iter()).any(|held| held.account.id == *account && held.chats.contains(chat))
+    });
+    for held in held {
         for chat in &held.chats {
+            if left.contains(&(held.account.id.clone(), chat.clone())) {
+                continue;
+            }
             let project = core.names().get(chat).map(|named| named.project);
             let Some(project) = project.filter(|project| !project.is_empty()) else {
                 continue;
@@ -90,6 +102,7 @@ fn sync(core: &Core) {
                 .or_insert_with(|| (held.why, held.account.clone(), held.to.clone()));
         }
     }
+    drop(left);
     let asked: Vec<Asked> = (person_calls::raised_open(core).into_iter())
         .filter_map(|call| {
             let (account, chats) = parse(&person_calls::key_of(core, &call.id)?)?;
@@ -155,18 +168,25 @@ fn call_for(
         many => format!("{many} chats"),
     };
     let label = &account.label;
+    let resumes = (chats.iter()).all(|chat| core.chats().resets.resumes_at(chat).is_some());
     let (kind, question, context, retry) = match why {
         Why::SignIn => (
             CallKind::Access,
             format!("{label} is signed out, so {count} stopped"),
             format!("{them} stopped when the provider refused {label}'s sign-in."),
-            ("Sign in again, then retry them", "From Settings, Accounts"),
+            Some(("Sign in again, then retry them", "From Settings, Accounts")),
+        ),
+        Why::Limit => (
+            CallKind::Access,
+            format!("{label} is out of usage, so {count} stopped"),
+            format!("{them} stopped at {label}'s usage limit."),
+            None,
         ),
         _ => (
             CallKind::Money,
             format!("{label} is past due, so {count} stopped"),
             format!("{them} stopped when the provider refused {label}'s unpaid plan."),
-            ("Pay, then retry them", "At claude.ai/settings/billing"),
+            Some(("Pay, then retry them", "At claude.ai/settings/billing")),
         ),
     };
     let book = core
@@ -199,17 +219,33 @@ fn call_for(
             }),
         })
         .collect();
-    let pick = allocate::place(&candidates, allocate::Chat::default(), epoch_ms())
-        .map(|placed| placed.id)
-        .or_else(|| to.first().map(|other| other.id.clone()));
+    let by_hand = provider.as_deref().is_some_and(by_hand);
+    let pick = match by_hand {
+        true => (readings.iter())
+            .min_by(|(_, one), (_, other)| {
+                let used = |reading| nearest(reading).unwrap_or(f64::INFINITY);
+                used(one.as_ref()).total_cmp(&used(other.as_ref()))
+            })
+            .map(|(other, _)| other.id.clone()),
+        false => allocate::place(&candidates, allocate::Chat::default(), epoch_ms())
+            .map(|placed| placed.id)
+            .or_else(|| to.first().map(|other| other.id.clone())),
+    };
     let mut moves: Vec<CallOption> = (readings.iter())
         .map(|(other, reading)| CallOption {
             id: format!("{MOVE}{}", other.id),
             label: match pick.as_deref() == Some(other.id.as_str()) {
+                _ if why == Why::Limit && chats.len() == 1 => {
+                    format!("Carry on with {}", other.label)
+                }
+                _ if why == Why::Limit => format!("Carry them on with {}", other.label),
                 true => format!("Move all {} to {}", chats.len(), other.label),
                 false => format!("Move them to {}", other.label),
             },
-            detail: Some(used(reading.as_ref())),
+            detail: Some(match why {
+                Why::Limit => room(reading.as_ref()),
+                _ => used(reading.as_ref()),
+            }),
             picture: None,
         })
         .collect();
@@ -220,8 +256,12 @@ fn call_for(
         detail: (!detail.is_empty()).then(|| detail.to_owned()),
         picture: None,
     };
-    moves.push(option(RETRY, retry));
-    moves.push(option(LEAVE, ("Leave them stopped", "")));
+    moves.extend(retry.map(|retry| option(RETRY, retry)));
+    let leave = match (why, resumes) {
+        (Why::Limit, true) => ("Wait for the limit to reset", "They carry on by themselves"),
+        _ => ("Leave them stopped", ""),
+    };
+    moves.push(option(LEAVE, leave));
     Raise {
         project,
         kind,
@@ -261,6 +301,22 @@ fn used(reading: Option<&usage::Reading>) -> String {
     }
 }
 
+/// How much the account has left before its nearest limit, such as "62% left".
+fn room(reading: Option<&usage::Reading>) -> String {
+    match nearest(reading) {
+        Some(used) => format!("{:.0}% left", (100.0 - used).max(0.0)),
+        None => "Its use is not read yet".to_owned(),
+    }
+}
+
+/// How much of the limit it is nearest to the account has used.
+fn nearest(reading: Option<&usage::Reading>) -> Option<f64> {
+    let now = epoch_ms();
+    (reading?.usage.deciding())
+        .map(|window| window.used_at(now))
+        .reduce(f64::max)
+}
+
 fn ended(result: CallResult) -> CallOutcome {
     CallOutcome {
         result,
@@ -269,6 +325,11 @@ fn ended(result: CallResult) -> CallOutcome {
         why: None,
         at: epoch_ms(),
     }
+}
+
+fn signed_in_by_hand(core: &Core, account: &str) -> bool {
+    let book = core.workspaces().accounts().unwrap_or_default();
+    (book.with_built_ins().profile(account)).is_some_and(|profile| by_hand(&profile.provider))
 }
 
 /// The person answered: the chats still on the refused account move or retry as they picked.
@@ -304,6 +365,14 @@ pub(crate) async fn answered(core: &Arc<Core>, call: &PersonCall, key: &str) {
                     let _ = running.retry_failed();
                 }
             }
+        }
+        _ if signed_in_by_hand(core, &account) => {
+            let mut left = LEFT.locked();
+            left.extend(
+                chats
+                    .into_iter()
+                    .map(|chat| (account.clone(), chat.clone())),
+            );
         }
         _ => {}
     }

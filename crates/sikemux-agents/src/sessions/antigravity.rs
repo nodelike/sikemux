@@ -9,8 +9,11 @@ use super::grok::percent_decode;
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::AgentSession;
 use super::FileStamp;
+use crate::agent_accounts::antigravity;
+use crate::agent_accounts::sign_in::SignIn;
 use crate::agent_accounts::status::AgentStatus;
 use crate::agent_ops::{AgentOps, Pending, SessionPlaces};
+use crate::launch::named_account;
 use crate::launch::tools::TerminalSetup;
 
 fn antigravity_root() -> Option<PathBuf> {
@@ -293,21 +296,40 @@ impl AgentOps for Antigravity {
     fn sign_in_status<'a>(
         &self,
         program: &'a Path,
-        _config_path: Option<&'a str>,
+        config_path: Option<&'a str>,
         providers: BTreeMap<String, String>,
     ) -> Pending<'a, AgentStatus> {
         Box::pin(crate::agent_accounts::status::antigravity_sign_in(
-            program, providers,
+            program,
+            config_path,
+            providers,
         ))
+    }
+
+    fn seed_account(&self, home: &Path, directory: &Path) -> Result<(), String> {
+        antigravity::seed(home, directory)
+    }
+
+    fn signed_in(&self, env: &BTreeMap<String, String>) -> Option<SignIn> {
+        let account = antigravity::added_in(env).transpose()?;
+        Some(match account.is_ok_and(|account| account.signed_in()) {
+            true => SignIn::Account(named_account("antigravity", env)?.to_owned()),
+            false => SignIn::SignedOut,
+        })
+    }
+
+    fn account_sign_in(&self, config_path: Option<&str>) -> Option<Vec<String>> {
+        Some(antigravity::added(config_path).ok()??.sign_in_args())
     }
 
     fn usage<'a>(
         &self,
         program: &'a Path,
-        _config_path: Option<&'a str>,
+        config_path: Option<&'a str>,
     ) -> Option<Pending<'a, Result<crate::agent_accounts::usage::Usage, String>>> {
         Some(Box::pin(crate::agent_accounts::plan_limits::antigravity(
             program,
+            config_path,
         )))
     }
 

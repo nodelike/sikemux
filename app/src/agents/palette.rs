@@ -5,6 +5,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui_kit::{Context, SharedString, Window};
+use sikemux_agents::agent_accounts::by_hand;
 use sikemux_calls::agent_sign_in::LauncherParams;
 use sikemux_calls::call;
 use sikemux_view::device::FoundBy;
@@ -57,7 +58,7 @@ impl Workbench {
             AGENT_PALETTE,
             t!("search agents"),
             rows,
-            move |row, bench, _, cx| {
+            move |row, bench, window, cx| {
                 let key: &str = &row.key;
                 if let Some(launcher) = key.strip_prefix(NEW) {
                     let provider = launcher_of(bench, launcher)
@@ -79,7 +80,7 @@ impl Workbench {
                         Some(launch_mode),
                     );
                 } else if let Some(launcher) = key.strip_prefix(SIGN_IN) {
-                    sign_in(bench, launcher, cx);
+                    sign_in(bench, launcher, window, cx);
                 } else if let Some(launcher) = key.strip_prefix(INSTALL) {
                     install(bench, launcher, cx);
                 } else if let Some(agent) = key.strip_prefix(OPEN) {
@@ -273,10 +274,19 @@ fn launcher_of<'a>(bench: &'a Workbench, id: &str) -> Option<&'a LauncherInfo> {
 
 /// Signs the launcher's agent in: the core does it for the agents whose accounts it keeps,
 /// and the agent's own command runs in Settings › Agents for the rest.
-fn sign_in(bench: &mut Workbench, launcher: &str, cx: &mut Context<Workbench>) {
+fn sign_in(
+    bench: &mut Workbench,
+    launcher: &str,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
     let Some(provider) = launcher_of(bench, launcher).map(|known| known.provider.clone()) else {
         return;
     };
+    if by_hand(&provider) {
+        let account = launcher.split_once(':').map(|(_, id)| id);
+        return crate::accounts::sign_in_agent(bench, &provider, account, window, cx);
+    }
     // An agent with accounts is signed in by the core; the rest sign in with their own command,
     // in the box over the window.
     if bench

@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
+use sikemux_wire::protocol::ChatLaunch;
 use tokio::net::unix::pipe;
 use tokio::sync::{oneshot, watch};
 
@@ -103,6 +104,7 @@ impl Process {
     /// stopped. The agent is a child of this process still, so its exit is
     /// collected as one.
     pub fn adopt(
+        launch: &ChatLaunch,
         record: &AgentRecord,
         stdin: OwnedFd,
         stdout: OwnedFd,
@@ -111,6 +113,7 @@ impl Process {
         let pipes = open(stdin, stdout, stderr)
             .map_err(|error| format!("The agent's pipes cannot be read: {error}"))?;
         Ok(Self::take_up(
+            launch,
             record.pid,
             pipes,
             Exit,

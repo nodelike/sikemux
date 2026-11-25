@@ -5,6 +5,7 @@
 //! reads or stores a credential.
 
 pub mod allocate;
+pub mod antigravity;
 mod claude_resets;
 pub mod defaults;
 pub mod folders;
@@ -84,7 +85,7 @@ pub struct Book {
     pub selected: BTreeMap<String, String>,
     /// Whether each new chat starts on the account whose week ends soonest, and a chat at a
     /// usage limit carries on in the account with the most left. On unless the person turns
-    /// it off; a chat never moves to another agent's account.
+    /// it off; a chat never moves to another agent's account. Read it with [`Book::smart_for`].
     #[serde(default = "smart_by_default")]
     pub smart: bool,
     /// The accounts new chats in a project may start on, by the project's folder, so a work
@@ -108,10 +109,21 @@ impl Default for Book {
     }
 }
 
+/// Whether only the person ever moves `provider`'s chats between its accounts: its maker does not
+/// support a program choosing among them.
+pub fn by_hand(provider: &str) -> bool {
+    crate::agent_catalog::agent(provider).is_some_and(|agent| agent.accounts_by_hand)
+}
+
 /// What the ids of the accounts each agent starts with begin with.
 pub const BUILT_IN: &str = "builtin-";
 
 impl Book {
+    /// Whether smart accounts picks among `provider`'s accounts.
+    pub fn smart_for(&self, provider: &str) -> bool {
+        self.smart && !by_hand(provider)
+    }
+
     pub fn check(&self) -> Result<(), String> {
         let long = |text: &str| text.len() > MAX_TEXT;
         let oversized = self.profiles.iter().any(|profile| {
@@ -395,11 +407,14 @@ pub fn cli(
         .envs(login_shell_environment())
         .envs(spec.launch(program.to_path_buf(), providers).env)
         .kill_on_drop(true);
+    if provider == "antigravity" {
+        command.envs(antigravity::file_store(config_path));
+    }
     command
 }
 
 /// What an agent that keeps no accounts of its own answers when asked for one.
-pub const NO_ACCOUNTS: &str = "Only Claude and Codex keep separate accounts";
+pub const NO_ACCOUNTS: &str = "Only Claude, Codex and Antigravity keep separate accounts";
 
 /// The core's calls about accounts and their limits, all of them the app's own.
 pub const METHODS: [&str; 18] = [

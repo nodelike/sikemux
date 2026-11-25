@@ -562,8 +562,8 @@ impl AgentOps for Codex {
         Some(said)
     }
 
-    fn account_sign_in(&self) -> Option<&'static [&'static str]> {
-        Some(&["login"])
+    fn account_sign_in(&self, _config_path: Option<&str>) -> Option<Vec<String>> {
+        Some(["login"].map(str::to_owned).to_vec())
     }
 
     fn account_sign_out(&self) -> Option<&'static [&'static str]> {

@@ -199,14 +199,20 @@ fn opencode_usage(answer: &Value) -> Option<Usage> {
 /// Antigravity's five-hour and weekly limits per model group, as `agy -p /usage` prints them.
 /// Signed out, agy's print mode opens Google's sign-in in the person's browser, so it runs
 /// only once `agy models`, which never does, says agy is signed in.
-pub async fn antigravity(program: &Path) -> Result<Usage, String> {
-    let signed_in = super::status::antigravity_sign_in(program, BTreeMap::new()).await;
+pub async fn antigravity(program: &Path, config_path: Option<&str>) -> Result<Usage, String> {
+    let signed_in = super::status::antigravity_sign_in(program, config_path, BTreeMap::new()).await;
     if !matches!(signed_in, AgentStatus::Ready { .. }) {
         return Err(super::usage::SIGNED_OUT.to_owned());
     }
-    let command = super::cli("antigravity", program, None, BTreeMap::new());
+    let mut command = super::cli("antigravity", program, config_path, BTreeMap::new());
+    let question = super::antigravity::added(config_path)?
+        .map(|account| account.question(&mut command))
+        .transpose()?;
     let args = ["-p", "/usage", "--output-format", "json"];
     let printed = super::usage::ask("Antigravity", "usage lookup", command, &args, "").await?;
+    if question.is_some_and(|question| !question.on_file_store()) {
+        return Err(super::antigravity::WRONG_STORE.to_owned());
+    }
     let answer: Value = serde_json::from_str(printed.trim())
         .map_err(|_| "Antigravity's usage did not read".to_owned())?;
     antigravity_usage(&answer).ok_or_else(|| NO_LIMITS.to_owned())
@@ -275,7 +281,7 @@ mod tests {
         std::fs::write(&agy, script).expect("fake agy");
         std::fs::set_permissions(&agy, std::fs::Permissions::from_mode(0o755)).expect("mode");
 
-        let read = antigravity(&agy).await;
+        let read = antigravity(&agy, None).await;
 
         assert_eq!(read.err().as_deref(), Some(super::super::usage::SIGNED_OUT));
         assert!(!opened.exists(), "agy's print mode ran while signed out");

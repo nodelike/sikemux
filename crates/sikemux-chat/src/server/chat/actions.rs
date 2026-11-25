@@ -2,7 +2,7 @@
 
 use super::offers::{choose_before_start, choose_while_asleep, keep_model_choice};
 use super::*;
-use crate::agent_accounts::Takers;
+use crate::agent_accounts::{by_hand, chat_account, Takers};
 use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 
@@ -366,13 +366,26 @@ pub async fn letter(
 /// with no chat running starts on it next time.
 pub async fn move_chat(core: &Arc<Core>, agent_id: &str, account: ChatAccount) -> CoreResult<()> {
     validate_account(&account)?;
-    let before = core.workspaces().agent_or_gone(agent_id)?.profile_id;
+    let agent = core.workspaces().agent_or_gone(agent_id)?;
+    let account = match by_hand(&agent.provider) {
+        true => {
+            let book = core.workspaces().accounts().unwrap_or_default();
+            (book.with_built_ins().profile(&account.id))
+                .filter(|profile| profile.provider == agent.provider)
+                .map(chat_account)
+                .ok_or("That account is not on this computer any more")?
+        }
+        false => account,
+    };
+    let before = agent.profile_id;
     let to = account.id.clone();
     core.workspaces()
         .edit_agent(agent_id, |agent| agent.profile_id = Some(to))?;
     if core.chats().get(agent_id).is_none() {
         if before.as_deref() != Some(account.id.as_str()) {
+            core.workspaces().note_moved(agent_id, true);
             tell_sleeping(core, agent_id, before.as_deref(), &account).await;
+            super::reset::resume_now(core, agent_id);
         }
         return Ok(());
     }

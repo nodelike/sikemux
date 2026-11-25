@@ -16,6 +16,7 @@ use sikemux_view::chat::{Handoff, HandoffSide};
 use sikemux_wire::protocol::ChatContext;
 
 use super::feed::{Feed, HandedOver};
+use crate::agent_accounts::by_hand;
 use crate::agent_catalog::AgentKind;
 use crate::server::workspace::{AgentPatch, ChatChoice, UpdateAgentParams};
 use crate::server::{Core, CoreError, CoreResult};
@@ -443,7 +444,7 @@ async fn go_back(
     let book = core.workspaces().accounts().unwrap_or_default();
     let profile_id = back
         .profile_id
-        .filter(|id| book.can_keep(&back.provider, id, &source.cwd));
+        .filter(|id| by_hand(&back.provider) || book.can_keep(&back.provider, id, &source.cwd));
     let patch = AgentPatch {
         provider: Some(back.provider),
         profile_id: Some(profile_id),
@@ -508,6 +509,10 @@ pub fn offer_another_agent(chat: &super::Chat, launch: &sikemux_wire::protocol::
         return;
     }
     let from = chat.provider();
+    // Antigravity's chat may still go on with another of its own accounts, which it offers.
+    if by_hand(from) && !launch.fallbacks.is_empty() {
+        return;
+    }
     let Some(other) = (core.chat_above().other_agent_with_room)(&book, from, &launch.cwd) else {
         return;
     };

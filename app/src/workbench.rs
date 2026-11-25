@@ -664,7 +664,8 @@ impl Workbench {
     /// agent alone while smart accounts places it, so the core picks the account, else the
     /// launcher.
     pub fn new_chat_launcher(&self, launcher: &LauncherInfo) -> String {
-        let placed = self.accounts.smart() && self.accounts.of(&launcher.provider).len() > 1;
+        let placed = self.accounts.smart_for(&launcher.provider)
+            && self.accounts.of(&launcher.provider).len() > 1;
         match placed {
             true => launcher.provider.clone(),
             false => launcher.id.clone(),
@@ -698,7 +699,7 @@ impl Workbench {
     pub fn usage_peak(&self, launcher: &str) -> Option<f64> {
         let usage = self.usage_of(launcher)?.usage.as_ref()?;
         let now = crate::ui::time::now_ms();
-        (usage.windows.iter())
+        (usage.deciding())
             .map(|window| window.used_at(now))
             .reduce(f64::max)
     }

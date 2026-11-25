@@ -84,12 +84,11 @@ pub fn mark_terminals(saved: &mut Saved) {
 
 /// Names the account each chat kept before chats named theirs ran on: the one its agent was
 /// set to then.
-pub fn name_accounts(saved: &mut Saved) {
+pub fn name_accounts(saved: &mut Saved, of: fn(&crate::agent_catalog::AgentEntry) -> bool) {
     let book = saved.accounts.clone().unwrap_or_default();
     for kept in &mut saved.agents {
         let agent = &mut kept.agent;
-        let keeps_accounts =
-            crate::agent_catalog::agent(&agent.provider).is_some_and(|entry| entry.accounts);
+        let keeps_accounts = crate::agent_catalog::agent(&agent.provider).is_some_and(of);
         if agent.profile_id.is_none() && keeps_accounts {
             agent.profile_id = Some(book.chosen(&agent.provider));
         }
@@ -303,6 +302,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 accounts: std::collections::BTreeMap::new(),
                 program: None,
                 held: false,
+                moved: false,
                 place: ListPlace::default(),
             });
         }

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use sikemux_view::chat::SIDE_URI;
 use sikemux_wire::protocol::ChatContext;
 
+use crate::agent_accounts::by_hand;
 use crate::server::workspace::ChatChoice;
 use crate::server::{Core, CoreError, CoreResult};
 
@@ -29,7 +30,7 @@ pub async fn start(core: &Arc<Core>, params: SideChatParams) -> CoreResult<SideC
     }
     let own = (main.profile_id.as_ref()).map(|profile| format!("{}:{profile}", main.provider));
     let launcher = own
-        .filter(|own| core.workspaces().launcher(own).is_ok())
+        .filter(|own| by_hand(&main.provider) || core.workspaces().launcher(own).is_ok())
         .unwrap_or_else(|| main.provider.clone());
     let choice = ChatChoice {
         launcher,

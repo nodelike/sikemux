@@ -43,7 +43,7 @@ const FLAGS = [
   "relocatableSessions",
 ];
 /** Yes-or-no facts only the core reads, which clients are never sent. */
-const CORE_FLAGS = ["historyBeforeStart"];
+const CORE_FLAGS = ["historyBeforeStart", "accountsByHand"];
 const DRIVERS = ["claude", "codex", "muse", "pi", "opencode", "acp"];
 const PROVIDERS = ["routed", "reads"];
 const ROUTED_APIS = ["anthropic", "responses", "chat", "gemini"];
@@ -659,6 +659,9 @@ pub struct AgentEntry {
 ${FLAGS.map((flag) => `    pub ${snake(flag)}: bool,`).join("\n")}
     /// Whether a resumed chat shows its saved history before its agent starts.
     pub history_before_start: bool,
+    /// Whether the person alone chooses its accounts, as its maker does not support software
+    /// that switches between them.
+    pub accounts_by_hand: bool,
     pub bypass: bool,
     /// Whether it has Auto: its own reviewer approves what is safe and asks the person the rest.
     pub auto: bool,
