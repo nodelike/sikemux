@@ -502,10 +502,15 @@ fn fold_along(
         .clone();
     let size = measured.get();
     let open = shown >= 1. || (whole_first && size == 0.);
-    let slot = div().flex().overflow_hidden().opacity(shown);
+    let slot = div().flex().opacity(shown);
     let slot = match along {
-        Along::Down => slot.flex_col().when(!open, |slot| slot.h(px(size * shown))),
-        Along::Across => slot.when(!open, |slot| slot.w(px(size * shown)).min_w_0()),
+        Along::Down => slot
+            .flex_col()
+            .min_h_0()
+            .when(!open, |slot| slot.overflow_hidden().h(px(size * shown))),
+        Along::Across => slot
+            .overflow_hidden()
+            .when(!open, |slot| slot.w(px(size * shown)).min_w_0()),
     };
     slot.child(div().flex_none().child(body))
         .on_children_prepainted(move |bounds, _, _| {
