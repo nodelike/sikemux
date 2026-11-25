@@ -423,11 +423,12 @@ impl Director {
         Ok(())
     }
 
-    pub(super) fn pump(&mut self) {
+    pub(super) fn pump(&mut self) -> anyhow::Result<()> {
         #[cfg(target_os = "macos")]
-        native::run_loop();
+        native::run_loop()?;
         self.cx.update(|cx| cx.set_reduce_motion(false));
         self.cx.run_until_parked();
+        Ok(())
     }
 
     pub(super) fn frame(&mut self) -> anyhow::Result<()> {
@@ -448,13 +449,13 @@ impl Director {
             self.seed_calls();
             self.apply()?;
             self.cx.advance_clock(step);
-            self.pump();
+            self.pump()?;
             self.cx
                 .update_window(self.window, |_, window, cx| {
                     window.simulate_next_frame(cx);
                 })
                 .map_err(|error| anyhow!("{error}"))?;
-            self.pump();
+            self.pump()?;
             self.cx
                 .update_window(self.window, |_, window, cx| window.draw(cx).clear(cx))
                 .map_err(|error| anyhow!("{error}"))?;
@@ -742,7 +743,7 @@ impl Director {
         let started = Instant::now();
         let step = Duration::from_millis(50);
         while started.elapsed() < Duration::from_secs_f64(seconds) {
-            self.pump();
+            self.pump()?;
             std::thread::sleep(step);
             self.waited_ms += 50.;
             self.write_clock();
@@ -793,7 +794,7 @@ impl Director {
         while pressed.elapsed().as_secs_f64() < seconds {
             let frame = Instant::now();
             self.cx.advance_clock(Duration::from_secs_f64(1. / FPS));
-            self.pump();
+            self.pump()?;
             self.cx
                 .update_window(self.window, |_, window, cx| window.draw(cx).clear(cx))
                 .map_err(|error| anyhow!("{error}"))?;
@@ -877,7 +878,7 @@ impl Director {
             "hold" => {
                 let started = Instant::now();
                 while started.elapsed() < Duration::from_secs_f64(seconds(0).unwrap_or(1.)) {
-                    self.pump();
+                    self.pump()?;
                     std::thread::sleep(Duration::from_millis(20));
                 }
             }

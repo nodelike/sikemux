@@ -12,21 +12,29 @@ use objc2::runtime::AnyObject;
 use objc2::{msg_send, MainThreadMarker};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType,
-    NSBitmapImageRep, NSImage, NSView, NSWindow, NSWindowStyleMask,
+    NSBitmapImageRep, NSImage, NSView, NSWindow, NSWindowNumberListOptions, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSDictionary, NSError, NSIntersectionRect, NSNumber, NSPoint, NSRect, NSSize,
 };
 use objc2_web_kit::{WKSnapshotConfiguration, WKWebView};
 
-/// Lets WebKit and AppKit do what they have waiting, without blocking.
-pub fn run_loop() {
+/// Lets WebKit and AppKit do what they have waiting, without blocking, and fails if that put a
+/// window of the film's where the person, or a list of windows they pick from, could show it.
+pub fn run_loop() -> anyhow::Result<()> {
     core_foundation::runloop::CFRunLoop::run_in_mode(
         // SAFETY: a constant CoreFoundation sets up when it loads.
         unsafe { core_foundation::runloop::kCFRunLoopDefaultMode },
         Duration::ZERO,
         false,
     );
+    let mtm = MainThreadMarker::new().context("a film runs on the main thread")?;
+    let shown = NSWindow::windowNumbersWithOptions(NSWindowNumberListOptions::AllSpaces, mtm);
+    anyhow::ensure!(
+        shown.is_none_or(|shown| shown.is_empty()),
+        "a window of the film's is on screen"
+    );
+    Ok(())
 }
 
 pub struct StandIn {
@@ -36,7 +44,7 @@ pub struct StandIn {
 }
 
 impl StandIn {
-    /// A borderless window as big as the filmed one, far off screen, whose view the
+    /// A borderless window as big as the filmed one, never put on screen, whose view the
     /// offscreen window's native views are added to.
     pub fn open(size: (f32, f32)) -> Option<Self> {
         let mtm = MainThreadMarker::new()?;
@@ -47,7 +55,7 @@ impl StandIn {
         let window = unsafe {
             NSWindow::initWithContentRect_styleMask_backing_defer(
                 mtm.alloc(),
-                NSRect::new(NSPoint::new(-20_000., -20_000.), size),
+                NSRect::new(NSPoint::ZERO, size),
                 NSWindowStyleMask::Borderless,
                 NSBackingStoreType::Buffered,
                 false,
@@ -57,7 +65,6 @@ impl StandIn {
         unsafe { window.setReleasedWhenClosed(false) };
         let view = NSView::initWithFrame(mtm.alloc(), NSRect::new(NSPoint::ZERO, size));
         window.setContentView(Some(&view));
-        window.orderBack(None);
         gpui_native_view::stand_in_for_offscreen(view.clone());
         Some(Self {
             _window: window,
@@ -157,7 +164,7 @@ impl StandIn {
             if started.elapsed() > Duration::from_secs(10) {
                 return Err(anyhow!("WebKit never drew a page"));
             }
-            run_loop();
+            run_loop()?;
             std::thread::sleep(Duration::from_millis(5));
         }
         let png = taken
