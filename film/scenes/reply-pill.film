@@ -1,0 +1,38 @@
+# A reply to one part of an answer: its pill in the draft and in the sent message, and the part it
+# quotes, gone to and marked by a click on the sent pill once it is far up.
+stage 1760 1000
+window 1760 1000
+replies reply-pill.json
+prefer themeId aura-noir
+prefer starAsked true
+project storefront shop
+chat Wren
+title "Order emails"
+settle 4
+front Wren
+say "How do order emails go out?"
+settle 8
+say "Where does that live?"
+settle 8
+move 600,400 0.3
+scroll 3000
+settle 1
+click 800,840
+type "Why is"
+move 800,313 0.3
+move 1267,313 0.3
+wait 0.5
+click 1267,313
+wait 0.5
+type "on hold for that long?"
+settle 1
+snap reply-pill-draft
+key enter
+settle 8
+move 800,500 0.3
+scroll -6000
+settle 1
+snap reply-pill-sent
+click 1012,595
+wait 0.6
+snap reply-pill-shown
