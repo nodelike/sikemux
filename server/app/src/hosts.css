@@ -151,6 +151,10 @@
   flex: none;
 }
 
+.phones-rows .row {
+  column-gap: 11px;
+}
+
 .host-key {
   display: inline-flex;
   align-items: center;

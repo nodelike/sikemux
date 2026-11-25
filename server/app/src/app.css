@@ -1979,29 +1979,6 @@ dialog.dlg::backdrop {
 .box > form {
   display: contents;
 }
-.staff-only {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.plan-cards {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
-}
-.built {
-  margin-left: 8px;
-  color: var(--two);
-  font-size: 11px;
-  white-space: nowrap;
-}
-.built[data-built="partly"] {
-  color: var(--warn-ink);
-}
-.runs-on {
-  color: var(--two);
-  font-size: 12px;
-}
 
 /* Sign-in and the pages that stand alone. */
 .lit {
@@ -2245,59 +2222,4 @@ dialog.dlg::backdrop {
   color: var(--ok-ink);
   font-style: normal;
   font-size: var(--t3);
-}
-.staff-only > svg {
-  flex: none;
-}
-.plan-card {
-  grid-column: auto;
-}
-.plan-card[data-chosen] {
-  box-shadow: inset 0 0 0 1px var(--acc-ring);
-}
-.plan-card h3 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--lit);
-  font-weight: 600;
-}
-.plan-card .aside,
-.plan-card .tag,
-.plan-card .plus {
-  color: var(--two);
-  font-size: var(--t2);
-  font-weight: 500;
-}
-.plan-card .price {
-  color: var(--lit);
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -0.025em;
-  line-height: 1.1;
-}
-.plan-card .price small {
-  color: var(--two);
-  font-size: var(--t);
-  font-weight: 500;
-  letter-spacing: 0;
-}
-.plan-card .features {
-  display: grid;
-  gap: 6px;
-  color: var(--two);
-  font-size: var(--t2);
-}
-.plan-card .features li {
-  display: flex;
-  gap: 8px;
-}
-.plan-card .features svg {
-  flex: none;
-  margin-top: 3px;
-  color: var(--ok);
-}
-.plan-card-foot {
-  margin-top: auto;
-  padding-top: 6px;
 }

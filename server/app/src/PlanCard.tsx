@@ -1,55 +1,61 @@
+import { IconCheck, IconClock, IconMinus } from "@shared/ui/Icons";
 import type { Money } from "@sikemux/protocol";
-import { IconCheck } from "@shared/ui/Icons";
 import type { ReactNode } from "react";
 
 import { money } from "./money.ts";
 
-export type CardLine = { key: string; text: ReactNode };
+export type BuiltState = "built" | "partly" | "no";
+
+export type CardLine = {
+  key: string;
+  text: ReactNode;
+  state?: BuiltState;
+};
+
+const STATE_ICON: Record<BuiltState, ReactNode> = {
+  built: <IconCheck size={14} />,
+  partly: <IconMinus size={14} />,
+  no: <IconClock size={14} />,
+};
 
 export function PlanCard({
   name,
-  aside,
   price,
-  per,
-  tag,
+  summary,
   plus,
   lines,
-  chosen,
   children,
 }: {
   name: ReactNode;
-  aside?: ReactNode;
   price?: Money;
-  per?: string;
-  tag?: ReactNode;
+  summary?: ReactNode;
   plus?: string;
   lines: CardLine[];
-  chosen?: boolean;
   children?: ReactNode;
 }) {
   return (
-    <section className="card plan-card" data-chosen={chosen || undefined}>
-      <h3>
-        {name}
-        {aside ? <span className="aside">{aside}</span> : null}
-      </h3>
-      {price ? (
-        <div className="price">
-          {money(price, { cents: false })}
-          {per ? <small> {per}</small> : null}
-        </div>
+    <section className="plan-col">
+      <h2>{name}</h2>
+      {price || summary ? (
+        <p className="plan-price">
+          {price ? <strong>{money(price, { cents: false })}</strong> : null}
+          {price && summary ? " " : null}
+          {summary}
+        </p>
       ) : null}
-      {tag ? <div className="tag">{tag}</div> : null}
-      {plus ? <div className="plus">{plus}</div> : null}
-      <ul className="features">
-        {lines.map((line) => (
-          <li key={line.key}>
-            <IconCheck size={13} />
-            <span>{line.text}</span>
-          </li>
-        ))}
+      {plus ? <p className="plan-plus">{plus}</p> : null}
+      <ul className="plan-feats">
+        {lines.map((line) => {
+          const state = line.state ?? "built";
+          return (
+            <li key={line.key} className={state}>
+              {STATE_ICON[state]}
+              <span>{line.text}</span>
+            </li>
+          );
+        })}
       </ul>
-      {children ? <div className="plan-card-foot">{children}</div> : null}
+      {children ? <div className="plan-foot">{children}</div> : null}
     </section>
   );
 }

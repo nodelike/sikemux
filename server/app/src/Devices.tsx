@@ -6,6 +6,7 @@ import {
   IconKey,
   IconLaptop,
   IconMore,
+  IconPhone,
   IconRefresh,
   IconServer,
 } from "@shared/ui/Icons";
@@ -219,23 +220,26 @@ export function HostsPage({
   const phonesSection = (
     <Section label="Phones" count={phones.length || undefined}>
       {phones.length > 0 ? (
-        <Rows>
-          {phones.map((device) => (
-            <Row
-              key={device.key}
-              name={device.name}
-              detail={`${platformName(device.platform)} · added ${formatDay(device.createdAt, "short")}`}
-              end={
-                <Txt
-                  aria-label={`Remove ${device.name}`}
-                  onClick={() => askRemove(device)}
-                >
-                  Remove
-                </Txt>
-              }
-            />
-          ))}
-        </Rows>
+        <div className="phones-rows">
+          <Rows>
+            {phones.map((device) => (
+              <Row
+                key={device.key}
+                lead={<IconPhone size={22} className="host-ic" />}
+                name={device.name}
+                detail={`${platformName(device.platform)} · added ${formatDay(device.createdAt, "short")}`}
+                end={
+                  <Txt
+                    aria-label={`Remove ${device.name}`}
+                    onClick={() => askRemove(device)}
+                  >
+                    Remove
+                  </Txt>
+                }
+              />
+            ))}
+          </Rows>
+        </div>
       ) : (
         <Empty>No phones yet. Sign in to Sikemux on yours.</Empty>
       )}
