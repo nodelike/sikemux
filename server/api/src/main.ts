@@ -25,7 +25,12 @@ import { purgeStash } from "./stash/purge.ts";
 import { purgeVaultUses } from "./vault/purge.ts";
 import { purgeModRemovals } from "./mods/purge.ts";
 import { endPlanGifts, givePro } from "./billing/gifts.ts";
-import { setTeamAudience, TEAM_AUDIENCES } from "./billing/team-audience.ts";
+import {
+  setTeamAudience,
+  setTeamVaults,
+  TEAM_AUDIENCES,
+  TEAM_VAULTS,
+} from "./billing/team-audience.ts";
 import {
   promoteUpdate,
   publishUpdate,
@@ -146,6 +151,21 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
       loadMigrationConfig(process.env),
       "setting who Team is open to failed",
       ({ db }, log) => setTeamAudience(db, audience, log),
+    );
+  },
+  "team-vaults"() {
+    const vaults = TEAM_VAULTS.find((known) => known === process.argv[3]);
+    if (!vaults) {
+      startLogging("info").fatal(
+        `usage: team-vaults <${TEAM_VAULTS.join("|")}>`,
+      );
+      process.exitCode = 2;
+      return;
+    }
+    return withDatabase(
+      loadMigrationConfig(process.env),
+      "setting whether orgs' vaults are open failed",
+      ({ db }, log) => setTeamVaults(db, vaults, log),
     );
   },
   "publish-update": updateCommand(

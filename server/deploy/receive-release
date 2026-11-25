@@ -7,6 +7,7 @@
 #   ssh sikemux-deploy@citadel withdraw-update <update id>        stops offering an update
 #   ssh sikemux-deploy@citadel team-audience <staff|nightly|everyone>
 #                                                                 sets who Team is open to
+#   ssh sikemux-deploy@citadel team-vaults <shut|open>            sets whether orgs' vaults are open
 set -euo pipefail
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -31,7 +32,8 @@ usage() {
          ssh sikemux-deploy@citadel publish-update < update.tar.gz
          ssh sikemux-deploy@citadel promote-update <update id>
          ssh sikemux-deploy@citadel withdraw-update <update id>
-         ssh sikemux-deploy@citadel team-audience <staff|nightly|everyone>"
+         ssh sikemux-deploy@citadel team-audience <staff|nightly|everyone>
+         ssh sikemux-deploy@citadel team-vaults <shut|open>"
 }
 
 api() {
@@ -108,6 +110,10 @@ case "${words[0]:-}" in
   team-audience)
     [ "${#words[@]}" -eq 2 ] || usage
     locked_command "opening Team to ${words[1]}" "Team is open to ${words[1]}" team-audience "${words[1]}"
+    ;;
+  team-vaults)
+    [ "${#words[@]}" -eq 2 ] || usage
+    locked_command "setting orgs' vaults ${words[1]}" "orgs' vaults are ${words[1]}" team-vaults "${words[1]}"
     ;;
 esac
 

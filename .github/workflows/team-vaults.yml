@@ -1,0 +1,46 @@
+name: Team vaults
+run-name: Set org vaults ${{ inputs.vaults }}
+
+# Sets whether orgs' vaults are open on the accounts server: shut leaves them to staff.
+on:
+  workflow_dispatch:
+    inputs:
+      vaults:
+        description: Whether orgs' vaults are open to everyone Team is open to.
+        type: choice
+        options: [shut, open]
+        default: shut
+
+permissions:
+  contents: read
+
+concurrency:
+  group: team-vaults
+  cancel-in-progress: false
+
+jobs:
+  set:
+    name: Set on citadel
+    if: github.repository == 'nodelike/sikemux' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the deploy key
+        uses: ./.github/actions/deploy-key
+        with:
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
+      - name: Set whether orgs' vaults are open
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          VAULTS: ${{ inputs.vaults }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "sikemux-deploy@$DEPLOY_HOST" "team-vaults $VAULTS"
