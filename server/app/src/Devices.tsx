@@ -268,7 +268,6 @@ function DeviceRow({
         (device.channel ? ` · ${device.channel}` : "") +
         ` · added ${formatDay(device.createdAt, "short")}`
       }
-      hot={{ picture: iconMark(host ? "laptop" : "phone") }}
       end={
         <div className="ends" ref={removeButton}>
           <code className="mono" title={device.key}>

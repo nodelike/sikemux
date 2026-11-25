@@ -20,7 +20,6 @@ import {
 import { useState, type MouseEvent } from "react";
 
 import { problemText } from "./api.ts";
-import { memberSvg } from "./avatarSvg.ts";
 import { useClient } from "./Billing.tsx";
 import { useCheer } from "./Field.tsx";
 import { useOrgMark } from "./logos.ts";
@@ -435,9 +434,6 @@ function MemberRow({
   return (
     <Row
       lead={<MemberAvatar member={member} />}
-      hot={{
-        picture: { svg: memberSvg(member.avatarSeed) },
-      }}
       name={
         <>
           {name}

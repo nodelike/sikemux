@@ -22,14 +22,11 @@ export type Stage = {
 type FieldHandle = {
   spot: HTMLDivElement;
   stage: (stage: Stage) => void;
-  hot: (over: { picture: Picture; scene?: SceneName } | null) => void;
   cheer: () => void;
   measure: () => void;
 };
 
 const FieldContext = createContext<FieldHandle | null>(null);
-
-const LEAVE_MS = 380;
 
 /** Puts the picture itself in the spot, for a window without dots. */
 function drawPlain(spot: HTMLElement, picture: Picture) {
@@ -46,7 +43,6 @@ export function Field({ children }: { children: ReactNode }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const dots = useRef<Dots>(null);
   const stage = useRef<Stage>(undefined);
-  const leaving = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [spot] = useState(() => {
     const element = document.createElement("div");
     element.className = "spot";
@@ -54,41 +50,29 @@ export function Field({ children }: { children: ReactNode }) {
   });
 
   const handle = useMemo<FieldHandle>(() => {
-    const paint = (picture: Picture, name: SceneName) => {
-      const { tint, alt, deep, bright } = sceneOf(name);
-      const on = stage.current;
+    const paint = ({ picture, scene, tone, hero }: Stage) => {
+      const { tint, alt, deep, bright } = sceneOf(scene);
       dots.current?.look({
         tint,
         alt,
         deep,
         bright,
-        glow: on?.hero ? 0.16 : 0.3,
-        tone: on?.tone ?? "worked",
-        reach: on?.hero ? 0.62 : 0.85,
-        rich: on?.hero ? 1 : 0.92,
+        glow: hero ? 0.16 : 0.24,
+        tone: tone ?? "worked",
+        reach: hero ? 0.58 : 0.75,
+        rich: hero ? 0.9 : 0.8,
         clearing: 0.5,
       });
       dots.current?.show(picture);
       drawPlain(spot, picture);
     };
-    const settle = () => {
-      const on = stage.current;
-      if (on) paint(on.picture, on.scene);
-    };
     return {
       spot,
       stage: (next) => {
-        clearTimeout(leaving.current);
         stage.current = next;
         wear(sceneOf(next.scene));
-        settle();
+        paint(next);
         dots.current?.measure();
-      },
-      hot: (over) => {
-        clearTimeout(leaving.current);
-        const on = stage.current;
-        if (!over) leaving.current = setTimeout(settle, LEAVE_MS);
-        else if (on) paint(over.picture, over.scene ?? on.scene);
       },
       cheer: () =>
         dots.current?.ring(
@@ -104,13 +88,11 @@ export function Field({ children }: { children: ReactNode }) {
     if (!canvas.current) return;
     const drawn = drawDots(canvas.current, {
       mark: spot,
-      quiet: () =>
-        [...document.querySelectorAll<HTMLElement>("[data-quiet]")].slice(0, 6),
+      quiet: () => [...document.querySelectorAll<HTMLElement>("[data-quiet]")],
     });
     dots.current = drawn;
     if (stage.current) handle.stage(stage.current);
     return () => {
-      clearTimeout(leaving.current);
       dots.current = null;
       drawn?.stop();
     };
@@ -157,15 +139,4 @@ export function Mark({ picture, scene, tone, hero }: Stage) {
     field.stage({ picture: JSON.parse(key) as Picture, scene, tone, hero });
   }, [field, key, scene, tone, hero]);
   return <div className="markbox" ref={box} aria-hidden="true" />;
-}
-
-/** Props for a row or card whose own picture, if it has one, the dots show while the pointer is over it. */
-export function useHot(picture: Picture | undefined, scene?: SceneName) {
-  const field = useField();
-  if (!picture) return { "data-calm": "" };
-  return {
-    "data-calm": "",
-    onPointerEnter: () => field.hot({ picture, scene }),
-    onPointerLeave: () => field.hot(null),
-  };
 }

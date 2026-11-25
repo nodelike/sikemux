@@ -16,7 +16,7 @@ import {
 import { createPortal } from "react-dom";
 
 import type { Picture, Tone } from "./dots.ts";
-import { Mark, useHot } from "./Field.tsx";
+import { Mark } from "./Field.tsx";
 import type { SceneName } from "./scenes.ts";
 
 /** A signed-in page: its title over the dots, what can be done on it, and its cards. */
@@ -56,7 +56,9 @@ export function Page({
         </div>
         <Mark picture={mark} scene={scene} tone={tone} />
       </header>
-      <div className="bento anim">{children}</div>
+      <div className="bento anim" data-quiet="">
+        {children}
+      </div>
     </div>
   );
 }
@@ -129,7 +131,6 @@ export function Card({
       {...props}
       className={["card", w && `w${w}`, className].filter(Boolean).join(" ")}
       style={span(w)}
-      data-calm=""
       aria-busy={busy || undefined}
     >
       {label ? (
@@ -178,17 +179,13 @@ export function Rows({ children }: { children?: ReactNode }) {
   return <ul className="rows">{children}</ul>;
 }
 
-/**
- * A thing in a card: its picture, its name and a line about it, what can be done, and anything open
- * under it. `hot` is what the dots draw while the pointer is over it.
- */
+/** A thing in a card: its picture, its name and a line about it, what can be done, and anything open under it. */
 export function Row({
   lead,
   name,
   detail,
   end,
   wrap,
-  hot,
   children,
 }: {
   lead?: ReactNode;
@@ -196,12 +193,10 @@ export function Row({
   detail?: ReactNode;
   end?: ReactNode;
   wrap?: boolean;
-  hot?: { picture: Picture; scene?: SceneName };
   children?: ReactNode;
 }) {
-  const over = useHot(hot?.picture, hot?.scene);
   return (
-    <li className={wrap ? "row wrap" : "row"} {...over}>
+    <li className={wrap ? "row wrap" : "row"}>
       {lead ? <span className="lead">{lead}</span> : <span />}
       <span className="what">
         <span className="nm">{name}</span>

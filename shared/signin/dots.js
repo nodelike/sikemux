@@ -1,15 +1,14 @@
 const MOST_IN_MARK = 18000;
-const MOST_IN_FIELD = 52000;
-const FIELD_AREA_EACH = 46;
+const MOST_IN_FIELD = 36000;
+const FIELD_AREA_EACH = 64;
 const MOST_QUIET = 8;
 const PLAYS_FOR = 12;
 const PLAYS_ON_AFTER_POINTER = 5;
-const POINTER_FELT_FOR = 1.2;
+const POINTER_FELT_FOR = 1.6;
 export const SETTLES_FOR = 1.8;
-const TAP_LASTS = 0.9;
-const RING_LASTS = 1.6;
+const RING_LASTS = 1.8;
+const MORPHS_FOR = 1.2;
 export const STILL_TIME = 9;
-const STATE_BYTES = 20;
 const GLOW_CELL = 28;
 const DRAWS = ["tint", "deep", "alt", "bright"];
 
@@ -22,30 +21,28 @@ const AT = {
     sweep: 8,
     time: 10,
     seconds: 11,
-    tap: 12,
-    kick: 15,
-    ring: 16,
-    morph: 19,
-    span: 20,
-    seen: 21,
-    still: 22,
-    fresh: 23,
-    failed: 24,
-    waiting: 25,
-    density: 26,
-    rich: 27,
-    reach: 28,
-    clearing: 29,
-    quiets: 30,
-    tint: 32,
-    glow: 35,
-    deep: 36,
-    across: 39,
-    alt: 40,
-    down: 43,
-    bright: 44,
-    ringTint: 48,
-    quiet: 52,
+    ring: 12,
+    morph: 15,
+    span: 16,
+    seen: 17,
+    still: 18,
+    fresh: 19,
+    failed: 20,
+    waiting: 21,
+    density: 22,
+    rich: 23,
+    reach: 24,
+    clearing: 25,
+    quiets: 26,
+    tint: 28,
+    glow: 31,
+    deep: 32,
+    across: 35,
+    alt: 36,
+    down: 39,
+    bright: 40,
+    ringTint: 44,
+    quiet: 48,
 };
 const SCENE_FLOATS = AT.quiet + MOST_QUIET * 4;
 
@@ -54,7 +51,6 @@ precision highp float;
 layout(std140) uniform Scene {
   vec2 size, center, pointer, before, sweep;
   float time, seconds;
-  vec3 tap; float kick;
   vec3 ring; float morph;
   float span, seen, still, fresh, failed, waiting, density, rich, reach, clearing, quiets;
   vec3 tint; float glow;
@@ -74,30 +70,28 @@ float noise(vec2 p) {
 
 const SHARED = `${SCENE}
 layout(location = 0) in vec4 state;
-layout(location = 1) in float heat;
 layout(location = 2) in vec4 home;
 layout(location = 3) in vec2 chance;
+layout(location = 6) in vec2 lookWas;
 float stream(vec2 p, float t) { return noise(p + vec2(t, -t * .7)) + .5 * noise(p * 2.1 - vec2(t * 1.3, t * .4)); }
 vec2 curl(vec2 p, float t) {
   const float e = .08;
   return vec2(stream(p + vec2(0, e), t) - stream(p - vec2(0, e), t), stream(p - vec2(e, 0), t) - stream(p + vec2(e, 0), t)) / (2. * e);
 }
-vec2 outOf(vec2 at, int i) { return at - clamp(at, quiet[i].xy, quiet[i].xy + quiet[i].zw); }
-float torn(vec2 at) { return failed * max(0., at.x + at.y + .28 + (chance.x - .5) * .35); }
 
 #ifdef FIELD
 vec2 homeAt() {
   vec2 at = home.xy * size;
-  return at + curl(at / 230., time * .05) * 16. + vec2(sin(time * .31 + chance.x * 44.), cos(time * .27 + chance.y * 51.)) * 5.;
+  return at + curl(at / 230., time * .035) * 14. + vec2(sin(time * .2 + chance.x * 44.), cos(time * .17 + chance.y * 51.)) * 4.;
 }
 vec2 onPage(vec2 at) { return at; }
 #else
+float torn() { return failed * max(0., home.x + home.y + .28 + (chance.x - .5) * .35); }
+float turning() { return smoothstep(0., 1., (morph - chance.x * .3) / ${(MORPHS_FOR - 0.3).toFixed(1)}); }
 vec2 homeAt() {
   vec2 at = home.xy * span;
-  float roams = step(chance.x, .06) * (1. - still), turn = chance.y * 39. + time * .18, fling = torn(home.xy);
-  at += curl(at / 60., time * .12) * .9 * (1. - still);
-  at += roams * vec2(cos(turn), sin(turn * 1.3)) * span * (.02 + .16 * chance.y * chance.y);
-  return at + vec2(.5 + chance.x, chance.y - .2) * fling * fling * 150.;
+  float fling = torn();
+  return at + curl(at / 60., time * .05) * .5 * (1. - still) + vec2(.5 + chance.x, chance.y - .2) * fling * fling * 70.;
 }
 vec2 onPage(vec2 at) { return center + at; }
 #endif
@@ -105,130 +99,90 @@ vec2 onPage(vec2 at) { return center + at; }
 
 const MOVE = `${SHARED}
 out vec4 nextState;
-out float nextHeat;
 void main() {
   gl_Position = vec4(2);
   vec2 belongs = homeAt(), at = state.xy, speed = state.zw;
 #ifdef FIELD
   if (still + fresh >= 1.) {
 #else
+  if (still < 1. && lookWas.y < .01 && turning() < .3) {
+    nextState = vec4(belongs + curl(belongs / 40., chance.x) * span * .02, 0, 0);
+    return;
+  }
   if (still >= 1.) {
 #endif
     nextState = vec4(belongs, 0, 0);
-    nextHeat = 0.;
     return;
   }
   vec2 page = onPage(at), path = before - pointer;
   vec2 off = page - pointer - path * clamp(dot(page - pointer, path) / max(dot(path, path), 1.), 0., 1.);
-  float far = length(off) + .01, rush = min(length(sweep) / 900., 1.);
-  vec2 aside = off / far;
-  float felt = mix(46., 96., chance.y) * (.8 + .5 * rush), near = seen * exp(-far * far / (felt * felt));
-  float warm = heat + seconds * near * (1. + 20. * rush);
-  vec2 force = sweep * near * mix(.8, 7., chance.x * chance.x);
-  force += aside * near * mix(-700., 2300., chance.y) * (.25 + 2.2 * rush);
-  force += vec2(-aside.y, aside.x) * (chance.x > .5 ? 1. : -1.) * near * (260. + 2600. * rush);
-  if (tap.z >= 0.) {
-    vec2 from = page - tap.xy;
-    float away = length(from) + .01, hit = max(0., 1. - abs(away - tap.z * 560.) / 70.) * max(0., 1. - tap.z * 1.25);
-    if (hit > 0.) force += from / away * hit * mix(800., 15000., chance.y * chance.y) + curl(page / 26., time) * hit * 4200.;
-    warm += seconds * hit * 26.;
-  }
-  if (ring.z >= 0.) {
-    vec2 from = page - ring.xy;
-    float away = length(from) + .01, hit = max(0., 1. - abs(away - ring.z * 700.) / 90.) * max(0., 1. - ring.z / 1.5);
-    force += from / away * hit * mix(300., 3600., chance.y);
-    warm += seconds * hit * 6.;
-  }
-  if (kick > 0.) {
-    float turn = 6.283 * hash(chance + .37);
-    speed += (vec2(cos(turn), sin(turn)) * mix(40., 420., chance.y * chance.y) + curl(at / 80., time) * 120.) * kick;
-    warm += kick * (.25 + .6 * chance.x);
-  }
-  warm = min(warm, 1.25);
-  float hot = min(warm, 1.);
-  if (hot > .003) {
-    float turn = 6.283 * hash(chance * 91.7 + floor(time * 16.) * .137);
-    force += (curl(page / 74., time * .55) + .7 * curl(page / 24. + chance * .6, time * 1.1)) * hot * hot * mix(420., 1500., chance.y);
-    force += vec2(cos(turn), sin(turn)) * hot * mix(120., 1500., chance.x * chance.y);
-  }
 #ifdef FIELD
-  float spring = mix(5., 17., chance.y) * mix(1., .12, hot), drag = mix(2.2, 4.6, chance.x) * mix(1., .55, hot);
+  float felt = mix(60., 110., chance.y), spring = mix(5., 11., chance.x), give = .3;
 #else
-  float spring = mix(34., 120., chance.y) * mix(1., .07, hot), drag = mix(5., 11., chance.x) * mix(1., .36, hot);
+  float felt = clamp(span * .3, 24., 80.) * mix(.8, 1.1, chance.y), spring = mix(16., 34., chance.x), give = .2;
 #endif
-  force += (belongs - at) * spring;
-  for (int i = 0; i < int(quiets); i++) {
-    vec2 from = outOf(page, i);
-    float away = length(from);
-    vec2 push = away > .5 ? from / away : normalize(vec2(0, page.y - quiet[i].y - quiet[i].w * .5) + .01);
-    force += push * max(0., 1. - away / 34.) * mix(900., 2600., chance.y) * (.3 + hot);
-  }
-  speed = (speed + force * seconds) / (1. + drag * seconds);
-  speed *= min(1., 1500. / max(length(speed), 1.));
+  float far = length(off) + .01, near = seen * exp(-far * far / (felt * felt));
+  belongs += off / far * near * felt * give + sweep * near * .012;
+  float drag = 2. * sqrt(spring);
+  speed = (speed + (belongs - at) * spring * seconds) / (1. + drag * seconds);
   nextState = vec4(at + speed * seconds, speed);
-  nextHeat = warm * exp(-seconds * mix(.8, 2.6, fract(chance.x * 7.3 + chance.y)));
 }`;
 
 const DRAW = `${SHARED}
 layout(location = 4) in vec3 inkWas;
 layout(location = 5) in vec3 ink;
-layout(location = 6) in vec2 lookWas;
 out vec4 color;
-flat out vec4 streak;
+flat out vec2 shape;
 flat out float soft;
 flat out float blur;
 
 void main() {
   vec2 page = onPage(state.xy);
-  float hot = min(heat, 1.), radius, alpha, calm = 1.;
+  float radius, alpha, lit = seen * exp(-dot(page - pointer, page - pointer) / 14000.);
   vec3 shade;
   blur = 0.;
-  for (int i = 0; i < int(quiets); i++) calm *= smoothstep(5., 60., length(outOf(page, i)));
 #ifdef FIELD
-  float away = length(page - center);
-  float fade = max(0., 1. - away / reach) * mix(smoothstep(clearing - 34., clearing + 30., away), 1., hot);
+  float away = length(page - center), calm = 1.;
+  for (int i = 0; i < int(quiets); i++) calm *= smoothstep(0., 110., length(page - clamp(page, quiet[i].xy, quiet[i].xy + quiet[i].zw)));
+  float fade = max(0., 1. - away / reach) * smoothstep(clearing - 34., clearing + 30., away);
   vec2 drift = page / 150.;
-  float cloud = noise(drift + vec2(time * .05, -time * .03) + 2. * vec2(noise(drift * .7 + time * .04), noise(drift * .7 + 9. - time * .04)));
-  float tone = fade * smoothstep(.12, .86, cloud) * 1.45 * rich + hot * .8, cut = .06 + .9 * hash(chance * 13.7);
+  float cloud = noise(drift + vec2(time * .025, -time * .015) + 2. * vec2(noise(drift * .7 + time * .02), noise(drift * .7 + 9. - time * .02)));
+  float tone = fade * smoothstep(.12, .86, cloud) * 1.45 * rich, cut = .06 + .9 * hash(chance * 13.7);
   float shown = smoothstep(cut - .1, cut + .1, tone), core = exp(-away * away / (span * span * .55));
-  float warmth = noise(page / 330. + vec2(time * .022, -time * .016) + .12 * chance.x), other = noise(page / 210. - vec2(time * .015, time * .02) + 17.);
+  float warmth = noise(page / 330. + vec2(time * .011, -time * .008) + .12 * chance.x), other = noise(page / 210. - vec2(time * .008, time * .01) + 17.);
   tone += core * .5 * step(clearing, away) * rich;
-  radius = (.46 + .75 * pow(chance.y, 5.) + .28 * clamp(tone, 0., 1.)) * (1. - .12 * hot);
-  alpha = shown * (.34 + .62 * clamp(tone, 0., 1.));
-  alpha *= .62 + .38 * sin(time * (.5 + chance.x * 1.3) + chance.y * 60.) * (1. - still) + hot * .3;
+  radius = .46 + .75 * pow(chance.y, 5.) + .28 * clamp(tone, 0., 1.);
+  alpha = shown * (.24 + .46 * clamp(tone, 0., 1.)) * (1. + .5 * lit);
+  alpha *= .84 + .16 * sin(time * (.2 + chance.x * .5) + chance.y * 60.) * (1. - still);
   shade = mix(deep, tint, smoothstep(.18, .62, warmth + .5 * core + .22 * (chance.x - .5)));
   shade = mix(shade, alt, smoothstep(.5, .74, other + .18 * (chance.y - .5)) * (1. - .6 * core));
-  shade = mix(shade, bright, clamp(core * 1.2 * chance.x * chance.x + .5 * step(.965, chance.x), 0., .92));
+  shade = mix(shade, bright, clamp(core * 1.2 * chance.x * chance.x + .5 * step(.965, chance.x) + .35 * lit * chance.y, 0., .92));
   shade = mix(mix(shade, vec3(.54, .416, .44), failed * .8), vec3(.545, .533, .596), waiting) * (.78 + .4 * chance.x);
   if (ring.z >= 0.) {
-    float lit = max(0., 1. - abs(length(page - ring.xy) - ring.z * 700.) / 110.) * max(0., 1. - ring.z / 1.5);
-    shade = mix(shade, ringTint, lit);
-    alpha = max(alpha, lit * .7 * step(chance.y, .5));
+    float wave = max(0., 1. - abs(length(page - ring.xy) - ring.z * 260.) / 90.) * max(0., 1. - ring.z / ${RING_LASTS.toFixed(1)});
+    shade = mix(shade, ringTint, wave);
+    alpha = max(alpha, wave * .45 * step(chance.y, .4));
   }
-  shade = mix(shade, bright, clamp(.55 * hot * chance.y + .75 * min(length(state.zw) / 520., 1.), 0., .9));
   if (chance.x > .982) {
     radius = mix(2.4, 8.5, chance.y * chance.y);
-    alpha = fade * mix(.17, .07, chance.y) * smoothstep(.1, .6, tone + .2);
+    alpha = fade * mix(.12, .05, chance.y) * smoothstep(.1, .6, tone + .2);
     blur = radius * 1.5;
   }
   alpha *= calm;
 #else
-  float turned = clamp((morph - chance.x * .18) / .5, 0., 1.), strayed = length(state.xy - home.xy * span), fling = torn(home.xy);
-  turned = turned * turned * (3. - 2. * turned);
-  float shine = sin(time * .8 + home.x * 7. + home.y * 9. + noise(home.xy * 6. + time * .2) * 4.);
-  radius = mix(lookWas.x, home.z, turned) * max(.82, span / 430.) * 1.02 * (1. + .1 * shine) * (1. + .18 * hot * (chance.x - .4));
-  alpha = mix(lookWas.y, home.w, turned) * (.86 + .14 * shine);
-  alpha *= mix(1., .5, smoothstep(10., 90., strayed)) * mix(1., calm, smoothstep(6., 40., strayed));
+  float turned = turning(), fling = torn();
+  float shine = sin(time * .5 + home.x * 7. + home.y * 9. + noise(home.xy * 6. + time * .12) * 4.);
+  radius = mix(lookWas.x, home.z, turned) * max(.82, span / 430.) * 1.02 * (1. + .03 * shine);
+  alpha = mix(lookWas.y, home.w, turned) * (.95 + .05 * shine);
   alpha *= chance.y < fling * .35 ? 0. : max(.16, 1. - fling * 1.1);
   shade = mix(mix(inkWas, ink, turned), vec3(1, .4, .4), .85 * failed);
   shade = mix(shade, vec3(dot(shade, vec3(.3, .59, .11))) * .75 + .1, waiting);
-  shade = mix(shade, shade * 1.18, max(shine, 0.) * .6);
-  shade = mix(shade, bright, clamp(.4 * hot * chance.y + .7 * min(length(state.zw) / 600., 1.), 0., .85));
+  shade = mix(shade, shade * 1.08, max(shine, 0.) * .6);
+  shade = mix(shade, bright, .25 * lit * chance.y);
 #endif
-  float fast = length(state.zw), length_ = blur > 0. ? 0. : min(fast * .013, 8.) * (1. - still), box = 2. * radius + length_ + 2. + blur;
-  alpha = min(alpha / (1. + length_ * .07), 1.);
-  color = vec4(shade, alpha);
-  streak = vec4(fast > .01 ? state.zw / fast * length_ * .5 : vec2(0), radius, box);
+  float box = 2. * radius + 2. + blur;
+  color = vec4(shade, min(alpha, 1.));
+  shape = vec2(radius, box);
   soft = .55 / density;
   gl_PointSize = box * density;
   gl_Position = radius < .05 || alpha < .012 ? vec4(2, 2, 2, 1) : vec4((page / size * 2. - 1.) * vec2(1, -1), 0, 1);
@@ -237,16 +191,13 @@ void main() {
 const FILL = `#version 300 es
 precision highp float;
 in vec4 color;
-flat in vec4 streak;
+flat in vec2 shape;
 flat in float soft;
 flat in float blur;
 out vec4 pixel;
 void main() {
-  vec2 from = (gl_PointCoord - .5) * streak.w;
-  float length_ = dot(streak.xy, streak.xy);
-  from -= streak.xy * (length_ > .001 ? clamp(dot(from, streak.xy) / length_, -1., 1.) : 0.);
-  float past = length(from) - streak.z;
-  pixel = vec4(color.rgb, 1) * color.a * (blur > 0. ? pow(1. - smoothstep(-streak.z, blur * .5, past), 1.6) : 1. - smoothstep(-soft, soft, past));
+  float past = length(gl_PointCoord - .5) * shape.y - shape.x;
+  pixel = vec4(color.rgb, 1) * color.a * (blur > 0. ? pow(1. - smoothstep(-shape.x, blur * .5, past), 1.6) : 1. - smoothstep(-soft, soft, past));
 }`;
 
 // The glow is soft enough to work out at the corners of a coarse grid and blend between them.
@@ -260,8 +211,8 @@ void main() {
   gl_Position = vec4((part * 2. - 1.) * vec2(1, -1), 0, 1);
   float most = length(size);
   vec2 slant = mat2(.8, -.6, .6, .8) * page;
-  float cloud = noise(slant / 300. + vec2(time * .03, -time * .02) + 1.2 * vec2(noise(slant / 340. - time * .02), noise(slant.yx / 360. + 7.)));
-  float second = noise(slant / 420. - vec2(time * .02, time * .03) + vec2(noise(slant / 390. + 3.), noise(slant.yx / 410.)) + 31.);
+  float cloud = noise(slant / 300. + vec2(time * .015, -time * .01) + 1.2 * vec2(noise(slant / 340. - time * .01), noise(slant.yx / 360. + 7.)));
+  float second = noise(slant / 420. - vec2(time * .01, time * .015) + vec2(noise(slant / 390. + 3.), noise(slant.yx / 410.)) + 31.);
   light = (deep * .62 + tint * .16) * lamp(page, center, max(span * 1.6, most * .22)) * (.5 + cloud);
   light += tint * .3 * lamp(page, center, span * .72) * (.62 + .55 * cloud);
   light += alt * .1 * lamp(page, size * vec2(.12, 1.04), most * .46) * (.4 + 1.1 * second);
@@ -469,7 +420,7 @@ export function particlesOn(gl, kinds) {
             gl.compileShader(shader);
             gl.attachShader(program, shader);
         }
-        if (feeds) gl.transformFeedbackVaryings(program, ["nextState", "nextHeat"], gl.INTERLEAVED_ATTRIBS);
+        if (feeds) gl.transformFeedbackVaryings(program, ["nextState"], gl.INTERLEAVED_ATTRIBS);
         gl.linkProgram(program);
         return program;
     };
@@ -490,9 +441,9 @@ export function particlesOn(gl, kinds) {
         gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
         return buffer;
     };
-    const point = (location, size, stride = 0, offset = 0) => {
+    const point = (location, size) => {
         gl.enableVertexAttribArray(location);
-        gl.vertexAttribPointer(location, size, gl.FLOAT, false, stride, offset);
+        gl.vertexAttribPointer(location, size, gl.FLOAT, false, 0, 0);
     };
     return {
         set(name, ...values) {
@@ -514,8 +465,7 @@ export function particlesOn(gl, kinds) {
                 const layout = gl.createVertexArray();
                 gl.bindVertexArray(layout);
                 gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-                point(0, 4, STATE_BYTES);
-                point(1, 1, STATE_BYTES, 16);
+                point(0, 4);
                 for (const column of held) {
                     gl.bindBuffer(gl.ARRAY_BUFFER, column.buffer);
                     point(column.location, column.size);
@@ -562,19 +512,12 @@ export function particlesOn(gl, kinds) {
 }
 
 /** The particles of one mark, which turn into another mark's when shown one. */
-export function markOn(particles, most, scattered) {
+export function markOn(particles, most) {
     const home = new Float32Array(most * 4);
     const ink = new Float32Array(most * 3);
     const inkWas = new Float32Array(most * 3);
     const lookWas = new Float32Array(most * 2);
-    const state = new Float32Array(most * 5);
-    const roll = rolls(5);
-    for (let at = 0; scattered && at < most; at++) {
-        const turn = roll() * 6.283;
-        const away = 60 + 240 * Math.sqrt(roll());
-        state.set([Math.cos(turn) * away, Math.sin(turn) * away, -Math.sin(turn) * 160, Math.cos(turn) * 160, 0.8], at * 5);
-    }
-    const group = particles.group("mark", most, state, [
+    const group = particles.group("mark", most, new Float32Array(most * 4), [
         { data: home, size: 4, location: 2 },
         { data: inkWas, size: 3, location: 4 },
         { data: ink, size: 3, location: 5 },
@@ -601,7 +544,7 @@ export function markOn(particles, most, scattered) {
                     ink.set(inkOf(grain, colors), at * 3);
                 } else {
                     const grain = order[at % shown]?.[1] ?? { x: 0, y: 0 };
-                    home.set([grain.x * 1.2, grain.y * 1.2, 0, 0], at * 4);
+                    home.set([grain.x, grain.y, 0, 0], at * 4);
                 }
             }
             group.update();
@@ -630,7 +573,7 @@ export function pointerOf() {
             Object.assign(this, { at, here: true, moved: now });
         },
         pass(now, seconds) {
-            this.seen = toward(this.seen, this.here && now - this.moved < POINTER_FELT_FOR * 1000 ? 1 : 0, 10, seconds);
+            this.seen = toward(this.seen, this.here && now - this.moved < POINTER_FELT_FOR * 1000 ? 1 : 0, 4, seconds);
             this.sweep = this.sweep.map((speed) => speed * Math.exp(-seconds * 9));
         },
     };
@@ -652,23 +595,22 @@ export function drawDots(canvas, { mark, quiet }) {
     const stillness = matchMedia("(prefers-reduced-motion: reduce)");
     const field = { most: MOST_IN_FIELD, used: 0, fresh: true };
     const pointer = pointerOf();
-    const tap = { at: [0, 0], since: -1e9 };
     const ring = { since: -1e9, tint: [1, 1, 1] };
-    const style = { tint: "#a277ff", tone: "worked", reach: 0.62, rich: 1, clearing: 0.5, glow: 0.16 };
+    const style = { tint: "#a277ff", tone: "worked", reach: 0.55, rich: 0.85, clearing: 0.5, glow: 0.16 };
     const goal = { colors: colorsOf(style), failed: 0, waiting: 0 };
     let mood = null;
     let view = { left: 0, top: 0, width: 0, height: 0, center: [0, 0], span: 0 };
     let [fieldGroup, markGroup] = [];
     let [shown, shownAs, grained, grains, morphedAt] = [null, "", 0, [], -1e9];
-    let [request, last, until, clock, life, kick] = [0, 0, 0, 4, 1, 0];
+    let [request, last, until, clock, life] = [0, 0, 0, 4, 1];
 
     const build = () => {
         const homes = new Float32Array(MOST_IN_FIELD * 4);
         const roll = rolls(3);
         for (let at = 0; at < MOST_IN_FIELD; at++)
             homes.set([(0.5 + at * 0.7548776662 + roll() * 0.004) % 1, (0.5 + at * 0.569840291 + roll() * 0.004) % 1], at * 4);
-        fieldGroup = particles.group("field", MOST_IN_FIELD, new Float32Array(MOST_IN_FIELD * 5), [{ data: homes, size: 4, location: 2 }]);
-        markGroup = markOn(particles, MOST_IN_MARK, true);
+        fieldGroup = particles.group("field", MOST_IN_FIELD, new Float32Array(MOST_IN_FIELD * 4), [{ data: homes, size: 4, location: 2 }]);
+        markGroup = markOn(particles, MOST_IN_MARK);
         field.fresh = true;
     };
 
@@ -690,21 +632,18 @@ export function drawDots(canvas, { mark, quiet }) {
         set("size", view.width, view.height, ...view.center);
         set("pointer", ...pointer.at, ...pointer.before, ...pointer.sweep);
         set("time", still ? STILL_TIME : clock, seconds / steps);
-        set("tap", ...tap.at, age(tap.since, TAP_LASTS), kick);
         set("ring", ...view.center, age(ring.since, RING_LASTS), morph);
         set("span", view.span, pointer.seen, +still, +field.fresh, mood.failed, mood.waiting, canvas.width / view.width);
         set("rich", style.rich, Math.hypot(view.width, view.height) * style.reach, view.span * style.clearing);
         const [across, down] = [Math.ceil(view.width / GLOW_CELL), Math.ceil(view.height / GLOW_CELL)];
         set("tint", ...mood.tint, mood.glow, ...mood.deep, across, ...mood.alt, down, ...mood.bright);
         set("ringTint", ...ring.tint);
-        const marks = markGroup.used(morph < 1);
+        const marks = markGroup.used(morph < MORPHS_FOR);
+        particles.send();
         for (let step = 0; step < steps; step++) {
-            if (step) set("kick", 0);
-            particles.send();
             fieldGroup.move(field.used);
             if (marks) markGroup.move(marks);
         }
-        kick = 0;
         field.fresh = false;
         pointer.before = pointer.at;
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -782,25 +721,14 @@ export function drawDots(canvas, { mark, quiet }) {
         mark.classList.toggle("plain", !drawn || !particles);
         grains = next;
         const now = performance.now();
-        const first = !markGroup.used(true);
-        markGroup.turnInto(grains, goal.colors, Math.min(1, (now - morphedAt) / 600));
+        markGroup.turnInto(grains, goal.colors, Math.min(1, (now - morphedAt) / (MORPHS_FOR * 1000)));
         morphedAt = instant ? -1e9 : now;
-        if (!instant && !first) kick = 1;
         wake(PLAYS_FOR);
     };
 
     const listen = (target, name, heard) => target.addEventListener(name, heard, { signal, passive: true });
-    const calm = (event) => event.target.closest?.("a, button, input, [data-calm]");
-    const place = ({ clientX, clientY }) => [clientX - view.left, clientY - view.top];
-    const strike = (event) => {
-        if (calm(event)) return;
-        tap.at = place(event);
-        tap.since = performance.now();
-        wake(PLAYS_ON_AFTER_POINTER);
-    };
     const move = (event) => {
-        if (event.pointerType === "touch") return;
-        pointer.move(place(event), performance.now());
+        pointer.move([event.clientX - view.left, event.clientY - view.top], performance.now());
         wake(PLAYS_ON_AFTER_POINTER);
     };
     listen(window, "resize", measure);
@@ -809,10 +737,13 @@ export function drawDots(canvas, { mark, quiet }) {
     const watcher = new ResizeObserver(measure);
     for (const element of [canvas, mark]) watcher.observe(element);
     listen(document, "visibilitychange", () => (document.hidden ? rest() : wake(1)));
-    listen(window, "pointermove", move);
+    listen(window, "pointermove", (event) => event.pointerType !== "touch" && move(event));
     listen(document.documentElement, "pointerleave", () => (pointer.here = false));
-    listen(window, "pointerdown", (event) => event.pointerType !== "touch" && strike(event));
-    listen(window, "pointerup", (event) => event.pointerType === "touch" && strike(event));
+    listen(window, "pointerdown", (event) => {
+        if (event.pointerType !== "touch") return;
+        pointer.here = false;
+        move(event);
+    });
     listen(stillness, "change", () => wake(PLAYS_FOR));
     canvas.addEventListener("webglcontextlost", (event) => event.preventDefault(), { signal });
     listen(canvas, "webglcontextrestored", () => {
@@ -837,7 +768,7 @@ export function drawDots(canvas, { mark, quiet }) {
             goal.waiting = +(style.tone === "waiting");
             if (recolored && grains.length) {
                 const now = performance.now();
-                markGroup.turnInto(grains, colors, Math.min(1, (now - morphedAt) / 600));
+                markGroup.turnInto(grains, colors, Math.min(1, (now - morphedAt) / (MORPHS_FOR * 1000)));
                 morphedAt = now;
             }
             if (!mood) look();

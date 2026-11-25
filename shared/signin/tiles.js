@@ -2,7 +2,7 @@ import { colorsOf, grainsOf, markOn, particlesOn, pointerOf, SETTLES_FOR, STILL_
 
 const MOVES_FOR = 3.4;
 const ROOM_AROUND = 32;
-/** A tile's particles move as a mark this much larger would, so the pointer scatters part of the mark and not all of it. */
+/** A tile's particles move as a mark this much larger would, so the pointer nudges part of the mark and not all of it. */
 const LARGER = 2.4;
 const GRAINS_SIZE = 192;
 const GRAINS_LOOSE = 1.4;
@@ -62,7 +62,7 @@ export function drawTile(canvas, mark, { size, hot, look = { tint: "#a277ff" } }
 
     const gather = () => {
         on = stageOf();
-        group = on && markOn(on.particles, grains.length, false);
+        group = on && markOn(on.particles, grains.length);
         group?.turnInto(grains, colors, 1);
         return group;
     };
@@ -79,8 +79,7 @@ export function drawTile(canvas, mark, { size, hot, look = { tint: "#a277ff" } }
         const wide = side * LARGER;
         set("size", wide, wide, wide / 2, wide / 2);
         set("pointer", ...pointer.at, ...pointer.before, ...pointer.sweep);
-        set("time", clock, seconds, 0, 0, -1);
-        set("ring", 0, 0, -1, STILL_TIME);
+        set("time", clock, seconds, 0, 0, -1, STILL_TIME);
         set("span", size * LARGER, pointer.seen, seconds ? 1 - life : 1, 0, 0, 0, pixels / wide);
         set("quiets", 0);
         set("tint", ...colors.tint, 0, ...colors.deep, 0, ...colors.alt, 0, ...colors.bright);

@@ -488,7 +488,6 @@ function OrgBillRow({
   follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const to = orgPath(org.id, "billing");
-  const mark = useOrgMark(org);
   return (
     <Row
       lead={<OrgAvatar org={org} size={28} />}
@@ -500,7 +499,6 @@ function OrgBillRow({
             ? "Team ended"
             : `Team, ${seatsWord(org.seats.limit)}`
       }
-      hot={{ picture: mark, scene: orgScene(org.id) }}
       end={
         <a
           className={btnClass({ small: true, quiet: true })}

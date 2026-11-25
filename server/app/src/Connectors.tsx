@@ -2,7 +2,6 @@ import { formatAgo } from "@shared/lib/format";
 import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 
 import { drawTile, type Picture } from "./dots.ts";
-import { useHot } from "./Field.tsx";
 import { iconMark } from "./marks.ts";
 import { pluginSvg } from "./PluginMark.tsx";
 import { sceneOf, type SceneName } from "./scenes.ts";
@@ -111,7 +110,6 @@ function ConnectorTile({ signIn }: { signIn: SignIn }) {
   const breakdownId = useId();
   const picture = pictureOf(signIn.plugin);
   const scene = sceneFor(signIn.plugin);
-  const over = useHot(picture, scene);
   const card = useRef<HTMLElement>(null);
   const agents = new Set(
     signIn.uses.map((use) => use.actor).filter((actor) => actor !== "Sikemux"),
@@ -129,7 +127,6 @@ function ConnectorTile({ signIn }: { signIn: SignIn }) {
       ref={card}
       className="ct"
       style={{ "--bt": sceneOf(scene).tint } as CSSProperties}
-      {...over}
     >
       <TileMark picture={picture} card={card} />
       <b>{serviceName(signIn.plugin)}</b>
