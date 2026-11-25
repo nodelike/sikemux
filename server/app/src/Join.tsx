@@ -146,9 +146,7 @@ export function JoinPage({
   return (
     <Gate
       title={orgName ? `Join ${orgName}` : "Join an org"}
-      lede={`You've been sent an invite link. Joining takes one of ${
-        orgName ? `${orgName}'s` : "the org's"
-      } seats and gives you Pro on your own hosts while you hold it.`}
+      lede="Someone there sent you this invite. You take one of its seats, and get Pro on your own hosts while you hold it."
       mark={brandMark}
       scene={orgName ? "blue" : "sign"}
       tone={action.problem ? "failed" : action.busy ? "waiting" : undefined}

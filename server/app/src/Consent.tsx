@@ -5,10 +5,8 @@ import { useState } from "react";
 import { Avatar } from "./Avatar.tsx";
 import { Gate, GateActions, GateFacts, GateWho, Loading } from "./Frame.tsx";
 import { brandMark } from "./marks.ts";
+import { maskEmail } from "./maskEmail.ts";
 import { Btn, btnClass, Problem, Txt } from "./ui.tsx";
-
-const maskEmail = (email: string) =>
-  email.replace(/^(.)[^@]*(?=@)/, (_, first: string) => `${first}•••`);
 
 function scopeIcon(scope: string) {
   if (scope.includes("email")) return <IconMail size={16} />;

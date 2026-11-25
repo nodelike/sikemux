@@ -17,6 +17,7 @@ import { DeleteAccount } from "./DeleteAccount.tsx";
 import { useCheer } from "./Field.tsx";
 import { Gate, GateActions, Loading } from "./Frame.tsx";
 import { brandMark, iconMark } from "./marks.ts";
+import { maskEmail } from "./maskEmail.ts";
 import { JOIN, RETURN_KEY, SIGNED_UP_FOR_KEY } from "./navigation.ts";
 import { RestoreAccount } from "./RestoreAccount.tsx";
 import { useReverified } from "./Reverify.tsx";
@@ -25,9 +26,6 @@ import { Btn, Problem, Txt } from "./ui.tsx";
 const WAITING_KEY = "sikemux.fold";
 const SIGNED_IN_HERE_KEY = "sikemux.signedInHere";
 const settledKey = (userId: string) => `sikemux.oneAccount:${userId}`;
-
-const maskEmail = (email: string) =>
-  email.replace(/^(.)[^@]*(?=@)/, (_, first: string) => `${first}•••`);
 
 /** A fold this tab started, waiting for the person's other account to confirm it. */
 type Waiting = {
