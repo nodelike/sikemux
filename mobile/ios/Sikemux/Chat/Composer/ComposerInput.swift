@@ -51,7 +51,12 @@ struct ComposerInput: UIViewRepresentable {
         context.coordinator.parent = self
         focus?.field = field
         let field = field as! PlaceholderTextView
-        field.isEditable = editable
+        if field.isEditable != editable {
+            // Locking the field drops its keyboard, which reads the view graph; during this update that hangs the app.
+            DispatchQueue.main.async { [coordinator = context.coordinator] in
+                field.isEditable = coordinator.parent.editable
+            }
+        }
         field.tintColor = UIColor(palette.accent)
         field.keyboardAppearance = palette.isLight ? .light : .dark
         field.typingAttributes = attributes(UIColor(palette.ink))
