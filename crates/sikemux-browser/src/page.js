@@ -42,10 +42,30 @@
         if (!/^https?:$/.test(url.protocol) || localHost(url.hostname)) return null;
         return { method, origin: url.origin, path: url.pathname, query: url.search };
     };
+    let passStyles = null;
+    let passRects = null;
+    const styleOf = (element) => {
+        if (!passStyles) return getComputedStyle(element);
+        let style = passStyles.get(element);
+        if (!style) {
+            style = getComputedStyle(element);
+            passStyles.set(element, style);
+        }
+        return style;
+    };
+    const rawRectOf = (element) => {
+        if (!passRects) return element.getBoundingClientRect();
+        let rect = passRects.get(element);
+        if (!rect) {
+            rect = element.getBoundingClientRect();
+            passRects.set(element, rect);
+        }
+        return rect;
+    };
     const shown = (element) => {
-        const rect = element.getBoundingClientRect();
+        const rect = rawRectOf(element);
         if (rect.width < 1 || rect.height < 1) return false;
-        const style = getComputedStyle(element);
+        const style = styleOf(element);
         return style.visibility !== "hidden" && style.display !== "none" && style.opacity !== "0";
     };
     const inViewport = (rect) => rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth;
@@ -72,8 +92,8 @@
         for (let view = element.ownerDocument.defaultView; view && view !== window; ) {
             const frame = view.frameElement;
             if (!frame) break;
-            const rect = frame.getBoundingClientRect();
-            const style = getComputedStyle(frame);
+            const rect = rawRectOf(frame);
+            const style = styleOf(frame);
             x += rect.left + frame.clientLeft + parseFloat(style.paddingLeft);
             y += rect.top + frame.clientTop + parseFloat(style.paddingTop);
             view = frame.ownerDocument.defaultView;
@@ -81,7 +101,7 @@
         return { x, y };
     };
     const rectOf = (element) => {
-        const rect = element.getBoundingClientRect();
+        const rect = rawRectOf(element);
         const offset = frameOffset(element);
         return { left: rect.left + offset.x, top: rect.top + offset.y, right: rect.right + offset.x, bottom: rect.bottom + offset.y, width: rect.width, height: rect.height };
     };
@@ -118,9 +138,9 @@
     // or clipping container around it, and by the viewport.
     const visibleRect = (element) => {
         let { left, top, right, bottom } = rectOf(element);
-        let fixed = getComputedStyle(element).position === "fixed";
+        let fixed = styleOf(element).position === "fixed";
         for (let node = parentAcross(element); node && left < right && top < bottom; node = parentAcross(node)) {
-            const style = getComputedStyle(node);
+            const style = styleOf(node);
             const root = node === node.ownerDocument.documentElement || node === node.ownerDocument.body;
             const clips = isFrame(node) || (!fixed && !root && (style.overflowX !== "visible" || style.overflowY !== "visible"));
             if (isFrame(node)) fixed = false;
@@ -241,12 +261,34 @@
         if (element.tagName === "INPUT") return INPUT_ROLES[element.type] || "textbox";
         return IMPLICIT_ROLES[element.tagName] || (element.isContentEditable ? "textbox" : element.tagName.toLowerCase());
     };
+    const nestedRoots = (root) => {
+        const extra = [];
+        const doc = root.ownerDocument || root;
+        const start = root === doc ? doc.documentElement : root;
+        if (!start) return extra;
+        const walker = doc.createTreeWalker(start, NodeFilter.SHOW_ELEMENT);
+        if (start.shadowRoot || isFrame(start)) extra.push(start);
+        for (let el = walker.nextNode(); el; el = walker.nextNode()) {
+            if (el.shadowRoot || isFrame(el)) extra.push(el);
+        }
+        return extra;
+    };
     // Open shadow roots and same-site frames hold the controls on many sites;
     // querySelectorAll on the document alone would miss every one of them.
     // Another site's frame is listed whole, to be clicked into.
     const interactive = (root, out) => {
-        for (const element of root.querySelectorAll("*")) {
-            if (element.matches(INTERACTIVE)) out.push(element);
+        const controls = [...root.querySelectorAll(INTERACTIVE)];
+        const extras = nestedRoots(root);
+        if (!extras.length) {
+            out.push(...controls);
+            return out;
+        }
+        const merged = [...new Set([...controls, ...extras])].sort((a, b) =>
+            a === b ? 0 : a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
+        );
+        const controlSet = new Set(controls);
+        for (const element of merged) {
+            if (controlSet.has(element)) out.push(element);
             if (element.shadowRoot) interactive(element.shadowRoot, out);
             if (isFrame(element)) {
                 const inner = frameDocument(element);
@@ -321,7 +363,7 @@
             } catch {
                 throw new Error(`"${selector}" is not a valid CSS selector`);
             }
-            for (const element of root.querySelectorAll("*")) {
+            for (const element of nestedRoots(root)) {
                 if (element.shadowRoot) search(element.shadowRoot);
                 if (isFrame(element)) {
                     const inner = frameDocument(element);
@@ -388,10 +430,41 @@
             })
             .join("\n");
     };
+    const OVERLAY_CANDIDATES =
+        'dialog[open], [aria-modal="true"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [role="tooltip"], [style*="fixed"], [style*="sticky"], [style*="z-index"], header, nav, aside, footer';
+    const rectsOverlap = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    // Fixed, sticky, modal or popover layers currently visible in the viewport.
+    const activeOverlays = () => {
+        const overlays = [];
+        const candidates = new Set(document.querySelectorAll(OVERLAY_CANDIDATES));
+        try {
+            for (const el of document.querySelectorAll(":popover-open")) candidates.add(el);
+        } catch {}
+        if (document.body) {
+            for (const child of document.body.children) {
+                if (child.tagName !== "SIKEMUX-OVERLAY") candidates.add(child);
+            }
+        }
+        for (const el of candidates) {
+            if (el.tagName === "SIKEMUX-OVERLAY") continue;
+            const style = styleOf(el);
+            if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0" || style.pointerEvents === "none") continue;
+            const pos = style.position;
+            const isLayer = pos === "fixed" || pos === "sticky" || el.matches('dialog[open], [aria-modal="true"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]') || (pos === "absolute" && Number(style.zIndex) > 0);
+            if (!isLayer) continue;
+            const rect = rawRectOf(el);
+            if (rect.width >= 1 && rect.height >= 1 && inViewport(rect)) overlays.push({ el, rect });
+        }
+        return overlays;
+    };
     // Lying under a modal, a banner or a menu, or shut off by the page.
-    const covered = (element) => {
+    const covered = (element, modal, overlays) => {
         if (element.closest("[inert], [aria-hidden='true']")) return true;
-        if (!inViewport(rectOf(element))) return false;
+        if (modal && !within(element, modal)) return true;
+        const own = rectOf(element);
+        if (!inViewport(own)) return false;
+        const hitsOverlay = overlays.some(({ el, rect }) => el !== element && !within(element, el) && !within(el, element) && rectsOverlap(own, rect));
+        if (!hitsOverlay) return false;
         const rect = visibleRect(element);
         return Boolean(rect) && !PROBES.some(([across, down]) => reaches(element, rect.left + rect.width * across, rect.top + rect.height * down));
     };
@@ -400,23 +473,32 @@
     // Covered elements and the parts of a listed control keep a number but are
     // left out of the list.
     const listing = () => {
-        const listed = new Map();
-        const current = new Map();
-        const present = interactive(document, []).filter(shown);
-        const reachable = new Set(present.filter((element) => !covered(element)));
-        const insideReachable = (element) => {
-            for (let node = parentAcross(element); node; node = parentAcross(node)) if (reachable.has(node)) return true;
-            return false;
-        };
-        const partOfAnother = (element) =>
-            (!element.matches(CONTROL) && insideReachable(element)) || (element.tagName === "LABEL" && reachable.has(element.control));
-        for (const element of present) {
-            const id = numberOf(element);
-            current.set(id, element);
-            if (reachable.has(element) && !partOfAnother(element)) listed.set(id, entry(id, element));
+        passStyles = new WeakMap();
+        passRects = new WeakMap();
+        try {
+            const listed = new Map();
+            const current = new Map();
+            const present = interactive(document, []).filter(shown);
+            const modal = openModal();
+            const overlays = activeOverlays();
+            const reachable = new Set(present.filter((element) => !covered(element, modal, overlays)));
+            const insideReachable = (element) => {
+                for (let node = parentAcross(element); node; node = parentAcross(node)) if (reachable.has(node)) return true;
+                return false;
+            };
+            const partOfAnother = (element) =>
+                (!element.matches(CONTROL) && insideReachable(element)) || (element.tagName === "LABEL" && reachable.has(element.control));
+            for (const element of present) {
+                const id = numberOf(element);
+                current.set(id, element);
+                if (reachable.has(element) && !partOfAnother(element)) listed.set(id, entry(id, element));
+            }
+            window.__sikemuxRefs = current;
+            return listed;
+        } finally {
+            passStyles = null;
+            passRects = null;
         }
-        window.__sikemuxRefs = current;
-        return listed;
     };
     const pageLines = () =>
         String((document.body && document.body.innerText) || "")
@@ -1044,14 +1126,134 @@
         // given must hold at once.
         check(condition) {
             const failing = [];
-            const text = () => pageLines().join("\n").toLowerCase();
-            if (condition.text != null && !text().includes(compact(condition.text).toLowerCase())) failing.push(`text "${condition.text}" is not on the page`);
-            if (condition.textGone != null && text().includes(compact(condition.textGone).toLowerCase())) failing.push(`text "${condition.textGone}" is still on the page`);
+            let cachedText = null;
+            const rawText = () => compact((document.body && document.body.textContent) || "").toLowerCase();
+            const text = () => (cachedText ?? (cachedText = pageLines().join("\n").toLowerCase()));
+            if (condition.text != null) {
+                const needle = compact(condition.text).toLowerCase();
+                if (!rawText().includes(needle) || !text().includes(needle)) failing.push(`text "${condition.text}" is not on the page`);
+            }
+            if (condition.textGone != null) {
+                const needle = compact(condition.textGone).toLowerCase();
+                if (rawText().includes(needle) && text().includes(needle)) failing.push(`text "${condition.textGone}" is still on the page`);
+            }
             if (condition.selector != null && !selected(condition.selector).some(shown)) failing.push(`nothing shown matches "${condition.selector}"`);
             if (condition.selectorGone != null && selected(condition.selectorGone).some(shown)) failing.push(`"${condition.selectorGone}" is still shown`);
             if (condition.url != null && !location.href.includes(condition.url)) failing.push(`the url is ${location.href}, which does not contain "${condition.url}"`);
             if (condition.urlGone != null && location.href.includes(condition.urlGone)) failing.push(`the url is still ${location.href}`);
             return { met: failing.length === 0, failing };
+        },
+        // Waits one animation frame and microtask turn (capped at maxMs) so React/Vue
+        // renders commit without a fixed 250ms sleep.
+        settle(maxMs = 45) {
+            return new Promise((resolve) => {
+                let done = false;
+                const finish = () => {
+                    if (done) return;
+                    done = true;
+                    resolve(true);
+                };
+                const timer = setTimeout(finish, maxMs);
+                requestAnimationFrame(() =>
+                    setTimeout(() => {
+                        clearTimeout(timer);
+                        finish();
+                    }, 0),
+                );
+            });
+        },
+        // Event-driven MutationObserver wait for text/selector/url/stable conditions.
+        watch(condition, timeoutMs) {
+            const started = performance.now();
+            const stableSelector = condition.stable || null;
+            const quietMs = typeof condition.quietMs === "number" ? condition.quietMs : 1000;
+            const readStable = () => {
+                if (!stableSelector) return { ok: true, text: null };
+                try {
+                    const read = this.extract(stableSelector, null);
+                    return { ok: true, text: JSON.stringify(read) };
+                } catch (error) {
+                    return { ok: false, error: String((error && error.message) || error) };
+                }
+            };
+            const evaluate = (stableState) => {
+                const base = this.check(condition);
+                const failing = [...base.failing];
+                if (stableSelector) {
+                    const now = readStable();
+                    if (!now.ok) {
+                        stableState.last = null;
+                        stableState.since = performance.now();
+                        failing.push(now.error);
+                    } else {
+                        if (stableState.last !== now.text) {
+                            stableState.last = now.text;
+                            stableState.since = performance.now();
+                        }
+                        const still = performance.now() - stableState.since;
+                        if (still < quietMs) {
+                            failing.push(`the text of ${stableSelector} changed ${Math.round(still)} ms ago`);
+                        }
+                    }
+                }
+                return failing;
+            };
+            const stableState = { last: null, since: started };
+            const initial = evaluate(stableState);
+            if (initial.length === 0) {
+                return Promise.resolve({ met: true, waitedMs: Math.round(performance.now() - started) });
+            }
+            if (timeoutMs <= 0) {
+                return Promise.resolve({ met: false, waitedMs: Math.round(performance.now() - started), failing: initial });
+            }
+            return new Promise((resolve) => {
+                let settled = false;
+                let debounce = 0;
+                let stableTimer = 0;
+                let urlTimer = 0;
+                let deadlineTimer = 0;
+                let observer = null;
+                const finish = (met, failing) => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(debounce);
+                    clearTimeout(stableTimer);
+                    clearInterval(urlTimer);
+                    clearTimeout(deadlineTimer);
+                    if (observer) observer.disconnect();
+                    removeEventListener("popstate", trigger);
+                    removeEventListener("hashchange", trigger);
+                    const waitedMs = Math.round(performance.now() - started);
+                    resolve(met ? { met: true, waitedMs } : { met: false, waitedMs, failing });
+                };
+                const runCheck = () => {
+                    debounce = 0;
+                    const failing = evaluate(stableState);
+                    if (failing.length === 0) return finish(true, []);
+                    if (stableSelector && stableState.last != null) {
+                        clearTimeout(stableTimer);
+                        const waitMore = Math.max(10, Math.ceil(quietMs - (performance.now() - stableState.since)));
+                        stableTimer = setTimeout(runCheck, waitMore);
+                    }
+                };
+                const trigger = () => {
+                    if (settled || debounce) return;
+                    debounce = setTimeout(runCheck, 16);
+                };
+                if (document.documentElement) {
+                    observer = new MutationObserver(trigger);
+                    observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true });
+                }
+                if (condition.url != null || condition.urlGone != null) {
+                    addEventListener("popstate", trigger);
+                    addEventListener("hashchange", trigger);
+                    urlTimer = setInterval(runCheck, 100);
+                }
+                if (stableSelector && stableState.last != null) {
+                    stableTimer = setTimeout(runCheck, quietMs);
+                }
+                deadlineTimer = setTimeout(() => finish(false, evaluate(stableState)), timeoutMs);
+            });
         },
         // The number of the element a call names by `index`, `text` (with an
         // optional `role`) or `selector`. An index given beside text or a

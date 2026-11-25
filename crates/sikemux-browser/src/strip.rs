@@ -42,15 +42,26 @@ pub struct TabStrip {
     /// The person's tabs besides those they clicked or typed in: ones they opened. Tidying up
     /// leaves these open.
     pub kept: HashSet<String>,
-    /// The tab the agent last worked in during its turn.
-    pub driven: Option<String>,
+    /// Tabs the agent worked in during its turn.
+    pub driven: HashSet<String>,
+    /// Tabs opened in the background, so a shut desk stays shut for them.
+    pub background: HashSet<String>,
 }
 
 impl TabStrip {
     pub fn insert(&mut self, id: String, page: TabPage) {
+        self.insert_tab(id, page, true, false);
+    }
+
+    pub fn insert_tab(&mut self, id: String, page: TabPage, activate: bool, background: bool) {
         self.order.push(id.clone());
         self.pages.insert(id.clone(), page);
-        self.active = Some(id);
+        if background {
+            self.background.insert(id.clone());
+        }
+        if activate || self.active.is_none() {
+            self.active = Some(id);
+        }
     }
 
     /// Closing the shown tab hands the spot to its right neighbour, or the
@@ -67,9 +78,8 @@ impl TabStrip {
         self.revealing.remove(id);
         self.hidden_since.remove(id);
         self.kept.remove(id);
-        if self.driven.as_deref() == Some(id) {
-            self.driven = None;
-        }
+        self.driven.remove(id);
+        self.background.remove(id);
         if self.active.as_deref() == Some(id) {
             self.active = self
                 .order
@@ -84,22 +94,29 @@ impl TabStrip {
         if !self.pages.contains_key(id) {
             return false;
         }
+        self.background.remove(id);
         self.active = Some(id.to_owned());
         true
     }
 
-    pub fn mark_acting(&mut self, mark: u64) -> Option<String> {
-        let tab = self.active.clone()?;
+    pub fn mark_acting(&mut self, tab_id: Option<&str>, mark: u64) -> Option<String> {
+        let tab = match tab_id {
+            Some(id) if self.pages.contains_key(id) => id.to_owned(),
+            Some(_) => return None,
+            None => self.active.clone()?,
+        };
         self.acting.insert(tab.clone(), mark);
-        self.driven = Some(tab.clone());
+        self.driven.insert(tab.clone());
         Some(tab)
     }
 
-    /// The tab whose page is told it has focus: the one in front, while the agent works in it.
-    pub fn page_focus(&self) -> Option<&String> {
+    /// Tabs whose pages are told they have focus: every tab the agent is driving this turn.
+    pub fn page_focus(&self) -> HashSet<String> {
         self.driven
-            .as_ref()
-            .filter(|id| self.active.as_ref() == Some(*id))
+            .iter()
+            .filter(|id| self.pages.contains_key(*id))
+            .cloned()
+            .collect()
     }
 
     pub fn release_acting(&mut self, tab: &str, mark: u64) -> bool {
@@ -134,11 +151,12 @@ impl TabStrip {
         self.kept.contains(id) || crate::person::has_touched(id)
     }
 
-    /// The tabs tidying up may close: the agent's own, other than the one in front.
+    /// The tabs tidying up may close: the agent's own, other than the one in front or any
+    /// actively running a tool call.
     pub(crate) fn agents_spare(&self) -> impl Iterator<Item = &String> {
-        self.order
-            .iter()
-            .filter(|id| !self.yours(id) && self.active.as_ref() != Some(*id))
+        self.order.iter().filter(|id| {
+            !self.yours(id) && self.active.as_ref() != Some(*id) && !self.acting.contains_key(*id)
+        })
     }
 
     /// The agent's own tab on the same site as `url`, which it goes to rather than opening
@@ -195,6 +213,7 @@ impl TabStrip {
                         favicon: page.favicon.clone(),
                         acting: self.acting.contains_key(id),
                         local_file: None,
+                        background: self.background.contains(id),
                     })
                 })
                 .collect(),

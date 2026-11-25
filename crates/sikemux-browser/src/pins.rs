@@ -6,9 +6,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use crate::manager::BrowserManager;
-use crate::native;
-use crate::tools::{active, call, screenshot};
-use crate::PAGE_SCRIPT;
+use crate::tools::{active, call, screenshot, wait_page_helper};
 
 /// How long one wait for an answer lasts before the next takes over.
 const WAIT: Duration = Duration::from_secs(60);
@@ -42,8 +40,13 @@ pub async fn show(
 /// Waits for the person's next answer to a pin on the agent's shown page.
 pub async fn wait(manager: &BrowserManager, agent_id: &str) -> Result<PinAnswer, String> {
     let (_, view) = active(manager, agent_id)?;
-    let body = format!("{PAGE_SCRIPT}\nreturn JSON.stringify(await window.__sikemux.pinWait());");
-    let Some(answer) = native::wait_helper(&view, &body, WAIT).await? else {
+    let Some(answer) = wait_page_helper(
+        &view,
+        "JSON.stringify(await window.__sikemux.pinWait())",
+        WAIT,
+    )
+    .await?
+    else {
         return Ok(PinAnswer::Nothing);
     };
     let answer: Value = serde_json::from_str(&answer)

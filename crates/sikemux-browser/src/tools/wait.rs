@@ -30,11 +30,27 @@ pub(super) fn wait_condition(source: &Value) -> Option<Value> {
     (!condition.is_empty()).then_some(Value::Object(condition))
 }
 
-/// Polls until every condition holds or `limit` passes, and says which ones
-/// still failed when it gave up.
+fn has_dom_conditions(condition: &Value) -> bool {
+    [
+        "text",
+        "textGone",
+        "selector",
+        "selectorGone",
+        "url",
+        "urlGone",
+        "stable",
+    ]
+    .iter()
+    .any(|key| condition.get(*key).is_some())
+}
+
+/// Waits until every condition holds or `limit` passes, and says which ones
+/// still failed when it gave up. Uses an in-page MutationObserver for DOM/URL/stable
+/// conditions instead of polling from Rust.
 pub(super) async fn wait_for(
     manager: &BrowserManager,
     agent_id: &str,
+    tab_id: &str,
     condition: &Value,
     limit: Duration,
 ) -> Value {
@@ -43,25 +59,69 @@ pub(super) async fn wait_for(
     let network = condition.get("networkIdle").is_some();
     let script = condition.get("script").and_then(Value::as_str);
     let stable = condition.get("stable").and_then(Value::as_str);
+    let dom_only = has_dom_conditions(condition) && !network && script.is_none();
+    let needs_loaded = network
+        || stable.is_some()
+        || ["textGone", "selectorGone", "urlGone"]
+            .iter()
+            .any(|key| condition.get(*key).is_some());
+
+    if dom_only {
+        return wait_dom_event_driven(
+            manager,
+            agent_id,
+            tab_id,
+            condition,
+            limit,
+            needs_loaded,
+            started,
+        )
+        .await;
+    }
+
     let quiet = Duration::from_millis(
         condition
             .get("quietMs")
             .and_then(Value::as_u64)
             .unwrap_or(DEFAULT_QUIET_MS),
     );
-    let needs_loaded = network
-        || stable.is_some()
-        || ["textGone", "selectorGone", "urlGone"]
-            .iter()
-            .any(|key| condition.get(*key).is_some());
     let mut quiet_since: Option<Instant> = None;
     let mut last_text: Option<String> = None;
     let mut text_since = Instant::now();
+
     loop {
-        let (tab_id, view) = match active(manager, agent_id) {
+        if needs_loaded
+            && manager
+                .page(agent_id, tab_id)
+                .is_some_and(|page| page.loading)
+        {
+            let left = limit.saturating_sub(started.elapsed());
+            if left.is_zero() {
+                return given_up(vec![json!("the page is still loading")]);
+            }
+            let _ = manager.wait_until_loaded(agent_id, tab_id, left).await;
+        }
+
+        let (_, view) = match target_tab(manager, agent_id, Some(tab_id)) {
             Ok(tab) => tab,
             Err(error) => return given_up(vec![json!(error)]),
         };
+
+        // If DOM conditions are combined with networkIdle/script, let the MutationObserver
+        // satisfy DOM conditions first without 200ms polling.
+        if has_dom_conditions(condition) && stable.is_none() {
+            let left = limit.saturating_sub(started.elapsed());
+            if !left.is_zero() {
+                if let Ok(Some(watched)) = watch_once(&view, condition, left).await {
+                    if watched.get("met").and_then(Value::as_bool) == Some(false)
+                        && started.elapsed() >= limit
+                    {
+                        return watched;
+                    }
+                }
+            }
+        }
+
         let mut failing = match ask_page(&view, "check", std::slice::from_ref(condition)).await {
             Ok(answer) => answer
                 .get("failing")
@@ -72,7 +132,7 @@ pub(super) async fn wait_for(
         };
         if needs_loaded
             && manager
-                .page(agent_id, &tab_id)
+                .page(agent_id, tab_id)
                 .is_some_and(|page| page.loading)
         {
             failing.push(json!("the page is still loading"));
@@ -141,6 +201,106 @@ pub(super) async fn wait_for(
     }
 }
 
+/// Runs `window.__sikemux.watch` inside the page's helper world, re-attaching if the tab
+/// navigates mid-wait.
+async fn wait_dom_event_driven(
+    manager: &BrowserManager,
+    agent_id: &str,
+    tab_id: &str,
+    condition: &Value,
+    limit: Duration,
+    needs_loaded: bool,
+    started: Instant,
+) -> Value {
+    let given_up = |failing: Vec<Value>| json!({ "met": false, "waitedMs": started.elapsed().as_millis() as u64, "failing": failing });
+    loop {
+        if needs_loaded
+            && manager
+                .page(agent_id, tab_id)
+                .is_some_and(|page| page.loading)
+        {
+            let left = limit.saturating_sub(started.elapsed());
+            if left.is_zero() {
+                return given_up(vec![json!("the page is still loading")]);
+            }
+            let _ = manager.wait_until_loaded(agent_id, tab_id, left).await;
+        }
+        let (_, view) = match target_tab(manager, agent_id, Some(tab_id)) {
+            Ok(tab) => tab,
+            Err(error) => return given_up(vec![json!(error)]),
+        };
+        let left = limit.saturating_sub(started.elapsed());
+        match watch_once(&view, condition, left).await {
+            Ok(Some(mut answer)) => {
+                let met = answer.get("met").and_then(Value::as_bool) == Some(true);
+                if met
+                    && needs_loaded
+                    && manager
+                        .page(agent_id, tab_id)
+                        .is_some_and(|page| page.loading)
+                {
+                    if started.elapsed() >= limit {
+                        return given_up(vec![json!("the page is still loading")]);
+                    }
+                    continue;
+                }
+                put(
+                    &mut answer,
+                    "waitedMs",
+                    json!(started.elapsed().as_millis() as u64),
+                );
+                return answer;
+            }
+            Ok(None) => {
+                let failing = match ask_page(&view, "check", std::slice::from_ref(condition)).await
+                {
+                    Ok(answer) => answer
+                        .get("failing")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default(),
+                    Err(error) => vec![json!(error)],
+                };
+                return given_up(failing);
+            }
+            Err(error) => {
+                if started.elapsed() >= limit {
+                    return given_up(vec![json!(error)]);
+                }
+                // A navigation may have dropped the helper promise; wait for load or a short beat.
+                let left = limit.saturating_sub(started.elapsed());
+                if manager
+                    .page(agent_id, tab_id)
+                    .is_some_and(|page| page.loading)
+                {
+                    let _ = manager.wait_until_loaded(agent_id, tab_id, left).await;
+                } else {
+                    tokio::time::sleep(Duration::from_millis(50).min(left)).await;
+                }
+            }
+        }
+    }
+}
+
+async fn watch_once(
+    view: &Tab,
+    condition: &Value,
+    limit: Duration,
+) -> Result<Option<Value>, String> {
+    let cond_json = serde_json::to_string(condition).unwrap_or_else(|_| "{}".into());
+    let ms = limit.as_millis() as u64;
+    let expr = format!(
+        "JSON.stringify((await (async () => {{ try {{ return {{ ok: await window.__sikemux.watch({cond_json}, {ms}) }}; }} catch (error) {{ return {{ error: String((error && error.message) || error) }}; }} }})()))"
+    );
+    let wall = limit + Duration::from_millis(500);
+    let Some(raw) = wait_page_helper(view, &expr, wall).await? else {
+        return Ok(None);
+    };
+    let parsed: Value = serde_json::from_str(&raw)
+        .map_err(|_| "the page returned an unreadable answer".to_string())?;
+    unwrap_answer(parsed).map(Some)
+}
+
 /// A page that is loading may not answer at once, so a wait asks again rather than stall on it.
 async fn ask_page(view: &Tab, function: &str, args: &[Value]) -> Result<Value, String> {
     tokio::time::timeout(PAGE_CHECK_LIMIT, call(view, function, args))
@@ -194,6 +354,7 @@ pub(super) async fn arrived(
     tab_id: &str,
     params: &Value,
     started: Instant,
+    include_tabs: bool,
 ) -> Result<Value, String> {
     let waited = match params.get("waitFor").and_then(wait_condition) {
         Some(condition) => {
@@ -204,7 +365,7 @@ pub(super) async fn arrived(
             let limit = Duration::from_millis(asked.min(MAX_CONDITION_WAIT_MS)).min(
                 Duration::from_millis(MAX_CONDITION_WAIT_MS).saturating_sub(started.elapsed()),
             );
-            let mut waited = wait_for(manager, agent_id, &condition, limit).await;
+            let mut waited = wait_for(manager, agent_id, tab_id, &condition, limit).await;
             if limit < Duration::from_millis(asked)
                 && waited.get("met").and_then(Value::as_bool) == Some(false)
             {
@@ -214,7 +375,7 @@ pub(super) async fn arrived(
         }
         None => None,
     };
-    let mut result = report(manager, agent_id, params).await?;
+    let mut result = report(manager, agent_id, tab_id, params, include_tabs).await?;
     if let Some(waited) = waited {
         result = merge(waited, result)?;
     }
@@ -240,7 +401,7 @@ pub(super) async fn arrived(
 
 pub(super) const DEFAULT_CONDITION_WAIT_MS: u64 = 10_000;
 
-pub(super) const CONDITION_POLL: Duration = Duration::from_millis(200);
+pub(super) const CONDITION_POLL: Duration = Duration::from_millis(100);
 
 pub(super) const NETWORK_QUIET: Duration = Duration::from_millis(500);
 

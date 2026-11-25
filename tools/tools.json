@@ -20,12 +20,21 @@
       "method": "browser.navigate",
       "description": "Go to a URL, back, forward or reload; waits for the page.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "url": {
           "type": "string",
           "maxLength": 8192
         },
         "newTab": {
           "description": "Open in a new tab, or your tab already on that site",
+          "type": "boolean"
+        },
+        "background": {
+          "description": "Open or reuse without switching the active tab or opening a shut desk",
           "type": "boolean"
         },
         "go": {
@@ -96,6 +105,11 @@
       "method": "browser.state",
       "description": "Read the tab: numbered elements, text, tabs, downloads.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "fullText": {
           "description": "Up to 40 KB of text",
           "type": "boolean"
@@ -131,6 +145,11 @@
       "method": "browser.find",
       "description": "Find elements by visible text or accessible name.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "query": {
           "description": "Visible text or accessible name",
           "type": "string",
@@ -153,6 +172,11 @@
       "method": "browser.click",
       "description": "Click an element by number, text, selector or point.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "index": {
           "description": "Element number from state or find",
           "type": "integer",
@@ -210,6 +234,11 @@
       "method": "browser.type",
       "description": "Type into a field, replacing it or at the caret.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "index": {
           "description": "Field number; else at the caret",
           "type": "integer",
@@ -255,6 +284,11 @@
       "method": "browser.press",
       "description": "Press a key or chord, such as Meta+a.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "key": {
           "type": "string",
           "minLength": 1,
@@ -278,6 +312,11 @@
       "method": "browser.act",
       "description": "Batch navigate, click, type, wait, read.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "steps": {
           "description": "Up to 20 in order; add wait after a page load",
           "type": "array",
@@ -390,6 +429,11 @@
       "method": "browser.drag",
       "description": "Drag from one element or point to another.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "fromIndex": {
           "type": "integer",
           "minimum": 0
@@ -430,6 +474,11 @@
       "method": "browser.upload",
       "description": "Give files to a file input.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "paths": {
           "description": "Absolute file paths",
           "type": "array",
@@ -478,6 +527,11 @@
       "method": "browser.dialog",
       "description": "Answer an alert, confirm or prompt.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "accept": {
           "type": "boolean"
         },
@@ -503,6 +557,11 @@
       "method": "browser.viewport",
       "description": "Set this tab's viewport.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "width": {
           "type": "integer",
           "minimum": 200,
@@ -526,6 +585,11 @@
       "method": "browser.scroll",
       "description": "Scroll to an element, by deltaY, or to an end.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "deltaY": {
           "description": "Pixels; negative scrolls up",
           "type": "number"
@@ -566,6 +630,11 @@
       "method": "browser.evaluate",
       "description": "Run a script in the page; returns JSON.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "script": {
           "description": "An expression, or statements ending in return; may await",
           "type": "string",
@@ -588,6 +657,11 @@
       "method": "browser.network",
       "description": "Page requests with status and body.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "limit": {
           "type": "integer",
           "minimum": 1,
@@ -630,6 +704,11 @@
       "method": "browser.console",
       "description": "Page console messages and errors.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "limit": {
           "type": "integer",
           "minimum": 1,
@@ -648,6 +727,11 @@
       "answer": "screenshot",
       "description": "Capture the tab or the whole page.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "fullPage": {
           "description": "Whole page, up to 14,400 px and 30 s",
           "type": "boolean"
@@ -685,6 +769,11 @@
       "method": "browser.annotate",
       "description": "Box an element or caption the page.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "index": {
           "description": "Element to box; or x and y",
           "type": "integer",
@@ -719,6 +808,11 @@
       "method": "browser.record",
       "description": "Record this tab to MP4, or stop.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "stop": {
           "type": "boolean"
         },
@@ -736,6 +830,11 @@
       "method": "browser.wait",
       "description": "Wait for text, a selector, a URL or quiet network.",
       "properties": {
+        "tabId": {
+          "description": "Target tab id; default the active tab",
+          "type": "string",
+          "maxLength": 128
+        },
         "text": {
           "type": "string",
           "minLength": 1,

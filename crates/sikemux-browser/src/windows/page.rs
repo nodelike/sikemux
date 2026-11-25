@@ -196,19 +196,32 @@ fn helper_world(page: &Page, then: impl FnOnce(Result<i64, String>) + 'static) {
             return then(Ok(context));
         }
         let helper = page_now.helper.clone();
+        let page_inject = page_now.clone();
         devtools(
             &page_now,
             "Page.createIsolatedWorld",
             &json!({ "frameId": frame, "worldName": HELPER_WORLD }),
-            move |world| {
-                then(world.and_then(|world| {
-                    let context = world
-                        .get("executionContextId")
-                        .and_then(Value::as_i64)
-                        .ok_or("the page gave the helpers no world")?;
-                    *helper.locked() = Some((document, context));
-                    Ok(context)
-                }))
+            move |world| match world.and_then(|world| {
+                world
+                    .get("executionContextId")
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| "the page gave the helpers no world".to_owned())
+            }) {
+                Ok(context) => {
+                    devtools(
+                        &page_inject,
+                        "Runtime.evaluate",
+                        &json!({
+                            "expression": crate::PAGE_SCRIPT,
+                            "contextId": context,
+                        }),
+                        move |_| {
+                            *helper.locked() = Some((document, context));
+                            then(Ok(context));
+                        },
+                    );
+                }
+                Err(why) => then(Err(why)),
             },
         );
     });

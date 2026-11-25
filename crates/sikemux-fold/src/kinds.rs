@@ -133,9 +133,7 @@ fn named(name: &str, tool: &ToolCall, args: &Map<String, Value>) -> Option<Kind>
         "process_stop" | "task_stop" | "TaskStop" | "KillShell" => (F::Shell, I::Stop, None),
         "git_commit" => (F::Git, I::Commit, None),
         "who_wrote" | "why" => (F::Git, I::Query, None),
-        "browser_navigate" | "browser_switch_tab" | "navigate" | "preview_start" => {
-            (F::Browser, I::Open, None)
-        }
+        "browser_navigate" | "navigate" | "preview_start" => (F::Browser, I::Open, None),
         "browser_click" | "browser_act" | "browser_drag" | "browser_scroll" | "computer" => {
             (F::Browser, I::Click, None)
         }

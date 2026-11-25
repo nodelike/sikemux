@@ -85,8 +85,8 @@ pub(crate) struct AgentBrowser {
     /// frame does not also re-place every tab parked behind it.
     pub(crate) applied: HashMap<String, (viewport::Layout, bool)>,
     pub(crate) downloads: downloads::DownloadLog,
-    /// The tab whose page was last told it has focus.
-    pub(crate) focus_lent: Option<String>,
+    /// Tabs whose pages were told they have focus.
+    pub(crate) focus_lent: HashSet<String>,
     /// How far up from the bottom of the page area the app draws over an artifact.
     pub(crate) foot: f64,
     /// The tab whose page last made room at its end, and how much.
@@ -145,6 +145,8 @@ pub(crate) struct TabFacts {
     pub(crate) form_write: Option<String>,
     pub(crate) documents: documents::DocumentLog,
     pub(crate) stall: Option<TabStall>,
+    /// Incremented whenever a top-level provisional navigation starts in this tab.
+    pub(crate) nav_seq: u64,
 }
 
 pub struct BrowserManager {
@@ -167,6 +169,8 @@ pub struct BrowserManager {
     pub(crate) relieving: AtomicBool,
     /// Rung whenever the app says where an agent's desk shows, or that it does not.
     pub(crate) desk_answers: tokio::sync::Notify,
+    /// Rung whenever any tab starts or finishes a navigation or closes.
+    pub(crate) load_changed: tokio::sync::Notify,
     /// Whether the window's frames are seen, so a desk it brings out gets placed.
     window_draws: AtomicBool,
     pub(crate) host: Arc<dyn Host>,
@@ -196,6 +200,7 @@ impl BrowserManager {
             gone: Mutex::default(),
             relieving: AtomicBool::default(),
             desk_answers: tokio::sync::Notify::new(),
+            load_changed: tokio::sync::Notify::new(),
             window_draws: AtomicBool::default(),
             host,
             me: me.clone(),
@@ -349,10 +354,23 @@ impl BrowserManager {
         url: Option<&str>,
         fixed: Option<viewport::Viewport>,
     ) -> BrowserResult<String> {
+        self.open_tab_with(agent_id, url, fixed, true, false).await
+    }
+
+    pub async fn open_tab_with(
+        &self,
+        agent_id: &str,
+        url: Option<&str>,
+        fixed: Option<viewport::Viewport>,
+        activate: bool,
+        background: bool,
+    ) -> BrowserResult<String> {
         validate_agent_id(agent_id)?;
         let url = self.page_url(url.unwrap_or_default())?;
-        let (tab_id, _) = self.add_tab(agent_id, &url, None, fixed)?;
-        self.until_desk_answers(agent_id).await;
+        let (tab_id, _) = self.add_tab_with(agent_id, &url, None, fixed, activate, background)?;
+        if !background {
+            self.until_desk_answers(agent_id).await;
+        }
         Ok(tab_id)
     }
 
@@ -363,6 +381,18 @@ impl BrowserManager {
         url: &str,
         opened_by: Option<OpenedBy>,
         fixed: Option<viewport::Viewport>,
+    ) -> BrowserResult<(String, Tab)> {
+        self.add_tab_with(agent_id, url, opened_by, fixed, true, false)
+    }
+
+    pub(crate) fn add_tab_with(
+        &self,
+        agent_id: &str,
+        url: &str,
+        opened_by: Option<OpenedBy>,
+        fixed: Option<viewport::Viewport>,
+        activate: bool,
+        background: bool,
     ) -> BrowserResult<(String, Tab)> {
         validate_url(url)?;
         let parsed = Url::parse(url).map_err(|_| Error::BadArg("invalid browser url"))?;
@@ -383,13 +413,15 @@ impl BrowserManager {
         {
             let mut agents = self.agents.locked();
             let agent = agents.entry(agent_id.to_owned()).or_default();
-            agent.strip.insert(
+            agent.strip.insert_tab(
                 tab_id.clone(),
                 TabPage {
                     url: url.to_owned(),
                     loading: url != BLANK_URL,
                     ..TabPage::default()
                 },
+                activate,
+                background,
             );
             agent.views.insert(tab_id.clone(), webview.clone());
         }
@@ -555,11 +587,40 @@ impl BrowserManager {
     /// Whether the agent's shown tab has no live page yet: unloaded, or
     /// still loading again off screen.
     pub fn reloading(&self, agent_id: &str) -> bool {
+        self.reloading_tab(agent_id, None)
+    }
+
+    pub fn reloading_tab(&self, agent_id: &str, tab_id: Option<&str>) -> bool {
         self.agents.locked().get(agent_id).is_some_and(|agent| {
-            agent.strip.active.as_ref().is_some_and(|id| {
+            let target = tab_id.or(agent.strip.active.as_deref());
+            target.is_some_and(|id| {
                 agent.strip.unloaded.contains(id) || agent.strip.revealing.contains_key(id)
             })
         })
+    }
+
+    pub fn active_is_yours(&self, agent_id: &str) -> bool {
+        self.agents.locked().get(agent_id).is_some_and(|agent| {
+            agent
+                .strip
+                .active
+                .as_deref()
+                .is_some_and(|id| agent.strip.yours(id))
+        })
+    }
+
+    pub fn active_tab_id(&self, agent_id: &str) -> Option<String> {
+        self.agents
+            .locked()
+            .get(agent_id)
+            .and_then(|agent| agent.strip.active.clone())
+    }
+
+    pub(crate) fn nav_seq(&self, tab_id: &str) -> u64 {
+        self.tabs
+            .locked()
+            .get(tab_id)
+            .map_or(0, |facts| facts.nav_seq)
     }
 
     /// Where a file a page in `tab_id` saves waits, or None to refuse it.
@@ -771,8 +832,14 @@ impl BrowserManager {
             );
         }
         match loading {
-            Some(true) => self.relayout(agent_id),
-            Some(false) => self.settle(agent_id, tab_id),
+            Some(true) => {
+                self.load_changed.notify_waiters();
+                self.relayout(agent_id);
+            }
+            Some(false) => {
+                self.load_changed.notify_waiters();
+                self.settle(agent_id, tab_id);
+            }
             None => {}
         }
     }
@@ -868,6 +935,8 @@ impl BrowserManager {
         if let Some(view) = view {
             view.close();
         }
+        self.load_changed.notify_waiters();
+        self.sync_activity_assertion();
         self.release_unused_files();
         self.relayout(agent_id);
         self.announce();
@@ -904,6 +973,8 @@ impl BrowserManager {
         for view in views {
             view.close();
         }
+        self.load_changed.notify_waiters();
+        self.sync_activity_assertion();
         self.release_unused_files();
         self.announce();
         Ok(())
@@ -915,7 +986,7 @@ impl BrowserManager {
     /// stays the agent's, so a later turn that moves on from it closes it too.
     pub fn end_turn(&self, agent_id: &str, called: &[String]) {
         if let Some(agent) = self.agents.locked().get_mut(agent_id) {
-            agent.strip.driven = None;
+            agent.strip.driven.clear();
         }
         self.steer_page_focus(agent_id);
         let spare: Vec<String> = {
@@ -1097,15 +1168,20 @@ impl BrowserManager {
 
     /// Opens `input` in the agent's tab and returns the address it went to.
     pub fn navigate(&self, agent_id: &str, input: &str) -> BrowserResult<String> {
+        let (tab_id, _) = self.active_view(agent_id)?;
+        self.navigate_tab(agent_id, &tab_id, input)
+    }
+
+    pub fn navigate_tab(&self, agent_id: &str, tab_id: &str, input: &str) -> BrowserResult<String> {
         let url = self.page_url(input)?;
         validate_url(&url)?;
         let parsed = Url::parse(&url).map_err(|_| Error::BadArg("invalid browser url"))?;
-        let (tab_id, view) = self.active_view(agent_id)?;
+        let (_, view) = self.tab_view(agent_id, Some(tab_id))?;
         let within_page = self
-            .page(agent_id, &tab_id)
+            .page(agent_id, tab_id)
             .is_some_and(|page| crate::address::same_document(&page.url, &url));
         view.navigate(parsed.as_str());
-        self.note_page(agent_id, &tab_id, |page| {
+        self.note_page(agent_id, tab_id, |page| {
             page.url = url.clone();
             page.loading |= !within_page;
         });
@@ -1149,13 +1225,23 @@ impl BrowserManager {
     }
 
     pub fn reload(&self, agent_id: &str) -> BrowserResult<()> {
-        let (_, view) = self.active_view(agent_id)?;
+        let (tab_id, _) = self.active_view(agent_id)?;
+        self.reload_tab_by_id(agent_id, &tab_id)
+    }
+
+    pub fn reload_tab_by_id(&self, agent_id: &str, tab_id: &str) -> BrowserResult<()> {
+        let (_, view) = self.tab_view(agent_id, Some(tab_id))?;
         view.reload();
         Ok(())
     }
 
     pub fn history(&self, agent_id: &str, delta: i32) -> BrowserResult<()> {
-        let (_, view) = self.active_view(agent_id)?;
+        let (tab_id, _) = self.active_view(agent_id)?;
+        self.history_tab(agent_id, &tab_id, delta)
+    }
+
+    pub fn history_tab(&self, agent_id: &str, tab_id: &str, delta: i32) -> BrowserResult<()> {
+        let (_, view) = self.tab_view(agent_id, Some(tab_id))?;
         view.run(move |webview| page::history(webview, delta));
         Ok(())
     }
@@ -1249,22 +1335,37 @@ impl BrowserManager {
 
     /// The agent's shown tab, with its page loading again if it was unloaded.
     pub fn active_view(&self, agent_id: &str) -> BrowserResult<(String, Tab)> {
+        self.tab_view(agent_id, None)
+    }
+
+    /// The named tab (or the shown tab when `tab_id` is None), restoring it if unloaded.
+    pub fn tab_view(&self, agent_id: &str, tab_id: Option<&str>) -> BrowserResult<(String, Tab)> {
         validate_agent_id(agent_id)?;
-        let no_tab = || Error::BadArg("this agent has no open browser tab");
+        let missing = || {
+            Error::BadArg(if tab_id.is_some() {
+                "unknown browser tab"
+            } else {
+                "this agent has no open browser tab"
+            })
+        };
         let (id, view) = self
             .agents
             .locked()
             .get(agent_id)
             .and_then(|agent| {
-                let id = agent.strip.active.clone()?;
+                let id = match tab_id {
+                    Some(id) if agent.strip.pages.contains_key(id) => id.to_owned(),
+                    Some(_) => return None,
+                    None => agent.strip.active.clone()?,
+                };
                 let view = agent.views.get(&id).cloned();
                 Some((id, view))
             })
-            .ok_or_else(no_tab)?;
+            .ok_or_else(missing)?;
         if let Some(view) = view {
             return Ok((id, view));
         }
-        let view = self.restore(agent_id, &id).ok_or_else(no_tab)?;
+        let view = self.restore(agent_id, &id).ok_or_else(missing)?;
         self.relayout(agent_id);
         Ok((id, view))
     }
@@ -1328,27 +1429,37 @@ impl BrowserManager {
     }
 
     /// WebKit gives a page focus only by taking the person's keyboard and only while the
-    /// window is in front, so the page an agent works in is told it has focus by script.
+    /// window is in front, so each page an agent works in is told it has focus by script.
     pub(crate) fn steer_page_focus(&self, agent_id: &str) {
-        let (left, taken) = {
+        let (left, taken): (Vec<Tab>, Vec<Tab>) = {
             let mut agents = self.agents.locked();
             let Some(agent) = agents.get_mut(agent_id) else {
                 return;
             };
-            let wanted = (agent.strip.page_focus())
-                .filter(|id| agent.views.contains_key(*id))
-                .cloned();
+            let wanted: HashSet<String> = agent
+                .strip
+                .page_focus()
+                .into_iter()
+                .filter(|id| agent.views.contains_key(id))
+                .collect();
             if agent.focus_lent == wanted {
                 return;
             }
-            let left = std::mem::replace(&mut agent.focus_lent, wanted.clone());
-            let view_of = |id: Option<String>| id.and_then(|id| agent.views.get(&id).cloned());
-            (view_of(left), view_of(wanted))
+            let prev = std::mem::replace(&mut agent.focus_lent, wanted.clone());
+            let left = prev
+                .difference(&wanted)
+                .filter_map(|id| agent.views.get(id).cloned())
+                .collect();
+            let taken = wanted
+                .difference(&prev)
+                .filter_map(|id| agent.views.get(id).cloned())
+                .collect();
+            (left, taken)
         };
-        if let Some(view) = left {
+        for view in left {
             lend_page_focus(view, false);
         }
-        if let Some(view) = taken {
+        for view in taken {
             lend_page_focus(view, true);
         }
     }
@@ -1366,13 +1477,19 @@ impl BrowserManager {
 
     /// Marks the tab the agent's tools are on, so the strip can show it working there.
     pub fn mark_acting(&self, agent_id: &str) -> Option<(String, u64)> {
+        self.mark_acting_tab(agent_id, None)
+    }
+
+    pub fn mark_acting_tab(&self, agent_id: &str, tab_id: Option<&str>) -> Option<(String, u64)> {
         let mark = self.next_mark.fetch_add(1, Ordering::AcqRel);
         let (tab, woke) = {
             let mut agents = self.agents.locked();
             let strip = &mut agents.get_mut(agent_id)?.strip;
-            let was_awake = strip.active.as_deref().is_some_and(|id| strip.awake(id));
-            (strip.mark_acting(mark)?, !was_awake)
+            let target = tab_id.or(strip.active.as_deref());
+            let was_awake = target.is_some_and(|id| strip.awake(id));
+            (strip.mark_acting(tab_id, mark)?, !was_awake)
         };
+        self.sync_activity_assertion();
         self.announce();
         if woke {
             self.relayout(agent_id);
@@ -1401,10 +1518,23 @@ impl BrowserManager {
                 }
             }
             if released {
+                manager.sync_activity_assertion();
                 manager.announce();
                 manager.relayout(&agent_id);
             }
         });
+    }
+
+    fn sync_activity_assertion(&self) {
+        #[cfg(target_os = "macos")]
+        {
+            let active = self
+                .agents
+                .locked()
+                .values()
+                .any(|agent| !agent.strip.acting.is_empty());
+            macos::set_background_activity(active);
+        }
     }
 
     pub(crate) fn announce(&self) {
@@ -1643,8 +1773,8 @@ mod tests {
         let mut strip = TabStrip::default();
         strip.insert("a".into(), page("https://a.test"));
 
-        assert_eq!(strip.mark_acting(1).as_deref(), Some("a"));
-        assert_eq!(strip.mark_acting(2).as_deref(), Some("a"));
+        assert_eq!(strip.mark_acting(None, 1).as_deref(), Some("a"));
+        assert_eq!(strip.mark_acting(None, 2).as_deref(), Some("a"));
         assert!(!strip.release_acting("a", 1));
         assert!(strip.snapshot().tabs[0].acting);
 
@@ -1669,7 +1799,7 @@ mod tests {
         assert!(strip.release_settled("a", 2));
         assert!(!strip.awake("a"));
 
-        strip.mark_acting(3);
+        strip.mark_acting(None, 3);
         assert!(strip.awake("a"));
         strip.release_acting("a", 3);
         strip.settle("a", 4);

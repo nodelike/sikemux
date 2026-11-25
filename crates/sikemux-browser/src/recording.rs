@@ -70,14 +70,19 @@ struct Encoder {
 pub async fn start(
     manager: &BrowserManager,
     agent_id: &str,
+    tab_id: Option<&str>,
     path: Option<String>,
 ) -> Result<Value, String> {
     if manager.recordings.locked().contains_key(agent_id) {
         return Err("this agent is already recording; stop it first".into());
     }
-    let (tab_id, view) = manager
-        .active_view(agent_id)
-        .map_err(|_| "no browser tab is open; call browser_navigate first".to_string())?;
+    let (resolved_id, view) = manager.tab_view(agent_id, tab_id).map_err(|_| {
+        if let Some(id) = tab_id {
+            format!("{id} {}", manager.why_gone(id))
+        } else {
+            "no browser tab is open; call browser_navigate first".to_string()
+        }
+    })?;
     let path = match path {
         Some(path) => {
             let path = PathBuf::from(path);
@@ -92,7 +97,10 @@ pub async fn start(
         }
         None => {
             let folder = folder(manager).ok_or("there is no folder for videos")?;
-            let title = manager.page(agent_id, &tab_id).unwrap_or_default().title;
+            let title = manager
+                .page(agent_id, &resolved_id)
+                .unwrap_or_default()
+                .title;
             default_path(&folder, &title)
         }
     };
@@ -110,6 +118,7 @@ pub async fn start(
     crate::spawn(film(
         filming,
         agent_id.to_owned(),
+        tab_id.map(str::to_owned),
         encoder.frames,
         stop.clone(),
         width as f64,
@@ -124,7 +133,9 @@ pub async fn start(
             finished: encoder.finished,
         },
     );
-    Ok(json!({ "recording": true, "path": path, "width": width, "height": height }))
+    Ok(
+        json!({ "recording": true, "tabId": resolved_id, "path": path, "width": width, "height": height }),
+    )
 }
 
 pub async fn stop(manager: &BrowserManager, agent_id: &str) -> Result<Value, String> {
@@ -152,11 +163,12 @@ pub async fn stop(manager: &BrowserManager, agent_id: &str) -> Result<Value, Str
     }))
 }
 
-/// Photographs the agent's current tab until told to stop, the agent has no
-/// tab left, or the recording reaches its length limit.
+/// Photographs the named tab (or the agent's current tab) until told to stop, the tab
+/// closes, or the recording reaches its length limit.
 async fn film(
     manager: Arc<BrowserManager>,
     agent_id: String,
+    tab_id: Option<String>,
     frames: mpsc::Sender<Frame>,
     stop: Arc<AtomicBool>,
     width: f64,
@@ -165,7 +177,7 @@ async fn film(
     let mut tick = tokio::time::interval(FRAME_INTERVAL);
     while !stop.load(Ordering::Acquire) && started.elapsed() < MAX_LENGTH {
         tick.tick().await;
-        let Ok((_, view)) = manager.active_view(&agent_id) else {
+        let Ok((_, view)) = manager.tab_view(&agent_id, tab_id.as_deref()) else {
             break;
         };
         let frames = frames.clone();

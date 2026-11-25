@@ -113,7 +113,7 @@ impl TabEvents for TabListener {
             .get(&self.agent_id)
             .map(|agent| {
                 let view = agent.views.get(&self.tab_id).cloned();
-                (view, agent.focus_lent.as_deref() == Some(&*self.tab_id))
+                (view, agent.focus_lent.contains(&self.tab_id))
             })
             .unwrap_or_default();
         if let Some(view) = view.clone().filter(|_| focus_lent) {
@@ -211,13 +211,18 @@ impl TabEvents for TabListener {
         let Some(manager) = self.manager.upgrade() else {
             return;
         };
-        let failed = manager
-            .tabs
-            .locked()
-            .entry(self.tab_id.clone())
-            .or_default()
-            .documents
-            .note(event);
+        let started = matches!(event, DocumentEvent::Started { .. });
+        let failed = {
+            let mut tabs = manager.tabs.locked();
+            let facts = tabs.entry(self.tab_id.clone()).or_default();
+            if started {
+                facts.nav_seq = facts.nav_seq.wrapping_add(1);
+            }
+            facts.documents.note(event)
+        };
+        if started {
+            manager.load_changed.notify_waiters();
+        }
         if failed {
             self.note(|page| page.loading = false);
         }

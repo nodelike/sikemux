@@ -347,7 +347,7 @@ fn serve(offer: Arc<Offer>, agent_id: String) {
     let initialized = Arc::new(AtomicBool::new(false));
     let relays = Arc::new(Relays::new(agent_id));
     let calls = Arc::new(Calls::default());
-    let tab_turns = Arc::new(Turns::default());
+    let tab_turns = Arc::new(TabTurns::default());
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
@@ -416,8 +416,8 @@ fn serve(offer: Arc<Offer>, agent_id: String) {
                 let member = manifest.member(track_name, track_args);
                 calls.start(&id, member.map_or(track_name, |tool| tool.name.as_str()));
                 let ticket = member
-                    .is_some_and(|tool| acts_on_tab(&tool.method))
-                    .then(|| (Arc::clone(&tab_turns), tab_turns.take()));
+                    .and_then(|tool| tab_lock_key(&tool.method, track_args))
+                    .map(|key| tab_turns.take(&key));
                 // A call waits on the app, so it runs off the read loop; a host
                 // that pipelines a ping behind a navigation still gets answered.
                 std::thread::spawn(move || {
@@ -522,10 +522,40 @@ impl Calls {
     }
 }
 
-/// Browser calls act on the agent's current tab, so they run one at a time in
-/// the order the agent sent them, even when it sent them all at once.
+/// Browser calls targeting the same tab run one at a time in the order the agent sent them,
+/// while calls targeting different `tabId`s or opening new tabs run in parallel.
 fn acts_on_tab(method: &str) -> bool {
     method.starts_with("browser.") && method != "browser.page"
+}
+
+fn tab_lock_key(method: &str, args: &Value) -> Option<String> {
+    if !acts_on_tab(method) {
+        return None;
+    }
+    if let Some(tab_id) = args
+        .get("tabId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+    {
+        return Some(format!("tab:{tab_id}"));
+    }
+    if method == "browser.navigate" && args.get("newTab").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    Some("active".to_owned())
+}
+
+#[derive(Default)]
+struct TabTurns(Mutex<HashMap<String, Arc<Turns>>>);
+
+impl TabTurns {
+    fn take(&self, key: &str) -> (Arc<Turns>, u64) {
+        let mut map = self.0.locked();
+        map.retain(|existing, turns| existing == key || !turns.idle());
+        let turns = Arc::clone(map.entry(key.to_owned()).or_default());
+        let ticket = turns.take();
+        (turns, ticket)
+    }
 }
 
 #[derive(Default)]
@@ -536,6 +566,11 @@ struct Turns {
 }
 
 impl Turns {
+    fn idle(&self) -> bool {
+        let order = self.order.locked();
+        order.0 == order.1
+    }
+
     fn take(&self) -> u64 {
         let mut order = self.order.locked();
         order.0 += 1;

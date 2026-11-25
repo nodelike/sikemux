@@ -10,7 +10,10 @@ use gtk::glib::translate::ToGlibPtr;
 use gtk::prelude::*;
 use gtk::{cairo, gdk, gdk_pixbuf, glib};
 use javascriptcore::ValueExt;
-use webkit2gtk::{SettingsExt, SnapshotOptions, SnapshotRegion, WebView, WebViewExt};
+use webkit2gtk::{
+    SettingsExt, SnapshotOptions, SnapshotRegion, UserContentInjectedFrames, UserContentManagerExt,
+    UserScript, UserScriptInjectionTime, WebView, WebViewExt,
+};
 
 use crate::{BrowserShortcut, TabEvents, TabStall};
 
@@ -38,6 +41,17 @@ pub enum World {
 
 /// Wires a page WebKitGTK just made to the tab that holds it.
 pub(crate) fn attach(webview: &WebView, agent_id: &str, tab_id: &str, events: Arc<dyn TabEvents>) {
+    if let Some(manager) = webview.user_content_manager() {
+        let script = UserScript::for_world(
+            crate::PAGE_SCRIPT,
+            UserContentInjectedFrames::TopFrame,
+            UserScriptInjectionTime::Start,
+            HELPER_WORLD,
+            &[],
+            &[],
+        );
+        manager.add_script(&script);
+    }
     let crashed = events.clone();
     webview.connect_web_process_terminated(move |_, _| crashed.health(Some(TabStall::Crashed)));
     crate::linux::dialogs::attach(webview, tab_id, events.clone());

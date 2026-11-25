@@ -426,8 +426,8 @@ A page that hangs or crashes is reported on the next call: close the tab with
 
 ## browser-pages: Pages, tabs and viewport
 
-`browser_wait` checks every 200 ms for up to `timeoutMs` (10 seconds by
-default, 180 at most); given several conditions, all must hold. `script` is a
+`browser_wait` watches the page with a MutationObserver for up to `timeoutMs`
+(10 seconds by default, 180 at most); given several conditions, all must hold. `script` is a
 read-only page expression it waits on until truthy. `stable` takes a selector
 and waits until its text has not changed for `quietMs`, for a streamed answer
 or a log. `networkIdle` means fetch and XHR quiet for half a second. When it
@@ -436,15 +436,18 @@ to screenshots taken to see whether something finished.
 
 `browser_navigate` takes the same conditions as `waitFor`, but `urlGone`; the
 load and the wait share one minute. `go: "reload"` with `hard: true` skips the
-cache. A failed load is reported in `loadError`.
+cache. A failed load is reported in `loadError`. Pass `background: true` to
+open or reuse a tab without switching the active tab or opening a shut desk.
 
 A tab the person typed in during the last minute, such as one they are paying
 or signing in on, is never moved: navigating or reloading it is refused, so
 open a new tab instead.
 
-Keep to a few tabs and close yours when done. `browser_switch_tab` and
-`browser_close_tab` act on this pane's tabs only. `newTab: true` on a site you
-already have a tab on goes to that tab. When your turn ends Sikemux closes
+Every browser tool takes an optional `tabId` so you can read and drive multiple
+tabs in parallel without switching the active tab. Keep to a few tabs and close
+yours with `browser_close_tab` when done. `newTab: true` on a site you
+already have a tab on goes to that tab (without switching away from the person's
+tab). When your turn ends Sikemux closes
 your tabs but the one in front and those showing a local file, such as pages
 you open for the person. Past six of your own, opening another closes
 the one unused longest, named in `closedTab`. Tabs the person opened, clicked

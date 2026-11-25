@@ -1165,7 +1165,7 @@ impl Workbench {
             let opened = (before.as_ref()).is_some_and(|before| {
                 (strip.tabs.iter())
                     .filter(|tab| !before.contains(&tab.id))
-                    .any(|tab| !files.hushed(&agent, &tab.url))
+                    .any(|tab| !tab.background && !files.hushed(&agent, &tab.url))
             });
             let emptied = now.is_empty() && before.is_some_and(|before| !before.is_empty());
             if closed {
@@ -3889,6 +3889,7 @@ mod tests {
             favicon: None,
             acting: false,
             local_file: None,
+            background: false,
         }
     }
 

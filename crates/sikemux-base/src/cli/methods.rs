@@ -19,7 +19,6 @@ pub const BROWSER_METHODS: &[&str] = &[
     "browser.annotate",
     "browser.record",
     "browser.wait",
-    "browser.tab.switch",
     "browser.tab.close",
     "browser.page",
 ];

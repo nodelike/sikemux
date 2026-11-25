@@ -145,6 +145,9 @@ pub struct BrowserTab {
     pub acting: bool,
     /// The file on this computer the page shows, when it is one.
     pub local_file: Option<PathBuf>,
+    /// Opened in the background without bringing out a shut desk or taking focus.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub background: bool,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]

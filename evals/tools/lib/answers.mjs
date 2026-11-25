@@ -208,12 +208,6 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
       return needTab(() => ({ ...screenshot(tab, args, previewProfile), title: tab.page.title, url: tab.page.url }));
     case 'browser_viewport':
       return needTab(() => ({ viewport: { ...sized(args), preset: args.preset ?? null }, ...where(tab) }));
-    case 'browser_switch_tab': {
-      const target = state.tabs.find((candidate) => candidate.tabId === args.tabId);
-      if (args.tabId && !target) return { error: `No tab ${args.tabId}` };
-      if (target) state.active = target;
-      return { value: { activeTabId: state.active?.tabId ?? null, tabs: state.tabs.map((one) => where(one)) } };
-    }
     case 'browser_close_tab':
       state.tabs = state.tabs.filter((candidate) => candidate.tabId !== (args.tabId ?? state.active?.tabId));
       state.active = state.tabs.at(-1) ?? null;

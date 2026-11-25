@@ -25,7 +25,10 @@ use sikemux_base::cli::protocol::{HarnessRequest, BROWSER_PICTURE_METHOD, PAGE_R
 use crate::native::EVAL_TIMEOUT;
 use crate::{PAGE_SCRIPT, RECORDS_SCRIPT};
 const LOAD_TIMEOUT: Duration = Duration::from_secs(20);
-const SETTLE: Duration = Duration::from_millis(250);
+const SETTLE_FRAME_MS: u64 = 45;
+const SETTLE_TIMEOUT: Duration = Duration::from_millis(150);
+const NAV_START_WAIT: Duration = Duration::from_millis(80);
+const NO_HELPER: &str = "__SIKEMUX_NO_HELPER__";
 const DOWNLOAD_WAIT: Duration = Duration::from_secs(15);
 const MAX_WAIT_MS: u64 = 30_000;
 const SCRIPT_TIMEOUT_MS: u64 = 30_000;
@@ -75,14 +78,19 @@ pub fn execute(
         .agent_id
         .as_deref()
         .ok_or("browser tools need the agent's id")?;
-    let acts_on_a_tab = brings_the_desk_out(&request.method, manager.active_view(agent_id).is_ok());
+    let req_tab = requested_tab(&request.params);
+    let has_target = manager.tab_view(agent_id, req_tab).is_ok();
+    let acts_on_a_tab = brings_the_desk_out(&request.method, has_target);
+    let bg = is_background_call(&request.method, &request.params, manager, agent_id);
     let mut marks = Vec::new();
     if acts_on_a_tab {
-        manager.announce_acting(agent_id);
-        let reloading = manager.reloading(agent_id);
-        marks.extend(manager.mark_acting(agent_id));
+        if !bg {
+            manager.announce_acting(agent_id);
+        }
+        let reloading = manager.reloading_tab(agent_id, req_tab);
+        marks.extend(manager.mark_acting_tab(agent_id, req_tab));
         if reloading {
-            wait_for_reload(manager, agent_id);
+            wait_for_reload(manager, agent_id, req_tab);
         }
     }
     let before = tab_ids(manager, agent_id);
@@ -96,15 +104,30 @@ pub fn execute(
         &request.params,
     ));
     if acts_on_a_tab {
-        marks.extend(manager.mark_acting(agent_id));
+        let acted_tab = result
+            .as_ref()
+            .ok()
+            .and_then(|value| value.get("tabId").and_then(Value::as_str))
+            .or(req_tab);
+        marks.extend(manager.mark_acting_tab(agent_id, acted_tab));
         manager.release_acting(agent_id, marks);
     }
     if let Ok(Value::Object(map)) = &mut result {
+        let after = tab_ids(manager, agent_id);
         if request.method != "browser.navigate" {
             let opened = opened_tabs(manager, agent_id, &before);
             if !opened.is_empty() {
                 map.insert("openedTabs".into(), json!(opened));
             }
+        }
+        if after != before && !map.contains_key("tabs") {
+            map.insert(
+                "tabs".into(),
+                tabs(manager, agent_id)
+                    .get("tabs")
+                    .cloned()
+                    .unwrap_or_default(),
+            );
         }
         let saved = saved_files(manager, agent_id, download_mark);
         if !saved.is_empty() {
@@ -112,6 +135,33 @@ pub fn execute(
         }
     }
     result
+}
+
+fn requested_tab(params: &Value) -> Option<&str> {
+    params
+        .get("tabId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+}
+
+fn is_background_call(
+    method: &str,
+    params: &Value,
+    manager: &BrowserManager,
+    agent_id: &str,
+) -> bool {
+    if params.get("background").and_then(Value::as_bool) == Some(true) {
+        return true;
+    }
+    if let Some(tab_id) = requested_tab(params) {
+        if manager.active_tab_id(agent_id).as_deref() != Some(tab_id) {
+            return true;
+        }
+    }
+    method == "browser.navigate"
+        && params.get("newTab").and_then(Value::as_bool) == Some(true)
+        && params.get("background").and_then(Value::as_bool) != Some(false)
+        && manager.active_is_yours(agent_id)
 }
 
 /// Files the action made the page download, given a moment to finish so the
@@ -125,8 +175,8 @@ fn saved_files(manager: &BrowserManager, agent_id: &str, mark: u64) -> Vec<Value
 }
 
 /// An unloaded tab loads its page again before the agent's tools touch it.
-fn wait_for_reload(manager: &BrowserManager, agent_id: &str) {
-    if let Ok((tab_id, _)) = manager.active_view(agent_id) {
+fn wait_for_reload(manager: &BrowserManager, agent_id: &str, tab_id: Option<&str>) {
+    if let Ok((tab_id, _)) = manager.tab_view(agent_id, tab_id) {
         sikemux_base::runtime::block_on(manager.wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT));
     }
 }
@@ -169,29 +219,12 @@ async fn run(
             .and_then(Value::as_u64)
             .map(|value| value as usize)
     };
+    let req_tab = requested_tab(params);
     match method {
-        "browser.tab.switch" => {
-            let id = text("tabId").ok_or("tabId is required")?;
-            if manager.switch_tab(agent_id, &id).is_err() {
-                return Err(format!(
-                    "{id} {}; your open tabs are {}",
-                    manager.why_gone(&id),
-                    tabs(manager, agent_id)
-                        .get("tabs")
-                        .cloned()
-                        .unwrap_or_default()
-                ));
-            }
-            if manager.reloading(agent_id) {
-                let _ = manager.active_view(agent_id);
-                manager.wait_until_loaded(agent_id, &id, LOAD_TIMEOUT).await;
-            }
-            read_state(manager, agent_id, "changes", false, Value::Null).await
-        }
         "browser.tab.close" => {
-            let id = match text("tabId") {
-                Some(id) => id,
-                None => active_tab(manager, agent_id)?.0,
+            let id = match req_tab {
+                Some(id) => id.to_owned(),
+                None => resolve_tab(manager, agent_id, None)?.0,
             };
             let closed = manager.close_tab(agent_id, &id).is_ok();
             let mut result = tabs(manager, agent_id);
@@ -207,7 +240,7 @@ async fn run(
         "browser.navigate" => {
             let url = match (text("url"), text("go")) {
                 (Some(_), Some(_)) => return Err("pass url or go, not both".into()),
-                (None, Some(go)) => return step(manager, agent_id, &go, params).await,
+                (None, Some(go)) => return step(manager, agent_id, req_tab, &go, params).await,
                 (None, None) => return Err("url or go is required".into()),
                 (Some(url), None) => url,
             };
@@ -216,67 +249,103 @@ async fn run(
                 .page_url_within(&url, &roots)
                 .map_err(|error| error.to_string())?;
             let wanted = url.clone();
-            let current = manager
-                .active_view(agent_id)
-                .ok()
-                .and_then(|(tab_id, _)| manager.page(agent_id, &tab_id))
-                .map(|page| page.url)
-                .filter(|url| !manager.shows_page(url));
+            let explicit_bg = params.get("background").and_then(Value::as_bool);
             let mut new_tab = params.get("newTab").and_then(Value::as_bool) == Some(true);
             let started = Instant::now();
             let mut note = None;
-            let mut current = current;
+            let mut target_id = if !new_tab {
+                if let Some(id) = req_tab {
+                    let (id, _) = resolve_tab(manager, agent_id, Some(id))?;
+                    Some(id)
+                } else {
+                    manager
+                        .active_view(agent_id)
+                        .ok()
+                        .filter(|(id, _)| {
+                            manager
+                                .page(agent_id, id)
+                                .is_some_and(|page| !manager.shows_page(&page.url))
+                        })
+                        .map(|(id, _)| id)
+                }
+            } else {
+                None
+            };
+            let non_stealing = explicit_bg == Some(true)
+                || (explicit_bg.is_none() && manager.active_is_yours(agent_id));
             if new_tab {
                 if let Some(tab_id) = manager.same_site_tab(agent_id, &url) {
-                    manager
-                        .switch_tab(agent_id, &tab_id)
-                        .map_err(|error| error.to_string())?;
-                    current = manager.page(agent_id, &tab_id).map(|page| page.url);
+                    if !non_stealing {
+                        manager
+                            .switch_tab(agent_id, &tab_id)
+                            .map_err(|error| error.to_string())?;
+                    }
+                    target_id = Some(tab_id);
                     new_tab = false;
                     note = Some("your tab on this site was used rather than opening another; close tabs you are done with");
                 }
             }
             let mut closed = None;
-            let tab_id = if new_tab || current.is_none() {
+            let mut tabs_changed = false;
+            let tab_id = if new_tab || target_id.is_none() {
                 closed = manager.make_room(agent_id);
+                tabs_changed = true;
+                let background = explicit_bg == Some(true);
+                let activate = match explicit_bg {
+                    Some(true) => false,
+                    Some(false) => true,
+                    None => !manager.active_is_yours(agent_id),
+                };
                 manager
-                    .open_tab_at(agent_id, Some(&url), Viewport::preset("desktop"))
+                    .open_tab_with(
+                        agent_id,
+                        Some(&url),
+                        Viewport::preset("desktop"),
+                        activate,
+                        background,
+                    )
                     .await
                     .map_err(|error| error.to_string())?
             } else {
-                if let Ok((tab_id, _)) = manager.active_view(agent_id) {
-                    crate::person::leave_be(&tab_id)?;
-                    if !crate::address::same_site(current.as_deref().unwrap_or_default(), &wanted) {
-                        manager.hand_back(agent_id, &tab_id);
-                    }
+                let tab_id = target_id.unwrap_or_default();
+                let current = manager
+                    .page(agent_id, &tab_id)
+                    .map(|page| page.url)
+                    .unwrap_or_default();
+                crate::person::leave_be(&tab_id)?;
+                if !crate::address::same_site(&current, &wanted) {
+                    manager.hand_back(agent_id, &tab_id);
                 }
-                let current = current.unwrap_or_default();
                 if current == wanted {
+                    let before_seq = manager.nav_seq(&tab_id);
                     manager
-                        .reload(agent_id)
+                        .reload_tab_by_id(agent_id, &tab_id)
                         .map_err(|error| error.to_string())?;
+                    manager
+                        .wait_for_nav_start(agent_id, &tab_id, before_seq, NAV_START_WAIT)
+                        .await;
                     note = Some("the tab was already on this url, so it was reloaded");
                 } else {
                     if crate::address::same_document(&current, &wanted) {
                         note = Some("only the #fragment changed, so the page moved within itself and did not load again; use browser_navigate with go reload to load it afresh");
                     }
                     manager
-                        .navigate(agent_id, &url)
+                        .navigate_tab(agent_id, &tab_id, &url)
                         .map_err(|error| error.to_string())?;
                 }
-                manager
-                    .active_view(agent_id)
-                    .map_err(|error| error.to_string())?
-                    .0
+                tab_id
             };
-            tokio::time::sleep(SETTLE).await;
             let _ = manager
                 .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
                 .await;
+            if let Ok((_, view)) = manager.tab_view(agent_id, Some(&tab_id)) {
+                call_page_settle(&view).await;
+            }
             if manager.viewport(agent_id, &tab_id).is_some() {
                 let _ = manager.settle_viewport(agent_id, &tab_id).await;
             }
-            let mut result = arrived(manager, agent_id, &tab_id, params, started).await?;
+            let mut result =
+                arrived(manager, agent_id, &tab_id, params, started, tabs_changed).await?;
             if let Some(note) = note {
                 put(&mut result, "note", json!(note));
             }
@@ -293,16 +362,18 @@ async fn run(
             Ok(result)
         }
         "browser.state" => {
-            if active_tab(manager, agent_id).is_err() {
+            if req_tab.is_none() && resolve_tab(manager, agent_id, None).is_err() {
                 return Ok(tabs(manager, agent_id));
             }
             let part = text_part(params)?;
             if let Some(selector) = text("selector") {
-                let (_, view) = active(manager, agent_id)?;
+                let (_, view) = target_tab(manager, agent_id, req_tab)?;
                 return call(&view, "extract", &[json!(selector), part]).await;
             }
+            let (tab_id, _) = resolve_tab(manager, agent_id, req_tab)?;
             let full_text = params.get("fullText").and_then(Value::as_bool) == Some(true);
-            let mut result = read_state(manager, agent_id, "full", full_text, part).await?;
+            let mut result =
+                read_state(manager, agent_id, &tab_id, "full", full_text, part, true).await?;
             let downloads = manager.recent_downloads(agent_id);
             if !downloads.is_empty() {
                 put(&mut result, "downloads", json!(downloads));
@@ -311,11 +382,11 @@ async fn run(
         }
         "browser.find" => {
             let query = text("query").ok_or("query is required")?;
-            let (_, view) = active(manager, agent_id)?;
+            let (_, view) = target_tab(manager, agent_id, req_tab)?;
             call(&view, "find", &[json!(query), json!(text("role"))]).await
         }
         "browser.click" => {
-            let (tab_id, view) = active(manager, agent_id)?;
+            let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
             let (x, y, mut result) = target(&view, params, "index", "x", "y").await?;
             let hover = params.get("hover").and_then(Value::as_bool) == Some(true);
             let clicks = if params.get("double").and_then(Value::as_bool) == Some(true) {
@@ -344,7 +415,7 @@ async fn run(
                         native::mouse(&view, Mouse::Down, x, y, count).await?;
                         native::mouse(&view, Mouse::Up, x, y, count).await?;
                     }
-                    settle(manager, agent_id, &tab_id).await;
+                    call_page_settle(&view).await;
                     Ok::<(), String>(())
                 })
                 .await?;
@@ -361,9 +432,12 @@ async fn run(
                 }),
             );
             if hover {
-                settle(manager, agent_id, &tab_id).await;
+                settle(manager, agent_id, &tab_id, &view).await;
             }
-            merge(result, report(manager, agent_id, params).await?)
+            merge(
+                result,
+                report(manager, agent_id, &tab_id, params, false).await?,
+            )
         }
         "browser.upload" => {
             let paths = params
@@ -386,7 +460,7 @@ async fn run(
             if paths.is_empty() || paths.len() > MAX_UPLOAD_FILES {
                 return Err(format!("pass between 1 and {MAX_UPLOAD_FILES} files"));
             }
-            let (tab_id, view) = active(manager, agent_id)?;
+            let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
             let by_point = params.get("x").is_some() || params.get("y").is_some();
             let input = match by_point {
                 true => Value::Null,
@@ -439,11 +513,14 @@ async fn run(
                 return Err("a file chooser took the files, but no file input on the page changed, so the page did not get them; pass the selector or number of the button or drop zone that opens its chooser instead".into());
             }
             put(&mut result, "uploaded", json!(names));
-            settle(manager, agent_id, &tab_id).await;
-            merge(result, report(manager, agent_id, params).await?)
+            settle(manager, agent_id, &tab_id, &view).await;
+            merge(
+                result,
+                report(manager, agent_id, &tab_id, params, false).await?,
+            )
         }
         "browser.drag" => {
-            let (tab_id, view) = active(manager, agent_id)?;
+            let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
             let (from_x, from_y, from) =
                 target(&view, params, "fromIndex", "fromX", "fromY").await?;
             let (to_x, to_y, to) = target(&view, params, "toIndex", "toX", "toY").await?;
@@ -472,10 +549,10 @@ async fn run(
                 native::mouse(&view, Mouse::Up, to_x, to_y, 1).await?;
             }
             show_pointer(&view, to_x, to_y, false).await;
-            settle(manager, agent_id, &tab_id).await;
+            settle(manager, agent_id, &tab_id, &view).await;
             merge(
                 json!({ "from": from, "to": to, "dragged": dragged }),
-                report(manager, agent_id, params).await?,
+                report(manager, agent_id, &tab_id, params, false).await?,
             )
         }
         "browser.type" => {
@@ -485,7 +562,7 @@ async fn run(
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             let replace = params.get("replace").and_then(Value::as_bool) == Some(true);
-            let (tab_id, view) = active(manager, agent_id)?;
+            let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
             let mut at = serde_json::Map::new();
             if let Some(index) = index("index") {
                 at.insert("index".into(), json!(index));
@@ -526,6 +603,7 @@ async fn run(
             }
             let mut typed = merge(
                 json!({
+                    "tabId": tab_id,
                     "typed": value.chars().count(),
                     "into": prepared.get("into").cloned().unwrap_or(Value::Null),
                     "replaced": replacing,
@@ -540,17 +618,20 @@ async fn run(
                 let sent = form_write.as_deref();
                 holding_page_writes(manager, agent_id, &tab_id, &view, check, sent, async {
                     native::key(&view, "Enter").await?;
-                    settle(manager, agent_id, &tab_id).await;
+                    call_page_settle(&view).await;
                     Ok::<(), String>(())
                 })
                 .await?;
-                return merge(typed, report(manager, agent_id, params).await?);
+                return merge(
+                    typed,
+                    report(manager, agent_id, &tab_id, params, false).await?,
+                );
             }
             Ok(typed)
         }
         "browser.press" => {
             let key = text("key").ok_or("key is required")?;
-            let (tab_id, view) = active(manager, agent_id)?;
+            let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
             let mut form_write = None;
             if plain_enter(&key) {
                 let write = call(&view, "writeOfField", &[Value::Null]).await?;
@@ -559,13 +640,13 @@ async fn run(
             let sent = form_write.as_deref();
             holding_page_writes(manager, agent_id, &tab_id, &view, check, sent, async {
                 native::key(&view, &key).await?;
-                settle(manager, agent_id, &tab_id).await;
+                call_page_settle(&view).await;
                 Ok::<(), String>(())
             })
             .await?;
             merge(
                 json!({ "pressed": key }),
-                report(manager, agent_id, params).await?,
+                report(manager, agent_id, &tab_id, params, false).await?,
             )
         }
         "browser.act" => act(manager, agent_id, project, check, params).await,
@@ -574,27 +655,27 @@ async fn run(
                 .get("accept")
                 .and_then(Value::as_bool)
                 .ok_or("accept is required")?;
-            let (tab_id, view) = active_tab(manager, agent_id)?;
+            let (tab_id, view) = resolve_tab(manager, agent_id, req_tab)?;
             if manager.dialog(&tab_id).is_none() {
-                return Err("no dialog is open in the current tab".into());
+                return Err("no dialog is open in this tab".into());
             }
             let sent = manager.take_form_write(&tab_id);
             native::answer_dialog(&view, &tab_id, accept, text("text")).await?;
-            settle(manager, agent_id, &tab_id).await;
+            settle(manager, agent_id, &tab_id, &view).await;
             let (went, put) =
                 put_page_writes(manager, &tab_id, &view, check, sent.as_deref()).await;
             if went {
-                settle(manager, agent_id, &tab_id).await;
+                settle(manager, agent_id, &tab_id, &view).await;
             }
             put?;
-            report(manager, agent_id, params).await
+            report(manager, agent_id, &tab_id, params, false).await
         }
         "browser.scroll" => {
             let delta = params
                 .get("deltaY")
                 .and_then(Value::as_f64)
                 .map(|delta| delta.clamp(-20_000.0, 20_000.0));
-            let (_, view) = active(manager, agent_id)?;
+            let (_, view) = target_tab(manager, agent_id, req_tab)?;
             call(
                 &view,
                 "scroll",
@@ -612,7 +693,7 @@ async fn run(
                 Some("navigation") => true,
                 Some(_) => return Err("since must be \"navigation\"".into()),
             };
-            let (tab_id, view) = active(manager, agent_id)?;
+            let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
             let passed = |key: &str| params.get(key).cloned().unwrap_or(Value::Null);
             let mut result = read_records(
                 &view,
@@ -648,7 +729,7 @@ async fn run(
         "browser.evaluate" => {
             let script = text("script").ok_or("script is required")?;
             let started = Instant::now();
-            let (tab_id, view) = active(manager, agent_id)?;
+            let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
             manager
                 .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
                 .await;
@@ -689,7 +770,7 @@ async fn run(
             }
         }
         "browser.console" => {
-            let (_, view) = active(manager, agent_id)?;
+            let (_, view) = target_tab(manager, agent_id, req_tab)?;
             read_records(
                 &view,
                 "console",
@@ -712,14 +793,13 @@ async fn run(
                         .ok_or_else(|| "viewport must be desktop, tablet or mobile".to_owned())
                 })
                 .transpose()?;
+            let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
             if let Some(fixed) = held {
-                let (tab_id, _) = active(manager, agent_id)?;
                 manager
                     .resize_viewport(agent_id, &tab_id, fixed)
                     .map_err(|error| error.to_string())?;
                 manager.settle_viewport(agent_id, &tab_id).await?;
             }
-            let (tab_id, view) = active(manager, agent_id)?;
             let annotate = params.get("annotate").and_then(Value::as_bool) == Some(true);
             let full_page = params.get("fullPage").and_then(Value::as_bool) == Some(true);
             let named = element_target(params, "index");
@@ -732,7 +812,7 @@ async fn run(
                 Some(call_when_shown(&view, "areaOf", &[named]).await?)
             };
             let marked = if annotate {
-                let page = state(manager, agent_id).await?;
+                let page = state(manager, agent_id, &tab_id).await?;
                 let shown = call(&view, "showMarks", &[json!(true)]).await?;
                 Some(marked_elements(&page, &shown))
             } else {
@@ -782,10 +862,10 @@ async fn run(
         }
         "browser.record" => match params.get("stop").and_then(Value::as_bool) {
             Some(true) => crate::recording::stop(manager, agent_id).await,
-            _ => crate::recording::start(manager, agent_id, text("path")).await,
+            _ => crate::recording::start(manager, agent_id, req_tab, text("path")).await,
         },
         "browser.annotate" => {
-            let (_, view) = active(manager, agent_id)?;
+            let (_, view) = target_tab(manager, agent_id, req_tab)?;
             let clear = params.get("clear").and_then(Value::as_bool) == Some(true);
             let placing = ["index", "x", "text"]
                 .iter()
@@ -816,7 +896,7 @@ async fn run(
             )
         }
         "browser.wait" => {
-            let (tab_id, _) = active(manager, agent_id)?;
+            let (tab_id, _) = target_tab(manager, agent_id, req_tab)?;
             let Some(condition) = wait_condition(params) else {
                 let ms = params
                     .get("ms")
@@ -827,7 +907,7 @@ async fn run(
                 let _ = manager
                     .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
                     .await;
-                let mut result = report(manager, agent_id, params).await?;
+                let mut result = report(manager, agent_id, &tab_id, params, false).await?;
                 put(&mut result, "note", json!("a fixed wait; a condition such as text, selector, url, networkIdle, script or stable waits only as long as it takes"));
                 return Ok(result);
             };
@@ -836,15 +916,24 @@ async fn run(
                 .and_then(Value::as_u64)
                 .unwrap_or(DEFAULT_CONDITION_WAIT_MS);
             let limit = asked.min(MAX_CONDITION_WAIT_MS);
-            let mut waited =
-                wait_for(manager, agent_id, &condition, Duration::from_millis(limit)).await;
+            let mut waited = wait_for(
+                manager,
+                agent_id,
+                &tab_id,
+                &condition,
+                Duration::from_millis(limit),
+            )
+            .await;
             if limit < asked && waited.get("met").and_then(Value::as_bool) == Some(false) {
                 put(&mut waited, "cappedAtMs", json!(limit));
             }
-            merge(waited, report(manager, agent_id, params).await?)
+            merge(
+                waited,
+                report(manager, agent_id, &tab_id, params, false).await?,
+            )
         }
         "browser.viewport" => {
-            let (tab_id, view) = active_tab(manager, agent_id)?;
+            let (tab_id, view) = resolve_tab(manager, agent_id, req_tab)?;
             let size = |key: &str| {
                 params
                     .get(key)
@@ -880,7 +969,7 @@ async fn run(
                     .await;
                 manager.settle_viewport(agent_id, &tab_id).await?;
             }
-            let (_, view) = active(manager, agent_id)?;
+            let (_, view) = target_tab(manager, agent_id, Some(&tab_id))?;
             let mut size = call(&view, "viewportSize", &[]).await?;
             put(&mut size, "tabId", json!(tab_id));
             put(
@@ -942,8 +1031,8 @@ async fn run(
                 true,
             )?;
             preview.loaded(LOAD_TIMEOUT).await?;
-            tokio::time::sleep(SETTLE).await;
             let view = preview.view();
+            call_page_settle(view).await;
             let ran = match text("script") {
                 Some(script) => {
                     let started = Instant::now();
@@ -969,7 +1058,7 @@ async fn run(
                         put_to_person(write.clone(), check).await?;
                         allowed.push(origin);
                     };
-                    tokio::time::sleep(SETTLE).await;
+                    call_page_settle(view).await;
                     Some(ran)
                 }
                 None => None,
@@ -999,7 +1088,7 @@ async fn run(
                     },
                     true,
                 );
-                tokio::time::sleep(SETTLE).await;
+                call_page_settle(view).await;
                 let area =
                     call_when_shown(view, "areaOf", &[json!({ "selector": selector })]).await?;
                 let image = screenshot(view, None, Some(area_rect(&area))).await?;
@@ -1181,32 +1270,40 @@ fn parse_held_write(raw: &str) -> Value {
     }
 }
 
-/// Back, forward or reload in the current tab, then the page as it arrives.
+/// Back, forward or reload in the targeted tab, then the page as it arrives.
 async fn step(
     manager: &BrowserManager,
     agent_id: &str,
+    tab_id: Option<&str>,
     go: &str,
     params: &Value,
 ) -> Result<Value, String> {
-    let (tab_id, view) = active_tab(manager, agent_id)?;
+    let (tab_id, view) = resolve_tab(manager, agent_id, tab_id)?;
     crate::person::leave_be(&tab_id)?;
     let started = Instant::now();
+    let before_seq = manager.nav_seq(&tab_id);
     let hard = params.get("hard").and_then(Value::as_bool) == Some(true);
     match go {
         "back" => manager
-            .history(agent_id, -1)
+            .history_tab(agent_id, &tab_id, -1)
             .map_err(|error| error.to_string())?,
         "forward" => manager
-            .history(agent_id, 1)
+            .history_tab(agent_id, &tab_id, 1)
             .map_err(|error| error.to_string())?,
         "reload" if hard => native::reload_from_origin(&view).await?,
         "reload" => manager
-            .reload(agent_id)
+            .reload_tab_by_id(agent_id, &tab_id)
             .map_err(|error| error.to_string())?,
         other => return Err(format!("go must be back, forward or reload, not {other}")),
     }
-    settle(manager, agent_id, &tab_id).await;
-    arrived(manager, agent_id, &tab_id, params, started).await
+    manager
+        .wait_for_nav_start(agent_id, &tab_id, before_seq, NAV_START_WAIT)
+        .await;
+    let _ = manager
+        .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
+        .await;
+    call_page_settle(&view).await;
+    arrived(manager, agent_id, &tab_id, params, started, false).await
 }
 
 /// Plays the steps in order and stops at the first that fails, or once the
@@ -1225,9 +1322,11 @@ async fn act(
         .filter(|steps| !steps.is_empty())
         .ok_or("steps must list at least one action")?;
     let calls = steps.iter().map(step_call).collect::<Result<Vec<_>, _>>()?;
+    let outer_tab = requested_tab(params).map(str::to_owned);
     let deadline = Instant::now() + ACT_TIME;
     let mut done = Vec::new();
     let mut stopped = None;
+    let mut current_tab = outer_tab.clone();
     for (number, (step, (method, mut step_params))) in steps.iter().zip(calls).enumerate() {
         let left = deadline.saturating_duration_since(Instant::now());
         if left < STEP_RESERVE {
@@ -1236,6 +1335,11 @@ async fn act(
                 "reason": "the call ran out of time, so this step and the ones after it were not run; send them again",
             }));
             break;
+        }
+        if let Some(tab) = current_tab.as_deref() {
+            if step_params.get("tabId").is_none() {
+                put(&mut step_params, "tabId", json!(tab));
+            }
         }
         if method == "browser.wait" {
             let key = if step_params.get("ms").is_some() {
@@ -1253,10 +1357,13 @@ async fn act(
                 json!(asked.min(left.as_millis() as u64)),
             );
         }
-        let before = outcome(manager, agent_id).ok();
+        let before = outcome(manager, agent_id, current_tab.as_deref()).ok();
         let failed =
             match Box::pin(run(manager, agent_id, project, check, method, &step_params)).await {
                 Ok(result) => {
+                    if let Some(id) = result.get("tabId").and_then(Value::as_str) {
+                        current_tab = Some(id.to_owned());
+                    }
                     let failed = step_failure(&result);
                     done.push(step_summary(step, result));
                     failed
@@ -1269,7 +1376,7 @@ async fn act(
         }
         let rest = steps.get(number + 1..).unwrap_or_default();
         if let Some(reason) = before
-            .zip(outcome(manager, agent_id).ok())
+            .zip(outcome(manager, agent_id, current_tab.as_deref()).ok())
             .and_then(|(before, now)| blocks_the_rest(&before, &now, rest))
         {
             if !rest.is_empty() {
@@ -1293,7 +1400,11 @@ async fn act(
     if finished && reads && params.get("report").is_none() {
         put(&mut report_params, "report", json!("outcome"));
     }
-    merge(result, report(manager, agent_id, &report_params).await?)
+    let (tab_id, _) = resolve_tab(manager, agent_id, current_tab.as_deref())?;
+    merge(
+        result,
+        report(manager, agent_id, &tab_id, &report_params, false).await?,
+    )
 }
 
 fn step_call(step: &Value) -> Result<(&'static str, Value), String> {
@@ -1539,7 +1650,11 @@ async fn holding_page_writes(
     let acted = action.await;
     let (went, put) = put_page_writes(manager, tab_id, view, check, sent).await;
     if went {
-        settle(manager, agent_id, tab_id).await;
+        settle(manager, agent_id, tab_id, view).await;
+    } else {
+        let _ = manager
+            .wait_until_loaded(agent_id, tab_id, LOAD_TIMEOUT)
+            .await;
     }
     acted.and(put)
 }
@@ -1668,7 +1783,15 @@ fn plain_enter(key: &str) -> bool {
 /// The tab the agent is on, unless a dialog has frozen its page: a page
 /// waiting on an alert answers nothing, so calling into it would only time out.
 pub(crate) fn active(manager: &BrowserManager, agent_id: &str) -> Result<(String, Tab), String> {
-    let (tab_id, view) = active_tab(manager, agent_id)?;
+    target_tab(manager, agent_id, None)
+}
+
+pub(crate) fn target_tab(
+    manager: &BrowserManager,
+    agent_id: &str,
+    tab_id: Option<&str>,
+) -> Result<(String, Tab), String> {
+    let (tab_id, view) = resolve_tab(manager, agent_id, tab_id)?;
     if let Some(stall) = manager.stalled(&tab_id) {
         return Err(stall.message().into());
     }
@@ -1681,12 +1804,25 @@ pub(crate) fn active(manager: &BrowserManager, agent_id: &str) -> Result<(String
     }
 }
 
-fn active_tab(manager: &BrowserManager, agent_id: &str) -> Result<(String, Tab), String> {
-    manager
-        .active_view(agent_id)
-        .map_err(|_| {
+fn resolve_tab(
+    manager: &BrowserManager,
+    agent_id: &str,
+    tab_id: Option<&str>,
+) -> Result<(String, Tab), String> {
+    manager.tab_view(agent_id, tab_id).map_err(|_| {
+        if let Some(id) = tab_id {
+            format!(
+                "{id} {}; your open tabs are {}",
+                manager.why_gone(id),
+                tabs(manager, agent_id)
+                    .get("tabs")
+                    .cloned()
+                    .unwrap_or_default()
+            )
+        } else {
             "no browser tab is open; call browser_navigate first. Quitting Sikemux closes tabs; an update's restart keeps them, but each page loads again from its address".to_string()
-        })
+        }
+    })
 }
 
 fn tabs(manager: &BrowserManager, agent_id: &str) -> Value {
@@ -1708,22 +1844,43 @@ fn tabs(manager: &BrowserManager, agent_id: &str) -> Value {
     })
 }
 
-async fn state(manager: &BrowserManager, agent_id: &str) -> Result<Value, String> {
-    read_state(manager, agent_id, "full", false, Value::Null).await
+async fn state(manager: &BrowserManager, agent_id: &str, tab_id: &str) -> Result<Value, String> {
+    read_state(manager, agent_id, tab_id, "full", false, Value::Null, true).await
 }
 
 /// What an action hands back about the page, chosen by its `report`: only the
 /// outcome, what changed since the last read (the default), or the full state.
-async fn report(manager: &BrowserManager, agent_id: &str, params: &Value) -> Result<Value, String> {
+async fn report(
+    manager: &BrowserManager,
+    agent_id: &str,
+    tab_id: &str,
+    params: &Value,
+    include_tabs: bool,
+) -> Result<Value, String> {
     match params.get("report").and_then(Value::as_str) {
-        Some("outcome") => outcome(manager, agent_id),
-        Some("full") => state(manager, agent_id).await,
-        _ => read_state(manager, agent_id, "changes", false, Value::Null).await,
+        Some("outcome") => outcome(manager, agent_id, Some(tab_id)),
+        Some("full") => state(manager, agent_id, tab_id).await,
+        _ => {
+            read_state(
+                manager,
+                agent_id,
+                tab_id,
+                "changes",
+                false,
+                Value::Null,
+                include_tabs,
+            )
+            .await
+        }
     }
 }
 
-fn outcome(manager: &BrowserManager, agent_id: &str) -> Result<Value, String> {
-    let (tab_id, _) = active_tab(manager, agent_id)?;
+fn outcome(
+    manager: &BrowserManager,
+    agent_id: &str,
+    tab_id: Option<&str>,
+) -> Result<Value, String> {
+    let (tab_id, _) = resolve_tab(manager, agent_id, tab_id)?;
     let page = manager.page(agent_id, &tab_id).unwrap_or_default();
     let mut result = json!({
         "tabId": tab_id,
@@ -1778,11 +1935,13 @@ fn marked_elements(page: &Value, shown: &Value) -> Value {
 async fn read_state(
     manager: &BrowserManager,
     agent_id: &str,
+    tab_id: &str,
     mode: &str,
     full_text: bool,
     part: Value,
+    include_tabs: bool,
 ) -> Result<Value, String> {
-    let (tab_id, view) = active_tab(manager, agent_id)?;
+    let (tab_id, view) = resolve_tab(manager, agent_id, Some(tab_id))?;
     let page = manager.page(agent_id, &tab_id).unwrap_or_default();
     let mut result = if let Some(dialog) = manager.dialog(&tab_id) {
         json!({
@@ -1818,13 +1977,15 @@ async fn read_state(
         map.insert("tabId".into(), json!(tab_id));
         map.insert("loading".into(), json!(page.loading));
         map.insert("visible".into(), json!(manager.shown(agent_id, &tab_id)));
-        map.insert(
-            "tabs".into(),
-            tabs(manager, agent_id)
-                .get("tabs")
-                .cloned()
-                .unwrap_or_default(),
-        );
+        if include_tabs || mode == "full" {
+            map.insert(
+                "tabs".into(),
+                tabs(manager, agent_id)
+                    .get("tabs")
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+        }
     }
     Ok(result)
 }
@@ -1847,13 +2008,18 @@ fn merge(mut action: Value, state: Value) -> Result<Value, String> {
     Ok(action)
 }
 
-/// A click or key can start a navigation that only registers a moment later,
-/// so give the page a beat and then wait out any load it started.
-async fn settle(manager: &BrowserManager, agent_id: &str, tab_id: &str) {
-    tokio::time::sleep(SETTLE).await;
+/// Gives the page one animation frame + microtask turn (capped at SETTLE_FRAME_MS)
+/// so DOM mutations commit, then waits out any navigation that started.
+async fn settle(manager: &BrowserManager, agent_id: &str, tab_id: &str, view: &Tab) {
+    call_page_settle(view).await;
     let _ = manager
         .wait_until_loaded(agent_id, tab_id, LOAD_TIMEOUT)
         .await;
+}
+
+async fn call_page_settle(view: &Tab) {
+    let expr = format!("String(await window.__sikemux.settle({SETTLE_FRAME_MS}))");
+    let _ = wait_page_helper(view, &expr, SETTLE_TIMEOUT).await;
 }
 
 /// Call one of the page script's functions and parse what it returns. The
@@ -1863,10 +2029,32 @@ pub(crate) async fn call(view: &Tab, function: &str, args: &[Value]) -> Result<V
     unwrap_answer(page_answer(view, function, args).await?)
 }
 
+/// Runs an expression against `window.__sikemux` in the pre-injected helper world,
+/// falling back to injecting `PAGE_SCRIPT` once if the world has not run it yet.
+pub(crate) async fn wait_page_helper(
+    view: &Tab,
+    expr: &str,
+    limit: Duration,
+) -> Result<Option<String>, String> {
+    let fast = format!("if (!window.__sikemux) return \"{NO_HELPER}\";\nreturn {expr};");
+    match native::wait_helper(view, &fast, limit).await? {
+        Some(raw) if raw == NO_HELPER => {
+            native::wait_helper(view, &format!("{PAGE_SCRIPT}\nreturn {expr};"), limit).await
+        }
+        other => Ok(other),
+    }
+}
+
 /// What one of the page script's functions answered, `ok` or `error`, before it is unwrapped.
 async fn page_answer(view: &Tab, function: &str, args: &[Value]) -> Result<Value, String> {
     let answer = answer_of("window.__sikemux", function, args);
-    let raw = native::run_helper(view, &format!("{PAGE_SCRIPT}\nreturn {answer};")).await?;
+    let fast = format!("if (!window.__sikemux) return \"{NO_HELPER}\";\nreturn {answer};");
+    let raw = native::run_helper(view, &fast).await?;
+    let raw = if raw == NO_HELPER {
+        native::run_helper(view, &format!("{PAGE_SCRIPT}\nreturn {answer};")).await?
+    } else {
+        raw
+    };
     serde_json::from_str::<Value>(&raw)
         .map_err(|_| "the page returned an unreadable answer".to_string())
 }
@@ -1965,7 +2153,7 @@ impl BrowserManager {
         let (tab_id, view) = active(self, agent_id)?;
         self.wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
             .await;
-        tokio::time::sleep(SETTLE).await;
+        call_page_settle(&view).await;
         screenshot(&view, None, None).await
     }
 
@@ -2043,7 +2231,7 @@ impl BrowserManager {
         };
         let taken = async {
             view.loaded(LOAD_TIMEOUT).await?;
-            tokio::time::sleep(SETTLE).await;
+            call_page_settle(view.view()).await;
             let Some(selector) = selector else {
                 return screenshot(view.view(), None, None).await;
             };
@@ -2055,7 +2243,7 @@ impl BrowserManager {
             let area = call(view.view(), "areaOf", &[json!({ "selector": selector })])
                 .await
                 .map_err(|_| "the pinned element is not on the page".to_string())?;
-            tokio::time::sleep(SETTLE).await;
+            call_page_settle(view.view()).await;
             screenshot(view.view(), None, Some(crate::pins::with_room(&area, size))).await
         }
         .await;
@@ -2070,20 +2258,46 @@ impl BrowserManager {
             .and_then(|agent| agent.strip.pages.get(tab_id).cloned())
     }
 
-    /// Resolves once the tab reports its load finished, or at the deadline.
-    /// Returns whether it finished.
-    pub async fn wait_until_loaded(&self, agent_id: &str, tab_id: &str, timeout: Duration) -> bool {
-        let started = Instant::now();
+    /// Waits briefly for an async back/forward/reload to trigger provisional navigation.
+    pub(crate) async fn wait_for_nav_start(
+        &self,
+        agent_id: &str,
+        tab_id: &str,
+        before_seq: u64,
+        timeout: Duration,
+    ) {
+        let deadline = tokio::time::Instant::now() + timeout;
         loop {
+            let notified = self.load_changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.nav_seq(tab_id) != before_seq
+                || self.page(agent_id, tab_id).is_some_and(|page| page.loading)
+            {
+                return;
+            }
+            if tokio::time::timeout_at(deadline, notified).await.is_err() {
+                return;
+            }
+        }
+    }
+
+    /// Resolves once the tab reports its load finished, or at the deadline.
+    /// Wakes directly from `load_changed` instead of polling on a timer.
+    pub async fn wait_until_loaded(&self, agent_id: &str, tab_id: &str, timeout: Duration) -> bool {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let notified = self.load_changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             match self.page(agent_id, tab_id) {
                 Some(page) if !page.loading => return true,
                 None => return false,
                 _ => {}
             }
-            if started.elapsed() >= timeout {
+            if tokio::time::timeout_at(deadline, notified).await.is_err() {
                 return false;
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
 }

@@ -25,17 +25,19 @@ use objc2_app_kit::{
 };
 use objc2_core_graphics::{CGColor, CGMutablePath};
 use objc2_foundation::{
-    NSData, NSDictionary, NSError, NSKeyValueChangeKey, NSKeyValueObservingOptions, NSNumber,
-    NSObject, NSObjectNSKeyValueCoding, NSObjectNSKeyValueObserverRegistration, NSObjectProtocol,
-    NSPoint, NSRect, NSSize, NSString, NSURLRequest, NSURLResponse, NSURL,
+    NSActivityOptions, NSData, NSDictionary, NSError, NSKeyValueChangeKey,
+    NSKeyValueObservingOptions, NSNumber, NSObject, NSObjectNSKeyValueCoding,
+    NSObjectNSKeyValueObserverRegistration, NSObjectProtocol, NSPoint, NSProcessInfo, NSRect,
+    NSSize, NSString, NSURLRequest, NSURLResponse, NSURL,
 };
 use objc2_quartz_core::{kCAFillRuleEvenOdd, CACornerMask, CALayer, CAShapeLayer, CATransaction};
 use objc2_web_kit::{
-    WKDownload, WKDownloadDelegate, WKFrameInfo, WKFullscreenState, WKMediaCaptureType,
-    WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate,
-    WKNavigationResponse, WKNavigationResponsePolicy, WKOpenPanelParameters, WKPDFConfiguration,
-    WKPermissionDecision, WKSecurityOrigin, WKSnapshotConfiguration, WKUIDelegate, WKUserScript,
-    WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration, WKWindowFeatures,
+    WKDownload, WKDownloadDelegate, WKFrameInfo, WKFullscreenState, WKInactiveSchedulingPolicy,
+    WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy,
+    WKNavigationDelegate, WKNavigationResponse, WKNavigationResponsePolicy, WKOpenPanelParameters,
+    WKPDFConfiguration, WKPermissionDecision, WKSecurityOrigin, WKSnapshotConfiguration,
+    WKUIDelegate, WKUserScript, WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration,
+    WKWindowFeatures,
 };
 use sikemux_process::sync::Locked;
 
@@ -196,6 +198,35 @@ thread_local! {
     static PAGE_UNUSED_GESTURE: std::cell::Cell<Option<Imp>> = const { std::cell::Cell::new(None) };
     /// Whether the swipe under way belongs to the stage, once its first sideways move says so.
     static SWIPE_TO_STAGE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+    static BACKGROUND_ACTIVITY: RefCell<Option<Retained<ProtocolObject<dyn NSObjectProtocol>>>> = const { RefCell::new(None) };
+}
+
+/// Keeps macOS from throttling timers and network callbacks on background tabs while
+/// an agent is driving any tab.
+pub(crate) fn set_background_activity(active: bool) {
+    let apply = move || {
+        BACKGROUND_ACTIVITY.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            let info = NSProcessInfo::processInfo();
+            if active && slot.is_none() {
+                let token = info.beginActivityWithOptions_reason(
+                    NSActivityOptions::UserInitiatedAllowingIdleSystemSleep,
+                    &NSString::from_str("Agent driving browser tabs"),
+                );
+                *slot = Some(token);
+            } else if !active {
+                if let Some(token) = slot.take() {
+                    // SAFETY: `token` was returned by `beginActivityWithOptions_reason` above.
+                    unsafe { info.endActivity(&token) };
+                }
+            }
+        });
+    };
+    if MainThreadMarker::new().is_some() {
+        apply();
+    } else {
+        dispatch2::DispatchQueue::main().exec_async(apply);
+    }
 }
 
 /// A page dialog showing as a sheet, kept so the agent can answer it too.
@@ -344,6 +375,9 @@ fn tab_configuration(mtm: MainThreadMarker) -> Retained<WKWebViewConfiguration> 
         scripts::listen(&configuration, mtm);
         let preferences = configuration.preferences();
         preferences.setElementFullscreenEnabled(true);
+        if preferences.respondsToSelector(sel!(setInactiveSchedulingPolicy:)) {
+            preferences.setInactiveSchedulingPolicy(WKInactiveSchedulingPolicy::None);
+        }
         preferences.setValue_forKey(Some(&yes), &NSString::from_str("tabFocusesLinks"));
         preferences.setValue_forKey(
             Some(&yes),

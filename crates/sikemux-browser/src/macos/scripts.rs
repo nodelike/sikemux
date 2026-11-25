@@ -136,6 +136,14 @@ pub(super) fn listen(configuration: &WKWebViewConfiguration, mtm: MainThreadMark
             true,
         );
         controller.addUserScript(&script);
+        let helper = WKUserScript::initWithSource_injectionTime_forMainFrameOnly_inContentWorld(
+            WKUserScript::alloc(mtm),
+            &NSString::from_str(crate::PAGE_SCRIPT),
+            WKUserScriptInjectionTime::AtDocumentStart,
+            true,
+            &helper_world(mtm),
+        );
+        controller.addUserScript(&helper);
         let answers = answers(mtm);
         for world in [World::Page, World::Helper] {
             controller.addScriptMessageHandler_contentWorld_name(

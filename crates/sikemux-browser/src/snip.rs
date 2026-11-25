@@ -6,9 +6,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use crate::manager::BrowserManager;
-use crate::native;
-use crate::tools::{active, call, screenshot};
-use crate::PAGE_SCRIPT;
+use crate::tools::{active, call, screenshot, wait_page_helper};
 
 /// How long one wait for a box lasts before the next takes over.
 const WAIT: Duration = Duration::from_secs(60);
@@ -57,10 +55,8 @@ pub async fn wait(
     let (tab_id, view) = active(manager, agent_id)?;
     let taken = taken.map_or_else(|| "null".to_owned(), Value::to_string);
     let accent = Value::from(accent);
-    let body = format!(
-        "{PAGE_SCRIPT}\nreturn JSON.stringify(await window.__sikemux.snip(true, {taken}, {accent}));"
-    );
-    let Some(answer) = native::wait_helper(&view, &body, WAIT).await? else {
+    let expr = format!("JSON.stringify(await window.__sikemux.snip(true, {taken}, {accent}))");
+    let Some(answer) = wait_page_helper(&view, &expr, WAIT).await? else {
         return Ok(Snipped::Nothing);
     };
     let page: Value = serde_json::from_str(&answer)
