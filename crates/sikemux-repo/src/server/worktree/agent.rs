@@ -433,14 +433,11 @@ fn linked(path: &Path) -> bool {
         .is_some_and(|gitdir| gitdir.is_dir())
 }
 
-/// The integration checkout's folder in the repository's worktrees folder.
 const INTEGRATION: &str = ".integration";
-/// The gates checkout's folder beside it.
 const GATES: &str = ".gates";
-/// The merge queue's checkout's folder beside them.
 const MERGE_QUEUE: &str = ".merge-queue";
-/// The reservoir checkout's folder beside them.
 const RESERVOIR: &str = ".reservoir";
+pub(super) const INTERNAL_CHECKOUTS: [&str; 4] = [INTEGRATION, GATES, MERGE_QUEUE, RESERVOIR];
 
 /// Runs `project`'s `worktree.onCreate` commands in the new checkout at `cwd`
 /// once the person trusts its `sikemux.json`, asked on behalf of `agent_id`

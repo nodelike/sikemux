@@ -30,21 +30,18 @@ use sikemux_view::host_stats::{ClearedFor, HostEventKind};
 
 use super::left::last_changed;
 use super::removal::{busy, rests, works_in, Work};
-use super::warm::{hold_builds, ignored_folders, is_cargo_output};
+use super::warm::{hold_builds, ignored_folders, is_cargo_output, CLONING_PREFIX};
 use super::{own, worktrees_folder, AgentWorktree};
 use crate::git::{main_checkout, Git};
 use crate::server::changed::What;
 use crate::server::Core;
 use sikemux_process::procs::lowest_priority;
 
-/// How long after one pass at making room the next may start, while free space stays low.
 const MAKE_ROOM_EVERY: Duration = Duration::from_secs(60);
 const GB: u64 = 1_000_000_000;
-/// A pass at making room starts under the lesser of this and a tenth of the disk free.
-const FREE_FLOOR: u64 = 15 * GB;
-/// A pass stops at the lesser of this and 15% of the disk free, far enough above where it
-/// starts that the next builds do not start another at once.
-const FREE_ENOUGH: u64 = 25 * GB;
+const FREE_FLOOR: u64 = 35 * GB;
+const FREE_ENOUGH: u64 = 50 * GB;
+const RECLAIMABLE_FOLDERS: [&str; 5] = ["node_modules", ".build", "DerivedData", ".gradle", "dist"];
 /// How long to wait before each look at the worktree of an agent that closed or slept, while
 /// its own processes are still ending: the looks fall at 0, 3, 13 and 43 s. The last that finds
 /// something running from it keeps it.
@@ -120,13 +117,8 @@ impl Keeper {
     }
 }
 
-/// The agent went to sleep: when it landed while awake and its worktree holds nothing left to
-/// land, the worktree's build output goes once its processes have ended. Waking it clones the
-/// main checkout's back, warm.
 pub fn slept(core: &Core, agent_id: &str) {
-    if !core.build_outputs().landed.locked().remove(agent_id) {
-        return;
-    }
+    let landed = core.build_outputs().landed.locked().remove(agent_id);
     let Some(tree) = core
         .workspaces()
         .agent(agent_id)
@@ -139,9 +131,11 @@ pub fn slept(core: &Core, agent_id: &str) {
     }
     let runtime = tokio::runtime::Handle::try_current().ok();
     in_background(core, move |core| {
-        if all_landed(&tree) {
+        if landed && all_landed(&tree) {
             clear_once_stopped(core, vec![tree.path.clone()], ClearedFor::Landed);
             settle(core, runtime, vec![tree], false);
+        } else {
+            clear_once_stopped(core, vec![tree.path.clone()], ClearedFor::Closed);
         }
     });
 }
@@ -204,10 +198,15 @@ fn settle(
     });
 }
 
-/// Once an hour, removes the worktrees no agent holds or runs from that nothing touched for an
-/// hour with all their work on the base branch, or for days with work left in them.
+fn keep_targets() -> bool {
+    matches!(
+        std::env::var("SIKEMUX_KEEP_TARGETS").as_deref(),
+        Ok("1" | "true" | "TRUE" | "yes" | "YES")
+    )
+}
+
 pub fn sweep_landed(core: &Core) {
-    if cfg!(debug_assertions) {
+    if keep_targets() {
         return;
     }
     let now = epoch_ms();
@@ -229,6 +228,8 @@ pub fn sweep_landed(core: &Core) {
         return;
     };
     in_background(core, move |core| {
+        trim_internal_checkouts(core);
+        reclaim_idle_outputs(core);
         let left = left(core);
         let Some(core) = core.arc() else {
             return;
@@ -239,6 +240,47 @@ pub fn sweep_landed(core: &Core) {
             }
         });
     });
+}
+
+fn trim_internal_checkouts(core: &Core) {
+    let Some(places) = procs::places() else {
+        return;
+    };
+    let projects = core.workspaces().project_paths();
+    for checkout in internal_worktrees_of(&projects) {
+        let busy_here = sikemux_process::files::real_path(&checkout).map_or(true, |real| {
+            running_in(&places, &[&checkout, &real]).is_some()
+        });
+        if busy_here {
+            continue;
+        }
+        let freed = super::stale_builds::trim_hourly(&checkout);
+        if freed > 0 {
+            eprintln!(
+                "sikemux core: freed {:.1} GB of old builds from {}",
+                freed as f64 / 1e9,
+                checkout.display()
+            );
+        }
+    }
+}
+
+fn reclaim_idle_outputs(core: &Core) {
+    let projects = core.workspaces().project_paths();
+    let active: Vec<PathBuf> = (core.workspaces().agent_ids().into_iter())
+        .filter_map(|id| core.workspaces().agent(&id))
+        .filter(|agent| !agent.asleep || busy(core, &agent.id))
+        .map(|agent| agent.cwd)
+        .collect();
+    for tree in worktrees_of(&projects) {
+        if projects.iter().any(|project| project.starts_with(&tree))
+            || active.iter().any(|cwd| cwd.starts_with(&tree))
+            || !untouched_for(&tree, LANDED_UNTOUCHED_FOR)
+        {
+            continue;
+        }
+        let _ = clear(core, &tree, ClearedFor::Closed, false);
+    }
 }
 
 /// The worktrees Sikemux made, with the main checkout each belongs to, that only agents at rest
@@ -279,8 +321,7 @@ pub fn left(core: &Core) -> Vec<(PathBuf, PathBuf, Work)> {
             }
             if on_base(&tree, &base) {
                 left.push((main.clone(), tree, Work::Landed));
-            } else if !rested_in
-                && untouched_for(&tree, LEFT_UNTOUCHED_FOR)
+            } else if untouched_for(&tree, LEFT_UNTOUCHED_FOR)
                 && last_changed(&tree).is_none_or(|at| ago(at, LEFT_UNTOUCHED_FOR))
             {
                 left.push((main.clone(), tree, Work::Left));
@@ -323,12 +364,8 @@ fn clear_once_stopped(core: &Core, mut trees: Vec<PathBuf>, reason: ClearedFor) 
     }
 }
 
-/// With `free` of `total` bytes left under the floor, removes the build output of agent
-/// worktrees on the home disk that no awake agent works in, least recently built first, until
-/// enough is free again. Only an installed core does: a development or trial core sees the same
-/// worktrees and would take them from under the agents of the core the person runs.
 pub fn make_room(core: &Core, free: u64, total: u64) {
-    if cfg!(debug_assertions) {
+    if keep_targets() {
         return;
     }
     if free >= FREE_FLOOR.min(total / 10) {
@@ -379,6 +416,7 @@ fn pass_at_making_room(core: &Core) {
         .collect();
     let (held, free): (Vec<PathBuf>, Vec<PathBuf>) = worktrees_of(&projects)
         .into_iter()
+        .chain(internal_worktrees_of(&projects))
         .filter(|tree| !projects.iter().any(|project| project.starts_with(tree)))
         .filter(|tree| same_disk(tree, &home))
         .partition(|tree| awake.iter().any(|cwd| cwd.starts_with(tree)));
@@ -432,7 +470,10 @@ fn sweep(core: &Core, older_than: Duration) {
     let left: Vec<PathBuf> = (folders.iter())
         .flat_map(|folder| std::fs::read_dir(folder).into_iter().flatten().flatten())
         .filter(|entry| {
-            set_aside_at(&entry.file_name().to_string_lossy()).is_some_and(|at| at <= before)
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            set_aside_at(&name).is_some_and(|at| at <= before)
+                || is_stale_cloning(entry, &name, older_than)
         })
         .map(|entry| entry.path())
         .collect();
@@ -453,12 +494,22 @@ fn sweep(core: &Core, older_than: Duration) {
     }
 }
 
-/// When the build output named `name` was set aside, in Unix milliseconds, if it was.
 fn set_aside_at(name: &str) -> Option<u64> {
     let rest = name.strip_prefix(SET_ASIDE)?;
     let mut parts = rest.rsplitn(3, '-');
     parts.next()?;
     parts.next()?.parse().ok()
+}
+
+fn is_stale_cloning(entry: &std::fs::DirEntry, name: &str, older_than: Duration) -> bool {
+    if !name.starts_with(CLONING_PREFIX) && !name.starts_with("sikemux-cloning-") {
+        return false;
+    }
+    older_than.is_zero()
+        || entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .is_ok_and(|at| ago(at, older_than))
 }
 
 #[cfg(unix)]
@@ -504,13 +555,15 @@ fn on_base(tree: &Path, base: &str) -> bool {
             .is_ok_and(|missing| !missing.lines().any(|line| line.starts_with('+')))
 }
 
-/// Every agent worktree in the worktrees folders of `projects`, leaving out the core's own
-/// checkouts there, such as `.integration`, whose builds the next check would only redo.
-fn worktrees_of(projects: &[PathBuf]) -> Vec<PathBuf> {
+fn worktrees_folders(projects: &[PathBuf]) -> Vec<PathBuf> {
     let mut folders: Vec<PathBuf> = projects.iter().map(|path| worktrees_folder(path)).collect();
     folders.sort();
     folders.dedup();
     folders
+}
+
+fn worktrees_of(projects: &[PathBuf]) -> Vec<PathBuf> {
+    worktrees_folders(projects)
         .iter()
         .flat_map(|folder| std::fs::read_dir(folder).into_iter().flatten().flatten())
         .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
@@ -519,16 +572,33 @@ fn worktrees_of(projects: &[PathBuf]) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The folders in `tree` that Cargo builds in.
-fn outputs(tree: &Path) -> Vec<PathBuf> {
-    (ignored_folders(tree).unwrap_or_default().into_iter())
-        .map(|folder| tree.join(folder))
-        .filter(|folder| is_cargo_output(folder))
+fn internal_worktrees_of(projects: &[PathBuf]) -> Vec<PathBuf> {
+    worktrees_folders(projects)
+        .into_iter()
+        .flat_map(|folder| {
+            super::agent::INTERNAL_CHECKOUTS
+                .into_iter()
+                .map(move |name| folder.join(name))
+        })
+        .filter(|tree| tree.join(".git").is_file())
         .collect()
 }
 
-/// When Cargo last wrote to the worktree's build output, which every build does to the folders
-/// its results are in.
+fn is_reclaimable_output(folder: &Path) -> bool {
+    is_cargo_output(folder)
+        || folder
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| RECLAIMABLE_FOLDERS.contains(&name))
+}
+
+fn outputs(tree: &Path) -> Vec<PathBuf> {
+    (ignored_folders(tree).unwrap_or_default().into_iter())
+        .map(|folder| tree.join(folder))
+        .filter(|folder| is_reclaimable_output(folder))
+        .collect()
+}
+
 fn last_built(tree: &Path) -> Option<SystemTime> {
     let modified = |folder: &Path| folder.metadata().and_then(|meta| meta.modified()).ok();
     let subfolders = |folder: &Path| -> Vec<PathBuf> {
@@ -540,9 +610,16 @@ fn last_built(tree: &Path) -> Option<SystemTime> {
     outputs(tree)
         .into_iter()
         .flat_map(|output| {
-            let profiles = subfolders(&output);
-            let inner: Vec<PathBuf> = profiles.iter().flat_map(|dir| subfolders(dir)).collect();
-            std::iter::once(output).chain(profiles).chain(inner)
+            if is_cargo_output(&output) {
+                let profiles = subfolders(&output);
+                let inner: Vec<PathBuf> = profiles.iter().flat_map(|dir| subfolders(dir)).collect();
+                std::iter::once(output)
+                    .chain(profiles)
+                    .chain(inner)
+                    .collect::<Vec<_>>()
+            } else {
+                vec![output]
+            }
         })
         .filter_map(|folder| modified(&folder))
         .max()
@@ -648,7 +725,7 @@ fn remove_outputs(tree: &Path, outputs: Vec<PathBuf>) -> Option<u64> {
             let Some(_held) = hold_builds(&output) else {
                 continue;
             };
-            if !is_cargo_output(&output) {
+            if !is_reclaimable_output(&output) {
                 continue;
             }
             match set_aside(tree, &output, index) {

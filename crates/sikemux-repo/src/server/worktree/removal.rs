@@ -340,7 +340,7 @@ pub async fn remove_left(core: &Arc<Core>, repo: &Path, tree: &Path, work: Work)
             return;
         }
     }
-    if let Some(holder) = held_now(core, tree, work) {
+    if let Some(holder) = held_now(core, tree) {
         eprintln!(
             "sikemux core: kept the worktree {}, as {holder} works in it again",
             tree.display()
@@ -379,9 +379,7 @@ pub async fn remove_left(core: &Arc<Core>, repo: &Path, tree: &Path, work: Work)
     }
 }
 
-/// Who works in `tree` at this moment: an open agent, or one being reopened or woken there. An
-/// agent at rest holds only work that is not landed.
-fn held_now(core: &Core, tree: &Path, work: Work) -> Option<String> {
+fn held_now(core: &Core, tree: &Path) -> Option<String> {
     let reopening =
         (core.build_outputs().reopening.locked().iter()).any(|cwd| cwd.starts_with(tree));
     if reopening {
@@ -389,7 +387,7 @@ fn held_now(core: &Core, tree: &Path, work: Work) -> Option<String> {
     }
     (core.workspaces().agent_ids().into_iter())
         .filter_map(|id| core.workspaces().agent(&id))
-        .find(|agent| works_in(agent, tree) && !(work == Work::Landed && rests(core, agent)))
+        .find(|agent| works_in(agent, tree) && !rests(core, agent))
         .map(|agent| agent.id)
 }
 
