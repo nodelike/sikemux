@@ -455,6 +455,8 @@ fn main() -> anyhow::Result<()> {
                 out.display(),
                 director.recorded as f64 / FPS
             );
+        } else {
+            let _ = std::fs::remove_file(&partial);
         }
     }
     if let Some(events) = &args.events {

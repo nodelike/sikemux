@@ -38,9 +38,16 @@ pub fn run_loop() -> anyhow::Result<()> {
 }
 
 pub struct StandIn {
-    _window: Retained<NSWindow>,
+    window: Retained<NSWindow>,
     view: Retained<NSView>,
     mtm: MainThreadMarker,
+}
+
+impl Drop for StandIn {
+    fn drop(&mut self) {
+        self.window.setContentView(None);
+        self.window.close();
+    }
 }
 
 impl StandIn {
@@ -66,11 +73,7 @@ impl StandIn {
         let view = NSView::initWithFrame(mtm.alloc(), NSRect::new(NSPoint::ZERO, size));
         window.setContentView(Some(&view));
         gpui_native_view::stand_in_for_offscreen(view.clone());
-        Some(Self {
-            _window: window,
-            view,
-            mtm,
-        })
+        Some(Self { window, view, mtm })
     }
 
     /// Lays every WebKit view showing in the stand-in over `shot`, where it sits, under what
@@ -111,19 +114,31 @@ impl StandIn {
                 (top * density).round() as i64,
             );
         }
-        for bounds in above {
-            let (left, top) = (bounds.origin.x.0 as u32, bounds.origin.y.0 as u32);
-            let right = (left + bounds.size.width.0 as u32).min(drawn.width());
-            let bottom = (top + bounds.size.height.0 as u32).min(drawn.height());
-            for y in top..bottom {
-                let ground = *drawn.get_pixel(left.saturating_sub(1), y);
-                let inside = |x: &u32| !alike(drawn.get_pixel(*x, y), &ground);
-                let Some(first) = (left..right).find(inside) else {
+        let (max_w, max_h) = (drawn.width(), drawn.height());
+        if max_w > 0 && max_h > 0 {
+            for bounds in above {
+                let left = (bounds.origin.x.0.max(0.) as u32).min(max_w);
+                let top = (bounds.origin.y.0.max(0.) as u32).min(max_h);
+                let right = left
+                    .saturating_add(bounds.size.width.0.max(0.) as u32)
+                    .min(max_w);
+                let bottom = top
+                    .saturating_add(bounds.size.height.0.max(0.) as u32)
+                    .min(max_h);
+                if left >= right || top >= bottom {
                     continue;
-                };
-                let last = (first..right).rev().find(inside).unwrap_or(first);
-                for x in first..=last {
-                    shot.put_pixel(x, y, *drawn.get_pixel(x, y));
+                }
+                let ground_x = left.saturating_sub(1).min(max_w - 1);
+                for y in top..bottom {
+                    let ground = *drawn.get_pixel(ground_x, y);
+                    let inside = |x: &u32| !alike(drawn.get_pixel(*x, y), &ground);
+                    let Some(first) = (left..right).find(inside) else {
+                        continue;
+                    };
+                    let last = (first..right).rev().find(inside).unwrap_or(first);
+                    for x in first..=last {
+                        shot.put_pixel(x, y, *drawn.get_pixel(x, y));
+                    }
                 }
             }
         }
