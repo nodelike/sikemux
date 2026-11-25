@@ -113,6 +113,7 @@ impl ActivityCore for Core {
                     }
                 }
                 super::finished::moved(self);
+                super::messages::recheck_calm_for_child(self, agent_id);
                 self.notify().send(Signal::TurnCompleted {
                     agent_id: agent_id.to_owned(),
                     cancelled,
@@ -131,6 +132,7 @@ impl ActivityCore for Core {
                 super::pins::turn_ended(self, agent_id, false);
                 self.seen().wants_a_look(agent_id);
                 self.inbox().ended(agent_id, Some(message), None);
+                super::messages::recheck_calm_for_child(self, agent_id);
                 self.notify().send(Signal::Problem {
                     agent_id: agent_id.to_owned(),
                     message: message.to_owned(),
@@ -162,6 +164,7 @@ impl ActivityCore for Core {
 
     fn note_agent_gone(&self, agent_id: &str) {
         self.journal_agent(agent_id, Happened::Gone);
+        super::messages::recheck_calm_for_child(self, agent_id);
         super::pictures::tidy(self, true);
         self.changed(What::Agents);
     }

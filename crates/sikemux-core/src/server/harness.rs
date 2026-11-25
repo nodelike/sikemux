@@ -766,17 +766,36 @@ pub(super) fn handing(
     };
     let reached: Vec<String> = std::iter::once(value)
         .chain(value["sent"].as_array().into_iter().flatten())
+        .filter(|entry| {
+            !matches!(
+                entry.get("delivery").and_then(Value::as_str),
+                Some("repeat" | "held" | "dropped")
+            )
+        })
         .filter_map(|reached| reached["agentId"].as_str().map(str::to_owned))
         .collect();
+    if reached.is_empty() {
+        return answer;
+    }
     let named: Vec<u64> = (request.params.get("task").and_then(Value::as_u64))
         .into_iter()
         .collect();
     let title = request.params.get("title").and_then(Value::as_str);
     let work = request.params.get("work").and_then(Value::as_bool);
-    super::now::asks::handed(core, from, &reached, &named, title, work == Some(true));
-    if let Some(work) = work {
+    let spawn = request.method == "agent.spawn";
+    super::now::asks::handed(
+        core,
+        from,
+        &reached,
+        &named,
+        title,
+        work == Some(true),
+        spawn && work != Some(false),
+    );
+    let mark = work.or_else(|| (spawn && core.names().for_person(from)).then_some(true));
+    if let Some(mark) = mark {
         for agent in &reached {
-            core.names().mark_for_person(agent, work);
+            core.names().mark_for_person(agent, mark);
         }
     }
     answer

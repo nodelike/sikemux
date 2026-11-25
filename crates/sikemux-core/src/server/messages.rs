@@ -66,6 +66,8 @@ const SETTLE_MS: u64 = 1500;
 /// How long an agent rests after a turn before messages nobody waits on, such as a trigger's or a
 /// teammate's report, start another, so those that come close together are read in one turn.
 const AUTO_SETTLE_MS: u64 = 30_000;
+/// How long a calm report waiting on busy siblings waits at most before waking its lead anyway.
+const CALM_CEILING_MS: u64 = 10 * 60 * 1000;
 /// How long after a worker's turn ends its report to its lead is taken to be on its way,
 /// before the report has begun.
 const REPORT_DUE_MS: u64 = 10_000;
@@ -109,7 +111,7 @@ struct Letter {
     awaited: bool,
     /// When a worker's turn that ended with nothing for its lead to act on may start a lead's
     /// turn; until then it waits as one line for the lead's next turn.
-    calm: Option<u64>,
+    calm: Option<CalmWait>,
 }
 
 /// A question the person answered, and the agent that asked it.
@@ -246,6 +248,26 @@ impl Letter {
 #[serde(rename_all = "camelCase")]
 struct MailboxRecord {
     waiting: HashMap<String, Vec<Queued>>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    capped: HashMap<String, Vec<Queued>>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    auto_turns: HashMap<String, AutoTurns>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+enum CalmWait {
+    At { at: u64 },
+    UntilSiblingsIdle { capped_at: u64 },
+}
+
+impl CalmWait {
+    fn due_at(self) -> u64 {
+        match self {
+            CalmWait::At { at } => at,
+            CalmWait::UntilSiblingsIdle { capped_at } => capped_at,
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -257,7 +279,7 @@ struct Origin {
     awaited: bool,
     /// When a calm report may start the agent's turn; until then it rides on the next one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    calm: Option<u64>,
+    calm: Option<CalmWait>,
 }
 
 /// A message waiting for its agent, as the agent reads it.
@@ -424,7 +446,8 @@ struct State {
     reporting: HashMap<String, u64>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AutoTurns {
     taken: u32,
     stopped_at: Option<u64>,
@@ -477,7 +500,7 @@ impl State {
             })
     }
 
-    /// What is kept: a paste not yet taken waits ahead of the rest.
+    /// What is kept: a paste not yet taken waits ahead of the rest; capped messages stay capped.
     fn record(&self) -> MailboxRecord {
         let mut waiting = self.waiting.clone();
         for (agent_id, pasted) in &self.pasted {
@@ -486,13 +509,17 @@ impl State {
             texts.append(queued);
             *queued = texts;
         }
-        for (agent_id, capped) in &self.capped {
-            waiting
-                .entry(agent_id.clone())
-                .or_default()
-                .extend(capped.iter().cloned());
+        let auto_turns = self
+            .auto_turns
+            .iter()
+            .filter(|(_, turns)| turns.taken > 0 || turns.stopped_at.is_some())
+            .map(|(agent_id, turns)| (agent_id.clone(), turns.clone()))
+            .collect();
+        MailboxRecord {
+            waiting,
+            capped: self.capped.clone(),
+            auto_turns,
         }
-        MailboxRecord { waiting }
     }
 }
 
@@ -521,9 +548,19 @@ impl Mailbox {
         let kept = Kept::new(data_dir, FILE);
         let mut record: MailboxRecord = kept.load();
         record.waiting.retain(|agent_id, _| known(agent_id));
+        record.capped.retain(|agent_id, _| known(agent_id));
+        record.auto_turns.retain(|agent_id, _| known(agent_id));
+        for capped in record.capped.values_mut() {
+            if capped.len() > MAX_WAITING {
+                let drop_n = capped.len() - MAX_WAITING;
+                capped.drain(..drop_n);
+            }
+        }
         Self {
             state: Mutex::new(State {
                 waiting: record.waiting,
+                capped: record.capped,
+                auto_turns: record.auto_turns,
                 ..State::default()
             }),
             kept,
@@ -538,6 +575,7 @@ impl Mailbox {
         let mut state = self.state.locked();
         let changed = change(&mut state);
         state.waiting.retain(|_, waiting| !waiting.is_empty());
+        state.capped.retain(|_, capped| !capped.is_empty());
         self.kept.save_soon(&state.record());
         drop(state);
         self.wake.now();
@@ -660,6 +698,9 @@ impl Mailbox {
     fn cap(&self, agent_id: &str, queued: Queued) -> usize {
         self.change(|state| {
             let capped = state.capped.entry(agent_id.to_owned()).or_default();
+            while capped.len() >= MAX_WAITING {
+                capped.remove(0);
+            }
             capped.push(queued);
             capped.len()
         })
@@ -728,13 +769,6 @@ impl Mailbox {
         self.state.locked().reporting.remove(worker);
     }
 
-    /// Counts `queued` as handed to the agent's turn at work and not yet read.
-    fn offer(&self, agent_id: &str, queued: &[Queued]) {
-        let mut state = self.state.locked();
-        let offered = state.offered.entry(agent_id.to_owned()).or_default();
-        offered.push(queued.to_vec());
-    }
-
     /// Leaves a report from `worker` waiting for `lead`, as one sent while the lead is mid-turn.
     #[cfg(test)]
     pub(crate) fn hold_report(&self, worker: &str, lead: &str, text: &str) {
@@ -774,10 +808,38 @@ impl Mailbox {
         let waiting = state.waiting.get(agent_id)?;
         let first = (waiting.iter())
             .map(|queued| queued.origin.as_ref().and_then(|origin| origin.calm))
-            .collect::<Option<Vec<u64>>>()?
+            .collect::<Option<Vec<CalmWait>>>()?
             .into_iter()
+            .map(CalmWait::due_at)
             .min()?;
         Some(first)
+    }
+
+    fn has_calm_waiting_on_siblings(&self, agent_id: &str) -> bool {
+        let state = self.state.locked();
+        state.waiting.get(agent_id).is_some_and(|waiting| {
+            waiting.iter().any(|queued| {
+                matches!(
+                    queued.origin.as_ref().and_then(|origin| origin.calm),
+                    Some(CalmWait::UntilSiblingsIdle { .. })
+                )
+            })
+        })
+    }
+
+    fn promote_calm_waiting(&self, agent_id: &str, now: u64) {
+        self.change(|state| {
+            let Some(waiting) = state.waiting.get_mut(agent_id) else {
+                return;
+            };
+            for queued in waiting.iter_mut() {
+                if let Some(origin) = queued.origin.as_mut() {
+                    if matches!(origin.calm, Some(CalmWait::UntilSiblingsIdle { .. })) {
+                        origin.calm = Some(CalmWait::At { at: now });
+                    }
+                }
+            }
+        });
     }
 
     /// Takes the calm reports waiting for the agent, leaving the rest.
@@ -2269,9 +2331,9 @@ async fn report_noted(
 }
 
 /// A calm report is due at once when the person waits on the worker's work or no other worker
-/// of its lead is still at work, and otherwise waits for the lead's next turn, which that
-/// worker's own report starts.
-fn calm_due(core: &Core, agents: &[Listed], worker: &str, lead: &str, at: u64) -> u64 {
+/// of its lead is still at work, and otherwise waits until siblings go idle or the fallback
+/// ceiling passes.
+fn calm_due(core: &Core, agents: &[Listed], worker: &str, lead: &str, at: u64) -> CalmWait {
     calm_due_in(
         core,
         &super::turn_state::all(core),
@@ -2290,9 +2352,9 @@ fn calm_due_in(
     worker: &str,
     lead: &str,
     at: u64,
-) -> u64 {
+) -> CalmWait {
     if super::now::asks::person_waits_on(core, worker) {
-        return at;
+        return CalmWait::At { at };
     }
     let at_work = agents.iter().any(|agent| {
         agent.agent_id != worker
@@ -2305,9 +2367,39 @@ fn calm_due_in(
             })
     });
     match at_work {
-        true => u64::MAX,
-        false => at,
+        true => CalmWait::UntilSiblingsIdle {
+            capped_at: at.saturating_add(CALM_CEILING_MS),
+        },
+        false => CalmWait::At { at },
     }
+}
+
+/// Re-evaluates calm reports waiting on `lead_id`'s children when a child stops, closes, or goes idle.
+pub(crate) fn recheck_calm_for_lead(core: &Core, lead_id: &str) {
+    let mailbox = &core.harness().mailbox;
+    if !mailbox.has_calm_waiting_on_siblings(lead_id) {
+        return;
+    }
+    let agents = roster::listed(core);
+    let any_busy = agents.iter().any(|agent| {
+        agent.parent.as_deref() == Some(lead_id)
+            && super::turn_state::now(core, &agent.agent_id).is_some_and(|turn| {
+                matches!(
+                    turn.state,
+                    sikemux_view::turn::TurnPhase::Working | sikemux_view::turn::TurnPhase::Waiting
+                )
+            })
+    });
+    if !any_busy {
+        mailbox.promote_calm_waiting(lead_id, epoch_ms());
+    }
+}
+
+pub(crate) fn recheck_calm_for_child(core: &Core, child_id: &str) {
+    let Some(lead_id) = core.names().reports_to(child_id) else {
+        return;
+    };
+    recheck_calm_for_lead(core, &lead_id);
 }
 
 async fn deliver(core: &Arc<Core>, target: &Listed, mut letter: Letter) -> Result<Value, String> {
@@ -2472,8 +2564,47 @@ async fn handed(
     if !notice {
         mailbox.note_sent(&letter, &target.agent_id);
     }
-    if held.is_none() && mailbox.has_urgent_waiting(&target.agent_id) {
-        held = Some("already has messages waiting");
+    struct DeliveringGuard<'a> {
+        mailbox: &'a Mailbox,
+        agent_id: String,
+    }
+    impl Drop for DeliveringGuard<'_> {
+        fn drop(&mut self) {
+            self.mailbox
+                .state
+                .locked()
+                .delivering
+                .remove(&self.agent_id);
+            self.mailbox.wake.now();
+        }
+    }
+
+    let mut delivering_guard = None;
+    if held.is_none() {
+        let mut state = mailbox.state.locked();
+        if state
+            .waiting
+            .get(&target.agent_id)
+            .is_some_and(|waiting| !waiting.iter().all(Queued::is_calm))
+        {
+            held = Some("already has messages waiting");
+        } else if reach == Reach::Terminal {
+            if state.delivering.contains(&target.agent_id) {
+                held = Some("is taking another message");
+            }
+        } else if state.delivering.insert(target.agent_id.clone()) {
+            state
+                .offered
+                .entry(target.agent_id.clone())
+                .or_default()
+                .push(vec![queued.clone()]);
+            delivering_guard = Some(DeliveringGuard {
+                mailbox,
+                agent_id: target.agent_id.clone(),
+            });
+        } else {
+            held = Some("is taking another message");
+        }
     }
     if held.is_none() {
         let delivered = match reach {
@@ -2485,21 +2616,12 @@ async fn handed(
             }
             _ => {
                 let one = std::slice::from_ref(queued);
-                let guarded = (mailbox.state.locked().delivering).insert(target.agent_id.clone());
-                mailbox.offer(&target.agent_id, one);
                 let handed = hand(core, &target.agent_id, one).await;
-                {
+                if !matches!(handed, Ok(Delivery::Steered)) {
                     let mut state = mailbox.state.locked();
-                    if !matches!(handed, Ok(Delivery::Steered)) {
-                        state.take_offered(&target.agent_id, &joined(one));
-                    }
-                    if guarded {
-                        state.delivering.remove(&target.agent_id);
-                    }
+                    state.take_offered(&target.agent_id, &joined(one));
                 }
-                if guarded {
-                    mailbox.wake.now();
-                }
+                drop(delivering_guard);
                 handed.map(|delivered| match delivered {
                     Delivery::Steered => MessageOutcome::Steered,
                     _ => MessageOutcome::NewTurn,
@@ -2951,7 +3073,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
             .calm_until(&agent_id)
             .filter(|until| *until > epoch_ms())
         {
-            next = sooner(next, Some(until).filter(|until| *until != u64::MAX));
+            next = sooner(next, Some(until));
             continue;
         }
         let rest = mailbox.rest_for(&agent_id);
@@ -3203,10 +3325,15 @@ mod tests {
             seen: false,
         };
         let turns = HashMap::from([("shun".to_owned(), shun_works)]);
-        assert_eq!(calm_due_in(&core, &turns, &agents, "okkoto", "chief", 7), 7);
+        assert_eq!(
+            calm_due_in(&core, &turns, &agents, "okkoto", "chief", 7),
+            CalmWait::At { at: 7 }
+        );
         assert_eq!(
             calm_due_in(&core, &turns, &agents, "kiki", "chief", 7),
-            u64::MAX
+            CalmWait::UntilSiblingsIdle {
+                capped_at: 7 + CALM_CEILING_MS
+            }
         );
     }
 
@@ -3295,11 +3422,13 @@ mod tests {
         .unwrap();
         assert_eq!(
             calm_due_in(&core, &turns, &agents, "koizumi", "chief", 10),
-            10
+            CalmWait::At { at: 10 }
         );
         assert_eq!(
             calm_due_in(&core, &turns, &agents, "upkeep", "chief", 10),
-            u64::MAX
+            CalmWait::UntilSiblingsIdle {
+                capped_at: 10 + CALM_CEILING_MS
+            }
         );
 
         // A follow-up agent_send without work keeps the mark.
@@ -3314,7 +3443,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             calm_due_in(&core, &turns, &agents, "koizumi", "chief", 11),
-            11
+            CalmWait::At { at: 11 }
         );
 
         // Closing and restarting the core (update/handover) preserves the mark on disk.
@@ -3345,11 +3474,13 @@ mod tests {
             .unwrap();
         assert_eq!(
             calm_due_in(&restarted, &turns, &agents, "koizumi", "chief", 12),
-            12
+            CalmWait::At { at: 12 }
         );
         assert_eq!(
             calm_due_in(&restarted, &turns, &agents, "upkeep", "chief", 12),
-            u64::MAX
+            CalmWait::UntilSiblingsIdle {
+                capped_at: 12 + CALM_CEILING_MS
+            }
         );
 
         // Resuming the same session under a fresh id also inherits the mark.
@@ -3386,7 +3517,7 @@ mod tests {
                 "chief",
                 13
             ),
-            13
+            CalmWait::At { at: 13 }
         );
 
         // Several due calm reports arriving together are taken and joined into one wake.
@@ -3403,7 +3534,7 @@ mod tests {
                         from: from.to_owned(),
                         kind: MessageKind::Report,
                         awaited: false,
-                        calm: Some(13),
+                        calm: Some(CalmWait::At { at: 13 }),
                     }),
                     mark: None,
                     paths: Vec::new(),
@@ -3568,12 +3699,14 @@ mod tests {
         .unwrap();
         assert_eq!(
             calm_due_in(&core, &turns, &agents, "koizumi", "chief", 10),
-            10
+            CalmWait::At { at: 10 }
         );
         asks::turn_reported(&core, "koizumi");
         assert_eq!(
             calm_due_in(&core, &turns, &agents, "koizumi", "chief", 11),
-            u64::MAX
+            CalmWait::UntilSiblingsIdle {
+                capped_at: 11 + CALM_CEILING_MS
+            }
         );
 
         // 2. Lead closes a worker's task while idle: clears immediately; new work: true wakes again.
@@ -3616,16 +3749,34 @@ mod tests {
         .unwrap();
         assert_eq!(
             calm_due_in(&core, &turns, &agents, "koizumi", "chief", 12),
-            u64::MAX
+            CalmWait::UntilSiblingsIdle {
+                capped_at: 12 + CALM_CEILING_MS
+            }
         );
 
         // 3. An ask whose commit reaches the running build clears the mark, unless another open
         // ask remains; once that ask closes too, later upkeep stays held.
         let ask1 = asks::asked(&core, "chief", "First ask", &[], None).unwrap();
-        asks::handed(&core, "chief", &["koizumi".into()], &[ask1], None, true);
+        asks::handed(
+            &core,
+            "chief",
+            &["koizumi".into()],
+            &[ask1],
+            None,
+            true,
+            true,
+        );
         asks::turn_ended(&core, "chief");
         let ask2 = asks::asked(&core, "chief", "Second ask", &[], None).unwrap();
-        asks::handed(&core, "chief", &["koizumi".into()], &[ask2], None, true);
+        asks::handed(
+            &core,
+            "chief",
+            &["koizumi".into()],
+            &[ask2],
+            None,
+            true,
+            true,
+        );
         asks::turn_ended(&core, "chief");
         {
             let mut state = core.boards().state.locked();
@@ -3640,7 +3791,7 @@ mod tests {
         asks::build_moved(&core, &project.path);
         assert_eq!(
             calm_due_in(&core, &turns, &agents, "koizumi", "chief", 14),
-            14
+            CalmWait::At { at: 14 }
         );
         asks::done(
             &core,
@@ -3655,17 +3806,27 @@ mod tests {
         .unwrap();
         assert_eq!(
             calm_due_in(&core, &turns, &agents, "koizumi", "chief", 15),
-            u64::MAX
+            CalmWait::UntilSiblingsIdle {
+                capped_at: 15 + CALM_CEILING_MS
+            }
         );
 
         // 4. Single ask reaching the running build clears the mark on its own; new work: true
         // sets it again.
         let ask3 = asks::asked(&core, "chief", "Third ask", &[], None).unwrap();
-        asks::handed(&core, "chief", &["koizumi".into()], &[ask3], None, true);
+        asks::handed(
+            &core,
+            "chief",
+            &["koizumi".into()],
+            &[ask3],
+            None,
+            true,
+            true,
+        );
         asks::turn_ended(&core, "chief");
         assert_eq!(
             calm_due_in(&core, &turns, &agents, "koizumi", "chief", 16),
-            16
+            CalmWait::At { at: 16 }
         );
         {
             let mut state = core.boards().state.locked();
@@ -3680,7 +3841,9 @@ mod tests {
         asks::build_moved(&core, &project.path);
         assert_eq!(
             calm_due_in(&core, &turns, &agents, "koizumi", "chief", 17),
-            u64::MAX
+            CalmWait::UntilSiblingsIdle {
+                capped_at: 17 + CALM_CEILING_MS
+            }
         );
         super::super::harness::handing(
             &core,
@@ -3690,7 +3853,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             calm_due_in(&core, &turns, &agents, "koizumi", "chief", 18),
-            18
+            CalmWait::At { at: 18 }
         );
     }
 

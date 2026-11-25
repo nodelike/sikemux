@@ -354,8 +354,9 @@ pub(crate) fn desks_moved(
 }
 
 /// `from` started or messaged `to`: the asks of its turn go with it when it hands them on as
-/// `work`, and so do the asks of its project named. A start's `task` names those that have no name
-/// yet.
+/// `work`, and so do the asks of its project named. When `spawn` is true, asks currently owned by
+/// `from` propagate transitively to its spawned child agents. A start's `task` names those that
+/// have no name yet.
 pub(crate) fn handed(
     core: &Core,
     from: &str,
@@ -363,6 +364,7 @@ pub(crate) fn handed(
     named: &[u64],
     task: Option<&str>,
     work: bool,
+    spawn: bool,
 ) {
     if to.is_empty() {
         return;
@@ -373,7 +375,8 @@ pub(crate) fn handed(
     change(core, |board, at| {
         let names_here = home.as_deref() == Some(board.folder());
         each_ask(board, at, |id, asked| {
-            let ours = work && asked.to == from && asked.in_turn;
+            let ours = (work && asked.to == from && asked.in_turn)
+                || (spawn && asked.owners.iter().any(|owner| owner.agent == from));
             if !ours && !(names_here && named.contains(&id)) {
                 return false;
             }
@@ -860,7 +863,7 @@ mod tests {
         works_at(&core, "shenhua", &folder, main_head, None);
 
         let to_chief = asked(&core, "chief", "No more fables right bruv?", &[], None).unwrap();
-        handed(&core, "chief", &["kaori".into()], &[], None, false);
+        handed(&core, "chief", &["kaori".into()], &[], None, false, true);
         turn_ended(&core, "chief");
         works_at(&core, "kaori", &folder, "1ee1fea2a", Some("1ee1fea2a"));
         assert!(ask(&core, &folder, to_chief).is_none(), "#712");
@@ -879,7 +882,7 @@ mod tests {
         )
         .unwrap();
         let title = Some("Fix restart after pacman update");
-        handed(&core, "chief", &["shenhua".into()], &[], title, true);
+        handed(&core, "chief", &["shenhua".into()], &[], title, true, true);
         turn_ended(&core, "chief");
         works_at(
             &core,
