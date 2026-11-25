@@ -92,9 +92,9 @@ pub struct Desks {
     /// The file and the terminal each desk last showed, which its switch brings back.
     last_front: HashMap<(String, DeskKind), DeskItem>,
     /// Pages' site icons, decoded once from the inline image each page sends.
-    favicons: std::cell::RefCell<HashMap<String, Arc<gpui_kit::Image>>>,
-    /// The runs whose terminals have been put on a desk, so each is put there once.
-    placed_runs: HashSet<String>,
+    favicons: std::cell::RefCell<FaviconCache>,
+    /// The runs whose terminals have been put on a desk, keyed by execution id -> agent id.
+    placed_runs: HashMap<String, String>,
     /// Whether the runs have been read once; runs going by then join their desks behind.
     runs_read: bool,
     /// The agents whose desks the layout held when the app started, each shut once looked at
@@ -117,6 +117,7 @@ pub struct Desks {
     pictures: width::Pictures,
     /// What the pages were last told of their pins.
     pins_shown: pins::PinsShown,
+    strips_revision: u64,
     _theming: Subscription,
 }
 
@@ -254,19 +255,44 @@ impl DeskItem {
     }
 }
 
+#[derive(Default)]
+struct FaviconCache {
+    entries: HashMap<String, Arc<gpui_kit::Image>>,
+    order: std::collections::VecDeque<String>,
+}
+
+impl FaviconCache {
+    fn get(&mut self, data: &str) -> Option<Arc<gpui_kit::Image>> {
+        let icon = self.entries.get(data)?.clone();
+        self.order.retain(|kept| kept != data);
+        self.order.push_back(data.to_owned());
+        Some(icon)
+    }
+
+    fn insert(&mut self, data: String, icon: Arc<gpui_kit::Image>) {
+        self.order.retain(|kept| kept != &data);
+        while self.entries.len() >= MAX_FAVICONS {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            self.entries.remove(&oldest);
+        }
+        self.order.push_back(data.clone());
+        self.entries.insert(data, icon);
+    }
+}
+
 impl Desks {
     /// A page's site icon from the `data:` image it sends, decoded the first time it is drawn.
     fn favicon(&self, data: &str) -> Option<Arc<gpui_kit::Image>> {
-        if let Some(icon) = self.favicons.borrow().get(data) {
-            return Some(icon.clone());
+        if let Some(icon) = self.favicons.borrow_mut().get(data) {
+            return Some(icon);
         }
         let (mime, base64) = data.strip_prefix("data:")?.split_once(";base64,")?;
         let icon = crate::picture::decode(mime, base64)?;
-        let mut favicons = self.favicons.borrow_mut();
-        if favicons.len() >= MAX_FAVICONS {
-            favicons.clear();
-        }
-        favicons.insert(data.to_owned(), icon.clone());
+        self.favicons
+            .borrow_mut()
+            .insert(data.to_owned(), icon.clone());
         Some(icon)
     }
 }
@@ -387,7 +413,7 @@ impl Desks {
             shells: HashSet::new(),
             last_front: HashMap::new(),
             favicons: Default::default(),
-            placed_runs: HashSet::new(),
+            placed_runs: HashMap::new(),
             runs_read: false,
             restored: None,
             address_wanted: None,
@@ -399,8 +425,13 @@ impl Desks {
             snips: HashMap::new(),
             pictures: width::Pictures::default(),
             pins_shown: pins::PinsShown::default(),
+            strips_revision: 0,
             _theming: theming,
         }
+    }
+
+    pub(crate) fn strips_revision(&self) -> u64 {
+        self.strips_revision
     }
 
     pub fn engine(&self) -> Option<&Arc<BrowserManager>> {
@@ -446,13 +477,23 @@ impl Desks {
         self.call_pages.remove(agent);
         self.page_feet.remove(agent);
         self.task_views.remove(agent);
-        self.items.remove(agent);
+        if let Some(items) = self.items.remove(agent) {
+            for item in items {
+                if let DeskItem::Terminal { session, .. } = item {
+                    self.shells.remove(&session);
+                }
+            }
+        }
         self.front.remove(agent);
         self.order.remove(agent);
         self.sim_tabs.remove(agent);
         self.last_front.retain(|(held, _), _| held != agent);
         self.tab_scrolls.borrow_mut().remove(agent);
         self.snips.remove(agent);
+        self.placed_runs.retain(|_, owner| owner != agent);
+        self.pins_shown.forget(agent);
+        self.page_files.forget(agent);
+        self.strips_revision = self.strips_revision.wrapping_add(1);
     }
 
     fn show_kind(&mut self, agent: &str, kind: DeskKind, cx: &mut Context<Self>) {
@@ -490,6 +531,7 @@ impl Desks {
             .collect();
         order.extend(new);
         self.strips.insert(agent.to_owned(), Arc::new(strip));
+        self.strips_revision = self.strips_revision.wrapping_add(1);
     }
 
     /// The artifacts in tabs of the agent's desk, each with whether its tab is in front.
@@ -835,6 +877,9 @@ impl PageFiles {
         matches
     }
 
+    pub(crate) fn forget(&self, agent: &str) {
+        self.quiet.locked().remove(agent);
+    }
     /// An address for a page the core keeps, with the videos and sounds in `media` beside it.
     /// Local pages are served straight from the core's folder with the window's theme applied on
     /// serve; remote pages are staged into the tab folder and swept once closed.
@@ -1096,15 +1141,24 @@ impl Workbench {
             .flat_map(|(_, view)| &view.workspace.agents)
             .map(|agent| agent.id.clone())
             .collect();
+        let files = self.desks.read(cx).page_files.clone();
+        let mut any_changed = false;
         for agent in agents {
             let Ok(strip) = engine.snapshot(&agent) else {
                 continue;
             };
+            let unchanged = {
+                let desks = self.desks.read(cx);
+                desks.known.contains_key(&agent)
+                    && desks.strips.get(&agent).is_some_and(|old| **old == strip)
+            };
+            if unchanged {
+                continue;
+            }
             let now: HashSet<String> = strip.tabs.iter().map(|tab| tab.id.clone()).collect();
             let before = self.desks.update(cx, |desks, _| {
                 desks.known.insert(agent.clone(), now.clone())
             });
-            let files = self.desks.read(cx).page_files.clone();
             let closed = before
                 .as_ref()
                 .is_some_and(|before| before.iter().any(|id| !now.contains(id)));
@@ -1123,14 +1177,17 @@ impl Workbench {
             if opened && !self.desk_open_anywhere(&agent) {
                 self.reveal_desk(&agent);
             }
-            self.desks.update(cx, |desks, cx| {
+            self.desks.update(cx, |desks, _| {
                 desks.take_strip(&agent, strip);
-                cx.notify();
             });
+            any_changed = true;
             if emptied {
                 self.shut_empty_desk(&agent, cx);
             }
             self.take_pictures(&agent, cx);
+        }
+        if any_changed {
+            self.desks.update(cx, |_, cx| cx.notify());
         }
     }
 
@@ -1520,7 +1577,10 @@ impl Workbench {
                 continue;
             }
             let placed = self.desks.update(cx, |desks, _| {
-                desks.placed_runs.insert(run.execution.clone())
+                desks
+                    .placed_runs
+                    .insert(run.execution.clone(), run.agent.clone())
+                    .is_none()
             });
             if !placed || self.agent_place(&run.agent).is_none() {
                 continue;
@@ -1541,6 +1601,13 @@ impl Workbench {
             };
             self.put_on_desk(&run.agent, item, front, cx);
         }
+        let active_executions: HashSet<&str> =
+            runs.iter().map(|run| run.execution.as_str()).collect();
+        self.desks.update(cx, |desks, _| {
+            desks
+                .placed_runs
+                .retain(|execution, _| active_executions.contains(execution.as_str()));
+        });
         for agent in emptied {
             self.shut_empty_desk(&agent, cx);
         }
@@ -2074,7 +2141,10 @@ impl Workbench {
         let (agent, url) = (agent.to_owned(), url.to_owned());
         runtime().spawn(async move {
             if let Err(error) = engine.open_tab(&agent, Some(&url)).await {
-                eprintln!("sikemux: the desk could not open {url}: {error}");
+                eprintln!(
+                    "sikemux: the desk could not open {}: {error}",
+                    redacted_url(&url)
+                );
             }
         });
         true
@@ -2161,7 +2231,10 @@ impl Workbench {
         let (agent, input) = (agent.to_owned(), input.to_owned());
         runtime().spawn(async move {
             if let Err(error) = engine.open_typed(&agent, &input).await {
-                eprintln!("sikemux: the desk could not open {input}: {error}");
+                eprintln!(
+                    "sikemux: the desk could not open {}: {error}",
+                    redacted_url(&input)
+                );
             }
         });
     }
@@ -2181,6 +2254,23 @@ impl Workbench {
 
 pub fn install(cx: &mut App) {
     address::install(cx);
+}
+
+fn redacted_url(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let Some((scheme, rest)) = trimmed.split_once("://") else {
+        return "the address".to_owned();
+    };
+    if scheme.is_empty()
+        || !scheme
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.'))
+    {
+        return "the address".to_owned();
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority.rsplit('@').next().unwrap_or_default();
+    format!("{scheme}://{host}")
 }
 
 /// Shuts the desks that came back from the last run with no pages, files or terminals on them,

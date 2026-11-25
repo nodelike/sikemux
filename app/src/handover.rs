@@ -105,11 +105,20 @@ fn pages(bench: &Workbench, cx: &App) -> Option<Vec<u8>> {
 fn keep_pages(cx: &mut Context<Workbench>) {
     cx.spawn(async move |bench, cx| {
         let mut written = Vec::new();
+        let mut last_revision = None;
         loop {
             cx.background_executor().timer(SAVE_PAGES_EVERY).await;
+            let Ok(revision) = bench.update(cx, |bench, cx| bench.desks.read(cx).strips_revision())
+            else {
+                return;
+            };
+            if last_revision == Some(revision) {
+                continue;
+            }
             let Ok(bytes) = bench.update(cx, |bench, cx| pages(bench, cx)) else {
                 return;
             };
+            last_revision = Some(revision);
             let Some(bytes) = bytes.filter(|bytes| *bytes != written) else {
                 continue;
             };
@@ -120,7 +129,10 @@ fn keep_pages(cx: &mut Context<Workbench>) {
                 .await;
             match saved {
                 Ok(()) => written = bytes,
-                Err(error) => eprintln!("sikemux: agents' pages were not saved: {error}"),
+                Err(error) => {
+                    last_revision = None;
+                    eprintln!("sikemux: agents' pages were not saved: {error}");
+                }
             }
         }
     })

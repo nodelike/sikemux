@@ -44,6 +44,15 @@ pub(crate) struct PinsShown {
     pictures: Pictures,
 }
 
+impl PinsShown {
+    pub(crate) fn forget(&mut self, agent: &str) {
+        self.told.remove(agent);
+        if let Some(on) = self.waits.remove(agent) {
+            on.store(false, Ordering::Relaxed);
+        }
+    }
+}
+
 #[derive(Default)]
 struct Pictures {
     data: HashMap<String, String>,
