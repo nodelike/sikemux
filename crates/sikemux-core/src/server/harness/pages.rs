@@ -315,7 +315,13 @@ pub(crate) async fn share_page(core: &Core, params: SharePageParams) -> CoreResu
     };
     let gate = core.harness().page_shares.cancel_and_gate(&link.id);
     let _busy = gate.busy.lock().await;
-    let (title, html, seen_behind) = read_latest(data_dir.clone(), dir, params.id.clone()).await?;
+    let (latest_id, title, html, seen_behind) =
+        read_latest(data_dir.clone(), dir.clone(), params.id.clone()).await?;
+    let html = blocking(move || {
+        crate::pages::for_share(&dir, &latest_id, &html, crate::pages::MAX_SHARED_HTML_BYTES)
+            .map_err(CoreError::from)
+    })
+    .await?;
     if let Err(error) = upload(core, &link, &title, &html).await {
         if matches!(error, PutError::Ended) && existing {
             let (data_dir, link_id) = (data_dir.clone(), link.id.clone());
@@ -397,7 +403,7 @@ async fn read_latest(
     data_dir: PathBuf,
     dir: PathBuf,
     id: String,
-) -> CoreResult<(String, String, Option<i64>)> {
+) -> CoreResult<(String, String, String, Option<i64>)> {
     blocking(move || {
         let (latest_id, title, behind) = match page_index::latest_for_page(&data_dir, &id)? {
             Some((latest_id, title, behind)) => (latest_id, title, behind),
@@ -410,7 +416,7 @@ async fn read_latest(
         };
         let html = std::fs::read_to_string(dir.join(format!("{latest_id}.html")))
             .map_err(|_| CoreError::from("that page is gone"))?;
-        Ok((title, html, behind))
+        Ok((latest_id, title, html, behind))
     })
     .await
 }
@@ -542,17 +548,28 @@ async fn sync_pending(core: &Arc<Core>, data_dir: &Path, failures: u32) -> SyncO
             }
             continue;
         }
-        let html = match share.page_id.clone() {
+        let prepared = match share.page_id.clone() {
             Some(page_id) => {
-                let path = pages_folder.join(format!("{page_id}.html"));
-                blocking(move || Ok(std::fs::read_to_string(path).ok()))
-                    .await
-                    .ok()
-                    .flatten()
+                let dir = pages_folder.clone();
+                blocking(move || {
+                    let Ok(html) = std::fs::read_to_string(dir.join(format!("{page_id}.html")))
+                    else {
+                        return Ok(None);
+                    };
+                    Ok(Some(crate::pages::for_share(
+                        &dir,
+                        &page_id,
+                        &html,
+                        crate::pages::MAX_SHARED_HTML_BYTES,
+                    )))
+                })
+                .await
+                .ok()
+                .flatten()
             }
             None => None,
         };
-        let Some(html) = html else {
+        let Some(prepared) = prepared else {
             let (dir, id) = (data_dir.to_owned(), link_id.clone());
             if matches!(
                 blocking(move || page_index::drop_share(&dir, &id).map_err(CoreError::from)).await,
@@ -563,10 +580,15 @@ async fn sync_pending(core: &Arc<Core>, data_dir: &Path, failures: u32) -> SyncO
             }
             continue;
         };
-        let outcome = tokio::select! {
-            biased;
-            _ = cancelled.changed() => continue,
-            outcome = upload(core, &share.link, &share.title, &html) => outcome,
+        let outcome = match prepared {
+            Ok(html) => {
+                tokio::select! {
+                    biased;
+                    _ = cancelled.changed() => continue,
+                    outcome = upload(core, &share.link, &share.title, &html) => outcome,
+                }
+            }
+            Err(message) => Err(PutError::Refused(message)),
         };
         match outcome {
             Ok(()) => {

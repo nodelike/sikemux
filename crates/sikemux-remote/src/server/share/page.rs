@@ -15,6 +15,7 @@ use crate::server::{Core, CoreError, CoreResult};
 
 pub const SIGNED_OUT_PROBLEM: &str = "Sign in to Sikemux to update this shared artifact.";
 const TOO_LARGE_PROBLEM: &str = "This artifact is too large to share (limit is 25 MiB).";
+const MAX_SEALED_BYTES: usize = 25 * 1024 * 1024;
 const CLOCK_SLACK_MS: u64 = 120_000;
 
 /// Why putting a page behind its link failed, split by whether trying again can succeed.
@@ -107,6 +108,9 @@ pub async fn put(
     let sealed = seal
         .seal(&plain)
         .ok_or_else(|| PutError::Refused("the page could not be sealed".into()))?;
+    if sealed.len() > MAX_SEALED_BYTES {
+        return Err(PutError::Refused(TOO_LARGE_PROBLEM.into()));
+    }
     let upload = Upload {
         bytes: sealed.into_bytes(),
         content_type: "application/octet-stream".into(),

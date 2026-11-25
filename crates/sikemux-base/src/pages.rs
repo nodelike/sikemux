@@ -20,6 +20,8 @@ const MAX_SOURCE_BYTES: u64 = 2 * MIB;
 const MAX_IMAGE_BYTES: u64 = 10 * MIB;
 /// Under the 16 MiB a connection to the core carries, so a reply can always fetch the page.
 const MAX_PAGE_BYTES: usize = 15 * MIB as usize;
+/// Plaintext HTML budget that fits inside the accounts server's 25 MiB sealed base64url limit.
+pub const MAX_SHARED_HTML_BYTES: usize = 19_600_000;
 const MAX_TITLE_CHARS: usize = 120;
 /// Enough of a page to hold its `<title>`, unless a big inlined font or picture comes first.
 const HEAD_BYTES: u64 = 64 * 1024;
@@ -37,6 +39,44 @@ static LOCAL_FILE: LazyLock<Regex> = LazyLock::new(|| {
         r#"(["'(])\s*({DRIVE}[^"'()<>\s:]+?\.(?i:png|jpe?g|gif|webp|avif|svg|bmp|ico|woff2?|ttf|otf|mp4|m4v|webm|mov|mp3|m4a|wav|ogg|oga|opus|flac|aac))\s*(["')])"#,
     ))
     .expect("local file pattern")
+});
+
+static KEPT_MEDIA: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "the pattern is a constant")]
+    Regex::new(r#"(["'(])\s*([0-9a-fA-F]{32}/[^"'()<>\s]+)\s*(["')])"#).expect("kept media pattern")
+});
+
+static SCRIPT_SRC: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "the pattern is a constant")]
+    Regex::new(r#"(?is)<script\b([^>]*?)\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)')([^>]*)>\s*</script>"#)
+        .expect("script src pattern")
+});
+
+static LINK_TAG: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "the pattern is a constant")]
+    Regex::new(r#"(?is)<link\b([^>]*?)>"#).expect("link tag pattern")
+});
+
+static RESOURCE_TAG: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "the pattern is a constant")]
+    Regex::new(r#"(?is)<(video|audio|source|track|img|iframe|object|embed)\b([^>]*?)>"#)
+        .expect("resource tag pattern")
+});
+
+static ATTR: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "the pattern is a constant")]
+    Regex::new(r#"(?is)\b([a-z][a-z0-9-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')"#)
+        .expect("html attribute pattern")
+});
+
+static CLOSING_SCRIPT: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "the pattern is a constant")]
+    Regex::new(r#"(?i)</script"#).expect("closing script pattern")
+});
+
+static CLOSING_STYLE: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "the pattern is a constant")]
+    Regex::new(r#"(?i)</style"#).expect("closing style pattern")
 });
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -386,6 +426,311 @@ pub fn themed(html: &str, theme: &str, script: Option<&str>) -> String {
     insert_head(html, &markup)
 }
 
+/// Resolves a relative URL reference inside `root`, refusing absolute URLs, traversal and hidden names.
+fn safe_under(root: &Path, reference: &str) -> Option<PathBuf> {
+    let path = reference
+        .trim()
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default();
+    if path.is_empty()
+        || path.starts_with('/')
+        || path.starts_with("//")
+        || path.contains(':')
+        || path.contains('\\')
+    {
+        return None;
+    }
+    let mut relative = PathBuf::new();
+    for segment in path.split('/').filter(|segment| !segment.is_empty()) {
+        if segment == "." {
+            continue;
+        }
+        if segment == ".." || segment.starts_with('.') || segment.contains('\0') {
+            return None;
+        }
+        relative.push(segment);
+    }
+    if relative.as_os_str().is_empty() {
+        return None;
+    }
+    let base = sikemux_process::files::real_path(root).ok()?;
+    let found = sikemux_process::files::real_path(base.join(relative)).ok()?;
+    (found.starts_with(&base) && found.is_file()).then_some(found)
+}
+
+fn data_url_for(
+    path: &Path,
+    label: &str,
+    total: &mut usize,
+    old_len: usize,
+    max_bytes: usize,
+    cache: &mut HashMap<PathBuf, String>,
+) -> Result<String, String> {
+    let url = if let Some(cached) = cache.get(path) {
+        let next = total.saturating_sub(old_len).saturating_add(cached.len());
+        if next > max_bytes {
+            return Err(too_large_media(label, path));
+        }
+        *total = next;
+        cached.clone()
+    } else {
+        let len = std::fs::metadata(path)
+            .map_err(|_| format!("This artifact refers to {label}, which is no longer on disk."))?
+            .len();
+        let mime = content_type(path);
+        let encoded_len = 5usize
+            .saturating_add(mime.len())
+            .saturating_add(8)
+            .saturating_add(((len as usize).saturating_add(2) / 3).saturating_mul(4));
+        let next = total.saturating_sub(old_len).saturating_add(encoded_len);
+        if next > max_bytes {
+            return Err(too_large_media(label, path));
+        }
+        let bytes = std::fs::read(path)
+            .map_err(|error| format!("Could not read {label} to share: {error}"))?;
+        use base64::Engine;
+        let encoded = format!(
+            "data:{mime};base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        );
+        let next = total.saturating_sub(old_len).saturating_add(encoded.len());
+        if next > max_bytes {
+            return Err(too_large_media(label, path));
+        }
+        *total = next;
+        cache.insert(path.to_owned(), encoded.clone());
+        encoded
+    };
+    Ok(url)
+}
+
+fn too_large_media(label: &str, path: &Path) -> String {
+    let mb = std::fs::metadata(path)
+        .ok()
+        .map(|meta| meta.len() as f64 / MIB as f64);
+    match mb {
+        Some(mb) if mb >= 0.1 => format!(
+            "This artifact's media ({label}, {mb:.1} MiB) is too large to share; shared artifacts are limited to 25 MiB."
+        ),
+        _ => "This artifact is too large to share with its media (limit is 25 MiB).".into(),
+    }
+}
+
+/// Self-contains a kept page for sharing: inlines small media from `{id}/` and scripts, styles or
+/// media beside the page within `max_bytes`, and refuses rather than sending a broken copy.
+pub fn for_share(dir: &Path, id: &str, html: &str, max_bytes: usize) -> Result<String, String> {
+    if html.len() > max_bytes {
+        return Err("This artifact is too large to share (limit is 25 MiB).".into());
+    }
+    let mut total = html.len();
+    let mut cache: HashMap<PathBuf, String> = HashMap::new();
+    let mut failure: Option<String> = None;
+
+    // 1. Inline video and audio copied into `{dir}/{id}/` when the page was published.
+    let prefix = format!("{id}/");
+    let media_dir = media_folder(dir, id);
+    let page = KEPT_MEDIA
+        .replace_all(html, |found: &regex::Captures| {
+            if failure.is_some() {
+                return found[0].to_owned();
+            }
+            let (open, reference, close) = (&found[1], &found[2], &found[3]);
+            let paired = (open == "(" && close == ")") || (open != "(" && open == close);
+            let Some(rel) = reference.strip_prefix(&prefix).filter(|_| paired) else {
+                return found[0].to_owned();
+            };
+            let Some(path) = safe_under(&media_dir, rel) else {
+                failure = Some(format!(
+                    "This artifact refers to media ({rel}) that is no longer on disk."
+                ));
+                return found[0].to_owned();
+            };
+            match data_url_for(
+                &path,
+                rel,
+                &mut total,
+                reference.len(),
+                max_bytes,
+                &mut cache,
+            ) {
+                Ok(data) => format!("{open}{data}{close}"),
+                Err(error) => {
+                    failure = Some(error);
+                    found[0].to_owned()
+                }
+            }
+        })
+        .into_owned();
+    if let Some(error) = failure {
+        return Err(error);
+    }
+
+    let Some(folder) = written_in(dir, id) else {
+        return Ok(page);
+    };
+
+    // 2. Inline local scripts and stylesheets beside the page.
+    let page = SCRIPT_SRC
+        .replace_all(&page, |found: &regex::Captures| {
+            if failure.is_some() {
+                return found[0].to_owned();
+            }
+            let src = found
+                .get(2)
+                .or_else(|| found.get(3))
+                .map_or("", |m| m.as_str());
+            let Some(path) = safe_under(&folder, src) else {
+                return found[0].to_owned();
+            };
+            let len = match std::fs::metadata(&path) {
+                Ok(meta) => meta.len() as usize,
+                Err(_) => return found[0].to_owned(),
+            };
+            if total.saturating_sub(found[0].len()).saturating_add(len) > max_bytes {
+                failure = Some(too_large_media(src, &path));
+                return found[0].to_owned();
+            }
+            let text = match std::fs::read_to_string(&path) {
+                Ok(text) => CLOSING_SCRIPT.replace_all(&text, r"<\/script").into_owned(),
+                Err(error) => {
+                    failure = Some(format!("Could not read {src} to share: {error}"));
+                    return found[0].to_owned();
+                }
+            };
+            let attrs = format!("{}{}", found[1].trim_end(), &found[4]);
+            let replaced = format!("<script{attrs}>{text}</script>");
+            let next = total
+                .saturating_sub(found[0].len())
+                .saturating_add(replaced.len());
+            if next > max_bytes {
+                failure = Some(too_large_media(src, &path));
+                return found[0].to_owned();
+            }
+            total = next;
+            replaced
+        })
+        .into_owned();
+    if let Some(error) = failure {
+        return Err(error);
+    }
+
+    let page = LINK_TAG
+        .replace_all(&page, |found: &regex::Captures| {
+            if failure.is_some() {
+                return found[0].to_owned();
+            }
+            let attrs = &found[1];
+            let mut is_stylesheet = false;
+            let mut href = None;
+            for attr in ATTR.captures_iter(attrs) {
+                let name = attr[1].to_ascii_lowercase();
+                let value = attr
+                    .get(2)
+                    .or_else(|| attr.get(3))
+                    .map_or("", |m| m.as_str());
+                if name == "rel"
+                    && value
+                        .split_whitespace()
+                        .any(|part| part.eq_ignore_ascii_case("stylesheet"))
+                {
+                    is_stylesheet = true;
+                } else if name == "href" {
+                    href = Some(value.to_owned());
+                }
+            }
+            let Some(href) = href.filter(|_| is_stylesheet) else {
+                return found[0].to_owned();
+            };
+            let Some(path) = safe_under(&folder, &href) else {
+                return found[0].to_owned();
+            };
+            let len = match std::fs::metadata(&path) {
+                Ok(meta) => meta.len() as usize,
+                Err(_) => return found[0].to_owned(),
+            };
+            if total.saturating_sub(found[0].len()).saturating_add(len) > max_bytes {
+                failure = Some(too_large_media(&href, &path));
+                return found[0].to_owned();
+            }
+            let text = match std::fs::read_to_string(&path) {
+                Ok(text) => CLOSING_STYLE.replace_all(&text, r"<\/style").into_owned(),
+                Err(error) => {
+                    failure = Some(format!("Could not read {href} to share: {error}"));
+                    return found[0].to_owned();
+                }
+            };
+            let replaced = format!("<style>{text}</style>");
+            let next = total
+                .saturating_sub(found[0].len())
+                .saturating_add(replaced.len());
+            if next > max_bytes {
+                failure = Some(too_large_media(&href, &path));
+                return found[0].to_owned();
+            }
+            total = next;
+            replaced
+        })
+        .into_owned();
+    if let Some(error) = failure {
+        return Err(error);
+    }
+
+    // 3. Inline remaining relative media/tracks/images beside the page; refuse embedded local files
+    // that a sandboxed shared link cannot load.
+    let page = RESOURCE_TAG
+        .replace_all(&page, |found: &regex::Captures| {
+            if failure.is_some() {
+                return found[0].to_owned();
+            }
+            let tag = found[1].to_ascii_lowercase();
+            let attrs = &found[2];
+            let unshareable = matches!(tag.as_str(), "iframe" | "object" | "embed");
+            let rewritten = ATTR.replace_all(attrs, |attr: &regex::Captures| {
+                if failure.is_some() {
+                    return attr[0].to_owned();
+                }
+                let name = attr[1].to_ascii_lowercase();
+                let wants = match unshareable {
+                    true => matches!(name.as_str(), "src" | "data"),
+                    false => matches!(name.as_str(), "src" | "poster"),
+                };
+                if !wants {
+                    return attr[0].to_owned();
+                }
+                let value = attr
+                    .get(2)
+                    .or_else(|| attr.get(3))
+                    .map_or("", |m| m.as_str());
+                let Some(path) = safe_under(&folder, value) else {
+                    return attr[0].to_owned();
+                };
+                if unshareable {
+                    failure = Some(format!(
+                        "This artifact loads local file {value}, which cannot be shared through a link."
+                    ));
+                    return attr[0].to_owned();
+                }
+                match data_url_for(&path, value, &mut total, value.len(), max_bytes, &mut cache) {
+                    Ok(data) => format!("{}=\"{data}\"", &attr[1]),
+                    Err(error) => {
+                        failure = Some(error);
+                        attr[0].to_owned()
+                    }
+                }
+            });
+            format!("<{}{rewritten}>", &found[1])
+        })
+        .into_owned();
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    if page.len() > max_bytes {
+        return Err("This artifact is too large to share (limit is 25 MiB).".into());
+    }
+    Ok(page)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,5 +831,55 @@ mod tests {
         assert!(is_page_id("0123456789abcdef0123456789abcdef"));
         assert!(!is_page_id("../../etc/passwd"));
         assert!(!is_page_id("0123456789abcdef0123456789abcde"));
+    }
+
+    #[test]
+    fn sharing_inlines_small_media_and_refuses_when_over_the_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("clip.mp4"), [1u8, 2, 3, 4]).unwrap();
+        std::fs::write(dir.path().join("app.js"), "console.log('hi');").unwrap();
+        std::fs::write(dir.path().join("look.css"), "body{color:red}").unwrap();
+        let source = dir.path().join("demo.html");
+        std::fs::write(
+            &source,
+            "<link rel=\"stylesheet\" href=\"look.css\"><video src=\"clip.mp4\"></video><script src=\"app.js\"></script>",
+        )
+        .unwrap();
+        let kept = dir.path().join("kept");
+        let page = publish(&kept, &source, "Demo").unwrap();
+        let html = std::fs::read_to_string(kept.join(format!("{}.html", page.id))).unwrap();
+        assert!(html.contains(&format!("{}/0-clip.mp4", page.id)));
+
+        let shared = for_share(&kept, &page.id, &html, MAX_SHARED_HTML_BYTES).unwrap();
+        assert!(
+            shared.contains("data:video/mp4;base64,AQIDBA=="),
+            "{shared}"
+        );
+        assert!(
+            shared.contains("<style>body{color:red}</style>"),
+            "{shared}"
+        );
+        assert!(
+            shared.contains("<script>console.log('hi');</script>"),
+            "{shared}"
+        );
+        assert!(!shared.contains(&format!("{}/0-clip.mp4", page.id)));
+
+        let too_big_clip = dir.path().join("big.mp4");
+        std::fs::write(&too_big_clip, [7u8; 256]).unwrap();
+        std::fs::write(&source, "<video src=\"big.mp4\"></video>").unwrap();
+        let big_page = publish(&kept, &source, "Big").unwrap();
+        let big_html = std::fs::read_to_string(kept.join(format!("{}.html", big_page.id))).unwrap();
+        let too_big = for_share(&kept, &big_page.id, &big_html, big_html.len() + 16).unwrap_err();
+        assert!(too_big.contains("too large"), "{too_big}");
+
+        std::fs::write(dir.path().join("child.html"), "<p>nested</p>").unwrap();
+        std::fs::write(&source, "<iframe src=\"child.html\"></iframe>").unwrap();
+        let nested = publish(&kept, &source, "Nested").unwrap();
+        let nested_html =
+            std::fs::read_to_string(kept.join(format!("{}.html", nested.id))).unwrap();
+        let refused =
+            for_share(&kept, &nested.id, &nested_html, MAX_SHARED_HTML_BYTES).unwrap_err();
+        assert!(refused.contains("child.html"), "{refused}");
     }
 }
