@@ -296,16 +296,7 @@ fn sign_in(bench: &mut Workbench, launcher: &str, cx: &mut Context<Workbench>) {
         .accounts
         .current(&provider)
         .and_then(|profile| profile.config_path.clone());
-    let sheet = bench
-        .agent_setup
-        .found
-        .iter()
-        .flatten()
-        .find(|found| found.kind == provider)
-        .and_then(|found| crate::agents::setup::signing_in(found, folder.as_deref()));
-    if let Some(sheet) = sheet {
-        crate::agents::setup::run(bench, sheet, cx);
-    }
+    crate::agents::setup::sign_in(bench, &provider, folder, cx);
 }
 
 /// Runs the agent's installer in the box over the window.

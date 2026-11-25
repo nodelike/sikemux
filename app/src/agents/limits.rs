@@ -781,7 +781,7 @@ fn sign_in(
     let provider = provider.to_owned();
     let id = shown.id().map(str::to_owned);
     view.on(move |bench, window, cx| {
-        crate::accounts::open_sign_in(bench, &provider, id.as_deref(), window, cx);
+        crate::accounts::sign_in_agent(bench, &provider, id.as_deref(), window, cx);
     })
 }
 

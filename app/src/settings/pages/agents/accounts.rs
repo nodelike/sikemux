@@ -381,6 +381,9 @@ fn submit(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         return;
     };
     match open.account.as_deref() {
+        None if !accounts::keeps_several(bench, &open.provider) => {
+            accounts::close_dialog(bench, cx)
+        }
         None => {
             let brand = brand(bench, &open.provider);
             accounts::add(bench, brand, cx);
@@ -421,6 +424,9 @@ fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_
     };
     let mark = ui::mark(&open.provider, 34.);
     let screen = match (account, signing) {
+        (None, _) if !accounts::keeps_several(bench, &open.provider) => {
+            one_sign_in(mark, &label, this)
+        }
         (None, _) => {
             let brand = brand.clone();
             let empty = open.name.read(cx).value().trim().is_empty();
@@ -483,10 +489,15 @@ fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_
                 label = label
             ))
             .child(sign_in::Field::new(t!("Name"), &open.name))
+            .children((open.failed.clone()).map(|why| sign_in::error(why, cx)))
             .child(
                 ui::Button::new(
                     "account-dialog-go",
-                    t!("Continue with {label}", label = label),
+                    match (open.busy, &open.failed) {
+                        (true, _) => t!("Adding account…").to_owned(),
+                        (false, Some(_)) => t!("Try again").to_owned(),
+                        (false, None) => t!("Continue with {label}", label = label),
+                    },
                     ui::Variant::Primary,
                 )
                 .wide()
@@ -579,6 +590,24 @@ fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_
         (Some(profile), None) => signed_in(bench, profile, mark, this),
     };
     Some(screen)
+}
+
+/// Says an agent has one sign-in, in place of the form that would add a second.
+fn one_sign_in(mark: AnyElement, label: &str, this: &Entity<Workbench>) -> sign_in::Screen {
+    sign_in::Screen::new(
+        "account-dialog",
+        mark,
+        t!("{agent} has one account", agent = label),
+    )
+    .lede(t!(
+        "Sikemux runs {agent} on its one sign-in, so there is no second account to add. To use another, sign out with {agent}'s own command in a terminal, then sign in again.",
+        agent = label
+    ))
+    .child(
+        ui::Button::new("account-dialog-close", t!("Close"), ui::Variant::Primary)
+            .wide()
+            .on_click(on(this, |bench, _, cx| accounts::close_dialog(bench, cx))),
+    )
 }
 
 /// Who the account signed in as, with the way to start using it while another is in use.

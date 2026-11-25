@@ -529,6 +529,59 @@ pub fn installer(kind: &str, label: &str, command: String) -> Sheet {
     }
 }
 
+/// Runs the agent's own sign-in in the sheet over the window, asking the core where its program
+/// is when nothing has yet. Says so when it cannot start.
+pub fn sign_in(
+    bench: &mut Workbench,
+    provider: &str,
+    folder: Option<String>,
+    cx: &mut Context<Workbench>,
+) {
+    if bench.agent_setup.found.is_some() {
+        return start_sign_in(bench, provider, folder.as_deref(), cx);
+    }
+    let starting = t!(
+        "Starting {agent}'s sign-in…",
+        agent = bench.agent_name(provider)
+    );
+    bench.notify(crate::toast::info(starting), cx);
+    let asked = Target::here(&bench.asks).request_typed::<call::AgentSetup>(NoParams {});
+    let provider = provider.to_owned();
+    cx.spawn(async move |bench, cx| {
+        let listed = asked.await;
+        let _ = bench.update(cx, |bench, cx| match listed {
+            Ok(listed) => {
+                bench.agent_setup.found = Some(found_of(bench, listed));
+                start_sign_in(bench, &provider, folder.as_deref(), cx);
+            }
+            Err(why) => bench.notify(crate::toast::error(why), cx),
+        });
+    })
+    .detach();
+}
+
+fn start_sign_in(
+    bench: &mut Workbench,
+    provider: &str,
+    folder: Option<&str>,
+    cx: &mut Context<Workbench>,
+) {
+    let mut found = bench.agent_setup.found.iter().flatten();
+    let sheet = found
+        .find(|found| found.kind == provider)
+        .and_then(|found| signing_in(found, folder));
+    match sheet {
+        Some(sheet) => run(bench, sheet, cx),
+        None => {
+            let why = t!(
+                "{agent} can't be signed in from here. Sign in with its own command in a terminal.",
+                agent = bench.agent_name(provider)
+            );
+            bench.notify(crate::toast::error(why), cx);
+        }
+    }
+}
+
 /// The agent's own sign-in, on the account folder it runs on now.
 pub fn signing_in(agent: &Found, folder: Option<&str>) -> Option<Sheet> {
     let args = agent.login.clone()?;

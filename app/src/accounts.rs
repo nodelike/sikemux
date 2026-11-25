@@ -63,6 +63,8 @@ pub struct Dialog {
     /// The account this dialog made, taken away again if it closes before signing in.
     pub made: Option<String>,
     pub busy: bool,
+    /// Why the account could not be added.
+    pub failed: Option<String>,
 }
 
 #[derive(Default)]
@@ -402,10 +404,11 @@ fn change<C: Call<Answer = Book> + 'static>(
 {
     let asked = Target::here(&bench.asks).request_typed::<C>(params);
     cx.spawn(async move |bench, cx| {
-        let Ok(book) = asked.await else {
-            return;
-        };
-        let _ = bench.update(cx, |bench, cx| adopt(bench, book, cx));
+        let answer = asked.await;
+        let _ = bench.update(cx, |bench, cx| match answer {
+            Ok(book) => adopt(bench, book, cx),
+            Err(why) => bench.notify(crate::toast::error(why), cx),
+        });
     })
     .detach();
 }
@@ -443,10 +446,12 @@ pub fn pick(
     };
     let asked = Target::here(&bench.asks).request_typed::<call::PickAgentAccount>(params);
     cx.spawn(async move |bench, cx| {
-        let Ok(picked) = asked.await else {
-            return;
-        };
+        let answer = asked.await;
         let _ = bench.update(cx, |bench, cx| {
+            let picked = match answer {
+                Ok(picked) => picked,
+                Err(why) => return bench.notify(crate::toast::error(why), cx),
+            };
             adopt(bench, picked.book, cx);
             then(bench, picked.undo, cx);
             if let Some(first) = picked.stayed.first() {
@@ -517,6 +522,26 @@ pub fn usage<'a>(bench: &'a Workbench, profile: &Profile) -> Option<&'a AccountU
 /// The most of any window of its plan the account has used, as the core last read it.
 pub fn used(bench: &Workbench, profile: &Profile) -> Option<f64> {
     bench.usage_peak(&launcher_of(bench, profile))
+}
+
+/// Whether the agent can have more than one account.
+pub fn keeps_several(bench: &Workbench, provider: &str) -> bool {
+    (bench.reads.catalog.kind(provider)).is_none_or(|kind| kind.accounts)
+}
+
+/// Signs the agent in: with its own command in the sheet over the window when it has one
+/// sign-in, else in the add-account dialog.
+pub fn sign_in_agent(
+    bench: &mut Workbench,
+    provider: &str,
+    id: Option<&str>,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    match keeps_several(bench, provider) {
+        true => open_sign_in(bench, provider, id, window, cx),
+        false => crate::agents::setup::sign_in(bench, provider, None, cx),
+    }
 }
 
 /// Opens the add-account dialog for `provider` over the window, signing in the account `id`
@@ -800,16 +825,17 @@ pub fn submit_code(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>)
     let asked =
         Target::here(&bench.asks).request_typed::<call::AgentSignInCode>(Code { account, code });
     cx.spawn(async move |bench, cx| {
-        if asked.await.is_ok() {
-            let _ = bench.update(cx, |bench, cx| {
-                if let Some(SignIn::Waiting { code, .. }) =
-                    bench.accounts.signing.get_mut(&profile.id)
-                {
-                    *code = None;
-                }
-                redraw(bench, cx);
-            });
-        }
+        let answer = asked.await;
+        let _ = bench.update(cx, |bench, cx| {
+            if let Err(why) = answer {
+                return bench.notify(crate::toast::error(why), cx);
+            }
+            if let Some(SignIn::Waiting { code, .. }) = bench.accounts.signing.get_mut(&profile.id)
+            {
+                *code = None;
+            }
+            redraw(bench, cx);
+        });
     })
     .detach();
 }
@@ -823,8 +849,13 @@ pub fn sign_out(bench: &Workbench, id: &str, cx: &mut Context<Workbench>) {
     };
     let asked = Target::here(&bench.asks).request_typed::<call::AgentSignOut>(account);
     cx.spawn(async move |bench, cx| {
-        let _ = asked.await;
-        let _ = bench.update(cx, |bench, cx| forget(bench, &profile, cx));
+        let answer = asked.await;
+        let _ = bench.update(cx, |bench, cx| {
+            if let Err(why) = answer {
+                bench.notify(crate::toast::error(why), cx);
+            }
+            forget(bench, &profile, cx);
+        });
     })
     .detach();
 }
@@ -844,6 +875,7 @@ pub fn open_dialog(
         account: None,
         made: None,
         busy: false,
+        failed: None,
     });
     redraw(bench, cx);
 }
@@ -863,11 +895,13 @@ pub fn add(bench: &mut Workbench, brand: String, cx: &mut Context<Workbench>) {
     let Some(dialog) = bench.accounts.dialog.as_mut() else {
         return;
     };
-    let name = dialog.name.read(cx).value().trim().to_owned();
+    let field = dialog.name.clone();
+    let name = field.read(cx).value().trim().to_owned();
     if name.is_empty() || dialog.busy {
         return;
     }
     dialog.busy = true;
+    dialog.failed = None;
     let provider = dialog.provider.clone();
     let asks = bench.asks.clone();
     redraw(bench, cx);
@@ -898,14 +932,23 @@ pub fn add(bench: &mut Workbench, brand: String, cx: &mut Context<Workbench>) {
         }
         .await;
         let _ = bench.update(cx, |bench, cx| {
-            if let Some(dialog) = bench.accounts.dialog.as_mut() {
+            let mut dialog = (bench.accounts.dialog.as_mut()).filter(|open| open.name == field);
+            if let Some(dialog) = dialog.as_mut() {
                 dialog.busy = false;
             }
-            let Ok((id, book)) = made else {
-                return redraw(bench, cx);
+            let (id, book) = match made {
+                Ok(made) => made,
+                Err(why) => {
+                    match dialog {
+                        Some(dialog) => dialog.failed = Some(why),
+                        None => bench.notify(crate::toast::error(why), cx),
+                    }
+                    return redraw(bench, cx);
+                }
             };
             adopt(bench, book, cx);
-            if let Some(dialog) = bench.accounts.dialog.as_mut() {
+            let dialog = (bench.accounts.dialog.as_mut()).filter(|open| open.name == field);
+            if let Some(dialog) = dialog {
                 dialog.made = Some(id.clone());
                 dialog.account = Some(id.clone());
             }

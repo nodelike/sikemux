@@ -545,8 +545,8 @@ impl Workbench {
         });
     }
 
-    /// Runs the agent's own sign-in in a terminal sheet when it has one, else opens Settings
-    /// to add an account for it.
+    /// Runs the agent's own sign-in in a terminal sheet when it has one, else opens the box
+    /// that adds an account for it.
     fn sign_in_agent(&mut self, provider: &str, window: &mut Window, cx: &mut Context<Self>) {
         let sheet = self
             .agent_setup
@@ -557,7 +557,7 @@ impl Workbench {
             .and_then(|found| crate::agents::setup::signing_in(found, None));
         match sheet {
             Some(sheet) => crate::agents::setup::run(self, sheet, cx),
-            None => crate::accounts::open_sign_in(self, provider, None, window, cx),
+            None => crate::accounts::sign_in_agent(self, provider, None, window, cx),
         }
     }
 
