@@ -596,7 +596,7 @@ fn push_once(
         });
     }
     let cannot_go_alone = |commit: usize| {
-        let under = &unpushed[..commit];
+        let under = unpushed.get(..commit).unwrap_or_default();
         Attempt::Stuck {
             why: format!(
                 "Your commits build on other agents' unpushed ones, so they cannot go alone: {}.",
@@ -653,7 +653,7 @@ fn push_once(
                 owners: Vec::new(),
             }),
             Err(why) => {
-                let with_theirs: Vec<&Unpushed> = unpushed[..=at].iter().collect();
+                let with_theirs: Vec<&Unpushed> = unpushed.iter().take(at + 1).collect();
                 let stuck = !moved || replay(signing, top, &base, &with_theirs, clash).is_ok();
                 return Err(match stuck {
                     true => cannot_go_alone(at),

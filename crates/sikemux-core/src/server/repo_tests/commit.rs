@@ -143,17 +143,13 @@ impl TwoRepos {
                 "branch": "feat/web", "base": "main", "startSha": ""
             },
         });
-        let serde_json::Value::Object(draft) = draft else {
-            unreachable!()
-        };
+        let draft = serde_json::from_value(draft).unwrap();
         core.workspaces().put_agent_draft(draft).unwrap();
         let lead = serde_json::json!({
             "id": "lead", "title": "claude", "provider": "claude",
             "project": project.id, "cwd": folder, "permissionMode": "bypass",
         });
-        let serde_json::Value::Object(lead) = lead else {
-            unreachable!()
-        };
+        let lead = serde_json::from_value(lead).unwrap();
         core.workspaces().put_agent_draft(lead).unwrap();
         Self {
             _home: home,
