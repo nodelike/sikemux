@@ -1637,55 +1637,105 @@ pub fn ran_call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, Str
     Ok(json!({}))
 }
 
+enum ToolShip {
+    None,
+    Checked(ShipKind, Option<Target>),
+    Unverified { kind: ShipKind, why: String },
+}
+
+fn rundeck_target(place: Result<Value, String>) -> Result<Target, String> {
+    let place = place.map_err(|_| {
+        "Sikemux could not verify which Rundeck environment this job targets, so it waits for the person's yes."
+            .to_owned()
+    })?;
+    let path = place.get("path").and_then(Value::as_str);
+    let production = place.get("production").and_then(Value::as_bool);
+    match (path, production) {
+        (Some(path), Some(production)) => Ok(Target::RundeckJob {
+            path: path.to_owned(),
+            production,
+        }),
+        _ => Err(
+            "Sikemux could not verify which Rundeck environment this job targets, so it waits for the person's yes."
+                .to_owned(),
+        ),
+    }
+}
+
+fn vercel_redeploy_target(
+    explicit: Option<&str>,
+    looked_up: impl FnOnce() -> Result<Value, String>,
+) -> Result<Target, String> {
+    let target = match explicit.map(str::trim).filter(|target| !target.is_empty()) {
+        Some(target) => target.to_owned(),
+        None => looked_up()
+            .ok()
+            .and_then(|read| read.get("target")?.as_str().map(str::trim).map(str::to_owned))
+            .filter(|target| !target.is_empty())
+            .ok_or_else(|| {
+                "Sikemux could not verify which Vercel environment this deployment targets, so it waits for the person's yes."
+                    .to_owned()
+            })?,
+    };
+    Ok(Target::Vercel {
+        production: target.eq_ignore_ascii_case("production"),
+    })
+}
+
 /// What a call to the Sikemux tool `name` changes and where it lands, for the tools that can
 /// reach a production place; the places on the list decide whether it waits.
-async fn tool_ship(
-    core: &Arc<Core>,
-    name: &str,
-    arguments: &Value,
-) -> Result<Option<(ShipKind, Option<Target>)>, String> {
-    Ok(Some(match name {
+async fn tool_ship(core: &Arc<Core>, name: &str, arguments: &Value) -> Result<ToolShip, String> {
+    Ok(match name {
         "db_query" => {
             let asked = plugged::call(core, DATABASE, "agentWritesProduction", arguments.clone())
                 .await
                 .map_err(|failure| plugged::explain(&failure))?;
             if asked != true {
-                return Ok(None);
+                return Ok(ToolShip::None);
             }
             let name = arguments["database"].as_str().unwrap_or("production");
             let target = Target::Database {
                 name: name.to_owned(),
             };
-            (ShipKind::ProductionWrite, Some(target))
+            ToolShip::Checked(ShipKind::ProductionWrite, Some(target))
         }
         "rundeck_run" | "rundeck_import" | "rundeck_edit" => {
             let place = plugged::call(core, RUNDECK, "agentJobPlace", arguments.clone())
                 .await
-                .ok();
-            let target = place.and_then(|place| {
-                Some(Target::RundeckJob {
-                    path: place.get("path")?.as_str()?.to_owned(),
-                    production: place.get("production")?.as_bool()?,
-                })
-            });
-            (ShipKind::Deploy, target)
+                .map_err(|failure| plugged::explain(&failure));
+            match rundeck_target(place) {
+                Ok(target) => ToolShip::Checked(ShipKind::Deploy, Some(target)),
+                Err(why) => ToolShip::Unverified {
+                    kind: ShipKind::Deploy,
+                    why,
+                },
+            }
         }
-        "vercel_promote" => (ShipKind::Deploy, Some(Target::Vercel { production: true })),
+        "vercel_promote" => {
+            ToolShip::Checked(ShipKind::Deploy, Some(Target::Vercel { production: true }))
+        }
         "vercel_redeploy" => {
-            let target = match arguments["target"].as_str() {
-                Some(target) => Some(target.to_owned()),
-                None => plugged::call(core, VERCEL, "deployment", arguments.clone())
-                    .await
-                    .ok()
-                    .and_then(|read| read.get("target")?.as_str().map(str::to_owned)),
+            let explicit = arguments["target"].as_str();
+            let looked_up = match explicit.map(str::trim).filter(|target| !target.is_empty()) {
+                Some(_) => None,
+                None => Some(
+                    plugged::call(core, VERCEL, "deployment", arguments.clone())
+                        .await
+                        .map_err(|failure| plugged::explain(&failure)),
+                ),
             };
-            let target = target.map(|target| Target::Vercel {
-                production: target == "production",
-            });
-            (ShipKind::Deploy, target)
+            match vercel_redeploy_target(explicit, || {
+                looked_up.unwrap_or_else(|| Err("missing deployment lookup".to_owned()))
+            }) {
+                Ok(target) => ToolShip::Checked(ShipKind::Deploy, Some(target)),
+                Err(why) => ToolShip::Unverified {
+                    kind: ShipKind::Deploy,
+                    why,
+                },
+            }
         }
-        _ => return Ok(None),
-    }))
+        _ => ToolShip::None,
+    })
 }
 
 /// Whether an agent's call to the Sikemux tool `name` may run now, as
@@ -1699,8 +1749,11 @@ pub async fn check_tool(
     let Some(agent_id) = &request.agent_id else {
         return Ok(None);
     };
-    let Some((kind, target)) = tool_ship(core, name, arguments).await? else {
-        return Ok(None);
+    let tool = tool_ship(core, name, arguments).await?;
+    let (kind, target, unverified_why) = match tool {
+        ToolShip::None => return Ok(None),
+        ToolShip::Checked(kind, target) => (kind, target, None),
+        ToolShip::Unverified { kind, why } => (kind, None, Some(why)),
     };
     let what = format!("{name} {arguments}");
     let (checking, agent_id, cwd) = (core.clone(), agent_id.clone(), request.project.clone());
@@ -1710,11 +1763,35 @@ pub async fn check_tool(
         caller: (core.repo_above().plugins_caller_of)(core, request),
     };
     tokio::task::spawn_blocking(move || {
+        let cwd_path = Path::new(&cwd);
+        if let Some(why) = unverified_why {
+            let project = (checking.names().get(&agent_id).map(|named| named.project))
+                .unwrap_or_else(|| checking.workspaces().project_of(cwd_path));
+            let judged = Judged {
+                goes: Goes::Asks,
+                place: None,
+                keep: false,
+                why: Some(why),
+            };
+            return hold(
+                &checking,
+                &agent_id,
+                &project,
+                Ship {
+                    kind,
+                    what,
+                    target: None,
+                },
+                cwd_path,
+                Some(call),
+                Some(judged),
+            );
+        }
         check_call(
             &checking,
             &agent_id,
             Ship { kind, what, target },
-            Path::new(&cwd),
+            cwd_path,
             Some(call),
             true,
             None,
@@ -2291,5 +2368,44 @@ mod tests {
             let here = || Some("nodelike/sikemux".to_owned());
             assert_eq!(super::github_write(what, here).as_deref(), Some(said), "{what}");
         }
+    }
+
+    #[test]
+    fn connector_lookup_errors_fail_closed_and_vercel_target_is_case_insensitive() {
+        use crate::ship::Target;
+        use serde_json::json;
+
+        assert!(super::rundeck_target(Err("timeout".into())).is_err());
+        assert!(super::rundeck_target(Ok(json!({ "path": "prod/deploy" }))).is_err());
+        assert_eq!(
+            super::rundeck_target(Ok(json!({ "path": "prod/deploy", "production": true }))),
+            Ok(Target::RundeckJob {
+                path: "prod/deploy".into(),
+                production: true,
+            })
+        );
+
+        assert!(super::vercel_redeploy_target(None, || Err("api error".into())).is_err());
+        assert!(super::vercel_redeploy_target(None, || Ok(json!({}))).is_err());
+        assert_eq!(
+            super::vercel_redeploy_target(Some("PRODUCTION"), || Err("unused".into())),
+            Ok(Target::Vercel { production: true })
+        );
+        assert_eq!(
+            super::vercel_redeploy_target(Some("Production"), || Err("unused".into())),
+            Ok(Target::Vercel { production: true })
+        );
+        assert_eq!(
+            super::vercel_redeploy_target(Some("preview"), || Err("unused".into())),
+            Ok(Target::Vercel { production: false })
+        );
+        assert_eq!(
+            super::vercel_redeploy_target(None, || Ok(json!({ "target": "PRODUCTION" }))),
+            Ok(Target::Vercel { production: true })
+        );
+        assert_eq!(
+            super::vercel_redeploy_target(None, || Ok(json!({ "target": "preview" }))),
+            Ok(Target::Vercel { production: false })
+        );
     }
 }
