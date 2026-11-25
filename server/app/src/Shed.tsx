@@ -85,6 +85,7 @@ export function ShedBoxes({
   const one = bought.length === 1 && bought[0]?.quantity === 1;
   return (
     <Section
+      className="shed-boxes"
       label="Shed boxes"
       aside={
         forSale ? (

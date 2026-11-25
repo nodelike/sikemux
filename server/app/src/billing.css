@@ -307,3 +307,124 @@
     margin-right: 10px;
   }
 }
+
+.bill-card-fig {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bill-card-fig svg {
+  color: var(--two);
+}
+
+.bill-card-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.seat-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.seat-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.seat-inv,
+.seat-free {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.seat-inv {
+  background: var(--acc-bg);
+  color: var(--acc);
+}
+
+.seat-free {
+  box-shadow: inset 0 0 0 1.5px var(--line2);
+}
+
+.seat-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  font-size: var(--t);
+  color: var(--two);
+}
+
+.seat-counts b {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.seat-save {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--acc-bg);
+}
+
+.seat-save > span {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--t);
+}
+
+.step-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.soft {
+  color: var(--two);
+  font-size: var(--t2);
+}
+
+.amount {
+  color: var(--lit);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.save {
+  margin-left: 6px;
+  color: var(--ok-ink);
+  font-style: normal;
+  font-size: var(--t3);
+}
+
+@media (max-width: 860px) {
+  .seat-save {
+    flex-wrap: wrap;
+  }
+
+  .seat-save > span {
+    flex-basis: 100%;
+  }
+
+  .seat-save .btn {
+    flex: 1;
+  }
+
+  .shed-boxes .row.wrap > .end {
+    grid-column: 2 / -1;
+    justify-content: space-between;
+    margin-top: 8px;
+  }
+}
