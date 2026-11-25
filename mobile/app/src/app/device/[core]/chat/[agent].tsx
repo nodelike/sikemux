@@ -2,7 +2,7 @@ import { useChatFind, useRevealFound } from '@/chat/useChatFind';
 import { takeFind } from '@/devices/pendingFind';
 import { useEditingRow } from '@/chat/useEditingRow';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { type TextInput, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { type TextInput, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import MaskedView from '@react-native-masked-view/masked-view';
@@ -423,7 +423,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                 contentContainerStyle={styles.content}
                                 {...scroll.listProps}
                                 renderScrollComponent={renderScrollComponent}
-                                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                                keyboardDismissMode="on-drag"
                                 keyboardShouldPersistTaps={editing === undefined ? 'never' : 'handled'}
                               />
                             </MaskedView>

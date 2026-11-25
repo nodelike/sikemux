@@ -81,6 +81,7 @@ export async function putPage(
     );
   const name = randomBytes(16).toString("base64url");
   const written = await store.write(name, body, MAX_PAGE_BYTES);
+  let committed = false;
   try {
     checkBody(written.sha256);
     const { row, replaced } = await db.transaction().execute(async (trx) => {
@@ -133,16 +134,17 @@ export async function putPage(
             .values({ id, user_id: userId, ...values })
             .returning(["id", "views", "ended_at", "expires_at"])
             .executeTakeFirstOrThrow();
-      await store.commit(name);
       return { row, replaced: before?.stored_as ?? null };
     });
+    await store.commit(name);
+    committed = true;
     if (replaced)
       await removeStashFiles(store.dir, [replaced]).catch((error: unknown) =>
         log.warn({ err: error, id }, "could not delete a page's old version"),
       );
     return share(row);
   } catch (error) {
-    await store.discard(name);
+    if (!committed) await store.discard(name);
     throw error;
   }
 }
