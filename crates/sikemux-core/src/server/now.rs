@@ -31,6 +31,10 @@ use super::Core;
 pub(super) const FILE: &str = "now.json";
 /// Closed agents a project's strip keeps, newest kept.
 const MOST_CLOSED: usize = 30;
+/// Closed agents shown in compact `now` text unless `full` is requested.
+const TEXT_CLOSED_CAP: usize = 10;
+/// Maximum characters for a single fact's detail (`what` / `on`) in compact `now` text.
+const MAX_FACT_WHAT_CHARS: usize = 80;
 
 pub(crate) struct Now {
     kept: Kept,
@@ -283,11 +287,12 @@ fn fix_at(changes: WorkAt) -> Option<FixAt> {
 }
 
 /// The strip as compact text for agents, one line per group, each agent as `@name`.
-pub(crate) fn text(
+fn text(
     now: &ProjectNow,
     tasks: &ProjectTasks,
     name: impl Fn(&str) -> String,
     at: u64,
+    full: bool,
 ) -> String {
     let named = |agent: &str| format!("@{}", name(agent));
     let mut lines = Vec::new();
@@ -321,7 +326,12 @@ pub(crate) fn text(
         lines.push(release_words(release, at));
     }
     if !now.closed.is_empty() {
-        let closed: Vec<String> = (now.closed.iter())
+        let limit = if full {
+            now.closed.len()
+        } else {
+            TEXT_CLOSED_CAP
+        };
+        let closed: Vec<String> = (now.closed.iter().take(limit))
             .map(|closed| {
                 let why = match closed.why {
                     ClosedWhy::Landed => "landed",
@@ -333,12 +343,26 @@ pub(crate) fn text(
                 format!("@{} {why}, {}", closed.name, ago(closed.at, at))
             })
             .collect();
-        lines.push(format!("Closed: {}", closed.join("; ")));
+        let more = now.closed.len().saturating_sub(limit);
+        let tail = match more {
+            0 => String::new(),
+            n => format!(" (+{n} more)"),
+        };
+        lines.push(format!("Closed: {}{tail}", closed.join("; ")));
     }
     match lines.is_empty() {
         true => "Nothing open.".to_owned(),
         false => lines.join("\n"),
     }
+}
+
+fn compact_what(what: &str) -> String {
+    let first_line = what
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
+    crate::text::clipped(&crate::text::one_line(first_line), MAX_FACT_WHAT_CHARS)
 }
 
 fn fact_words(fact: &NowFact, named: &impl Fn(&str) -> String) -> String {
@@ -354,7 +378,13 @@ fn fact_words(fact: &NowFact, named: &impl Fn(&str) -> String) -> String {
         }
         .to_owned(),
         NowFact::Stopped => "turn ended, nothing set to wake it".to_owned(),
-        NowFact::Working { on: Some(on) } => format!("working on {on}"),
+        NowFact::Working { on: Some(on) } => {
+            let on = compact_what(on);
+            match on.is_empty() {
+                true => "working".to_owned(),
+                false => format!("working on {on}"),
+            }
+        }
         NowFact::Working { on: None } => "working".to_owned(),
         NowFact::Waiting {
             on,
@@ -368,7 +398,7 @@ fn fact_words(fact: &NowFact, named: &impl Fn(&str) -> String) -> String {
                     let who = agent
                         .as_deref()
                         .map(named)
-                        .unwrap_or_else(|| format!("@{what}"));
+                        .unwrap_or_else(|| format!("@{}", compact_what(what)));
                     return format!("waiting on {who}");
                 }
                 TurnWaitKind::Line => "in line",
@@ -384,6 +414,7 @@ fn fact_words(fact: &NowFact, named: &impl Fn(&str) -> String) -> String {
             let place = place
                 .map(|place| format!(", place {place}"))
                 .unwrap_or_default();
+            let what = compact_what(what);
             match what.is_empty() {
                 true => format!("{on_what}{place}"),
                 false => format!("{on_what} for {what}{place}"),
@@ -452,7 +483,7 @@ fn ago(since: u64, at: u64) -> String {
 }
 
 /// The strip of the project at `path` as agents read it, or none outside every project.
-pub(crate) fn text_of_path(core: &Arc<Core>, path: &str) -> Option<String> {
+pub(crate) fn text_of_path(core: &Arc<Core>, path: &str, full: bool) -> Option<String> {
     let now = of_path(core, path)?;
     let tasks = super::task_list::of_folder(core, path);
     let names = core.names();
@@ -461,6 +492,7 @@ pub(crate) fn text_of_path(core: &Arc<Core>, path: &str) -> Option<String> {
         &tasks,
         |agent| names.name(agent).unwrap_or_else(|| agent.to_owned()),
         epoch_ms(),
+        full,
     ))
 }
 
