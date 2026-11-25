@@ -825,7 +825,7 @@ impl Director {
                 let (to, _) = self.place(step, 0)?;
                 let paths = (1..)
                     .map_while(|at| step.text(at).ok())
-                    .map(std::fs::canonicalize)
+                    .map(sikemux_process::files::real_path)
                     .collect::<Result<_, _>>()
                     .with_context(|| format!("line {}: a file to drop", step.line))?;
                 self.glide(to, None, false)?;
