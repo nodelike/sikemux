@@ -592,7 +592,7 @@ impl Claude {
             if shared.turn.is_none() {
                 return Ok(Steered::PromptRequired);
             }
-            shared.sent.insert(uuid.clone());
+            shared.note_sent(uuid.clone());
             if let Some(turn) = shared.turn.as_mut() {
                 turn.messages.insert(uuid.clone());
                 turn.waiting.insert(uuid.clone());
@@ -766,17 +766,25 @@ impl Backend for Claude {
                 .await?;
         }
         if apply_effort {
-            claude.apply_effort().await?;
+            let level = if claude.kept.effort == config::DEFAULT {
+                Value::Null
+            } else {
+                json!(claude.kept.effort)
+            };
+            flag_settings.insert("effortLevel".into(), level);
+        }
+        if fast {
+            flag_settings.insert("fastMode".into(), json!(true));
         }
         if !flag_settings.is_empty() {
-            let _ = claude
+            let applied = claude
                 .running
                 .control
                 .request(json!({ "subtype": "apply_flag_settings", "settings": flag_settings }))
                 .await;
-        }
-        if fast {
-            claude.apply_fast().await?;
+            if apply_effort || fast {
+                applied?;
+            }
         }
         if let Some(commands) = initialized.get("commands") {
             sink.update(&session_id, reader::available_commands(commands));
@@ -797,7 +805,7 @@ impl Backend for Claude {
         let uuid = self.uuid_for(&prompt);
         let first = {
             let mut shared = self.shared.locked();
-            shared.sent.insert(uuid.clone());
+            shared.note_sent(uuid.clone());
             shared.turn = Some(Turn {
                 number: turn,
                 messages: HashSet::from([uuid.clone()]),
@@ -918,7 +926,7 @@ impl Backend for Claude {
             if shared.turn.is_some() || shared.quiet.is_some() {
                 return Ok(());
             }
-            shared.sent.insert(uuid.clone());
+            shared.note_sent(uuid.clone());
             shared.quiet = Some(uuid.clone());
         }
         let command = json!({ "type": "text", "text": format!("/compact {}", cap::IDLE_FOCUS) });
@@ -952,7 +960,7 @@ impl Backend for Claude {
             if shared.turn.is_some() || shared.quiet.is_some() {
                 return Err("Claude is at work".to_owned());
             }
-            shared.sent.insert(uuid.clone());
+            shared.note_sent(uuid.clone());
             shared.quiet = Some(uuid.clone());
             shared.hushed = true;
             shared.handed = None;

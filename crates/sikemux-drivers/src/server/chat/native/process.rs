@@ -187,6 +187,7 @@ impl Process {
             Lines {
                 pipe: stdout,
                 buffer: unread,
+                pos: 0,
                 scanned: 0,
                 closed: false,
             },
@@ -352,34 +353,64 @@ fn exit_words(code: Option<i32>) -> String {
 pub struct Lines {
     pipe: AgentOutput,
     buffer: Vec<u8>,
+    pos: usize,
     /// How far into `buffer` holds no line break.
     scanned: usize,
     closed: bool,
 }
 
 impl Lines {
-    fn take_line(&mut self) -> Option<Vec<u8>> {
+    fn take_line(&mut self) -> Option<&[u8]> {
         let found = self
             .buffer
             .get(self.scanned..)
             .and_then(|unscanned| unscanned.iter().position(|byte| *byte == b'\n'));
         match found {
             Some(at) => {
+                let start = self.pos;
                 let end = self.scanned + at;
-                let mut line: Vec<u8> = self.buffer.drain(..=end).collect();
-                line.pop();
-                self.scanned = 0;
-                Some(line)
+                self.pos = end + 1;
+                self.scanned = self.pos;
+                self.buffer.get(start..end)
             }
-            None if self.closed && !self.buffer.is_empty() => {
-                self.scanned = 0;
-                Some(std::mem::take(&mut self.buffer))
+            None if self.closed && self.pos < self.buffer.len() => {
+                let start = self.pos;
+                let end = self.buffer.len();
+                self.pos = end;
+                self.scanned = end;
+                self.buffer.get(start..end)
             }
             None => {
                 self.scanned = self.buffer.len();
                 None
             }
         }
+    }
+
+    fn compact(&mut self) {
+        if self.pos == 0 {
+            return;
+        }
+        if self.pos >= self.buffer.len() {
+            self.buffer.clear();
+            self.pos = 0;
+            self.scanned = 0;
+            if self.buffer.capacity() > 4 * READ_CHUNK {
+                self.buffer.shrink_to(READ_CHUNK);
+            }
+        } else {
+            let remaining = self.buffer.len() - self.pos;
+            self.buffer.copy_within(self.pos.., 0);
+            self.buffer.truncate(remaining);
+            self.scanned -= self.pos;
+            self.pos = 0;
+        }
+    }
+
+    #[cfg(unix)]
+    pub(super) fn into_parts(mut self) -> (AgentOutput, Vec<u8>) {
+        self.compact();
+        (self.pipe, self.buffer)
     }
 
     /// The next message, skipping lines that are not one, with what is wrong
@@ -403,8 +434,10 @@ impl Lines {
                 }
             }
             if self.closed {
+                self.compact();
                 return None;
             }
+            self.compact();
             self.buffer.reserve(READ_CHUNK);
             if let Ok(0) | Err(_) = self.pipe.read_buf(&mut self.buffer).await {
                 self.closed = true;

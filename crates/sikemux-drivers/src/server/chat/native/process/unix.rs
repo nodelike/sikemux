@@ -145,9 +145,10 @@ impl Process {
             self.unrelease();
             return Err("The agent closed its input".into());
         };
+        let (stdout_pipe, unread) = lines.into_parts();
         let (stdin, stdout, stderr) = match (
             stdin.into_nonblocking_fd(),
-            lines.pipe.into_nonblocking_fd(),
+            stdout_pipe.into_nonblocking_fd(),
             stderr.into_nonblocking_fd(),
         ) {
             (Ok(stdin), Ok(stdout), Ok(stderr)) => (stdin, stdout, stderr),
@@ -163,7 +164,7 @@ impl Process {
             stdout,
             stderr,
             stderr_tail: self.stderr_bytes(),
-            unread: lines.buffer,
+            unread,
         })
     }
 

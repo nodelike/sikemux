@@ -226,6 +226,55 @@ fn thread_gone(error: &str) -> bool {
         .any(|said| error.contains(said))
 }
 
+async fn turns_page(
+    rpc: &Rpc,
+    thread_id: &str,
+    cursor: &Value,
+) -> Result<(Vec<Value>, Option<String>), String> {
+    let mut page = rpc
+        .request(
+            "thread/turns/list",
+            json!({
+                "threadId": thread_id,
+                "cursor": cursor,
+                "itemsView": "full",
+                "sortDirection": "desc",
+            }),
+        )
+        .await?;
+    let mut listed = match page.get_mut("data").map(Value::take) {
+        Some(Value::Array(listed)) => listed,
+        _ => Vec::new(),
+    };
+    listed.reverse();
+    let next = page
+        .get("nextCursor")
+        .and_then(Value::as_str)
+        .filter(|next| cursor != *next)
+        .map(str::to_owned);
+    Ok((listed, next))
+}
+
+fn block_on<T: Send + 'static>(
+    handle: &tokio::runtime::Handle,
+    future: impl std::future::Future<Output = T> + Send + 'static,
+) -> Result<T, String> {
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    handle.spawn(async move {
+        let _ = tx.send(future.await);
+    });
+    let wait = || {
+        rx.recv()
+            .map_err(|_| "The chat closed while loading earlier turns".to_owned())
+    };
+    match tokio::runtime::Handle::try_current() {
+        Ok(current) if current.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(wait)
+        }
+        _ => wait(),
+    }
+}
+
 /// The turns of `thread_id` after `latest`, oldest first, read from the newest back; none when
 /// the thread no longer holds `latest`.
 async fn turns_since(rpc: &Rpc, thread_id: &str, latest: &str) -> Result<Vec<Value>, String> {
@@ -415,6 +464,7 @@ impl Codex {
         let rpc = &self.driver.rpc;
         let sink = &self.driver.sink;
         let thread_id = &self.kept.thread_id;
+        let mut earlier_cursor = None;
         let turns = if sink.reloading() {
             self.driver.session.locked().turns.titled = true;
             let Some(Reach::Turn(latest)) = sink.reach(thread_id) else {
@@ -427,11 +477,24 @@ impl Codex {
             sink.loaded();
             turns
         } else {
-            let turns = list_turns(rpc, thread_id).await?;
-            if let Some(title) = history::thread_title(thread, &turns) {
+            let (turns, next) = turns_page(rpc, thread_id, &Value::Null).await?;
+            if next.is_some() {
+                sink.leave_room();
+            }
+            let title = if next.is_some() {
+                thread["name"]
+                    .as_str()
+                    .and_then(history::title)
+                    .or_else(|| thread["preview"].as_str().and_then(history::title))
+                    .or_else(|| history::thread_title(thread, &turns))
+            } else {
+                history::thread_title(thread, &turns)
+            };
+            if let Some(title) = title {
                 sink.update(thread_id, sikemux_fold::update::session_title(&title));
                 self.driver.session.locked().turns.titled = true;
             }
+            earlier_cursor = next;
             turns
         };
         let children = subagent_histories(rpc, &turns).await;
@@ -454,6 +517,30 @@ impl Codex {
             .extend(history::message_turns(&turns));
         if let Some(latest) = turns.last().and_then(|turn| turn["id"].as_str()) {
             sink.reached(thread_id, Reach::Turn(latest.to_owned()));
+        }
+        if let Some(cursor) = earlier_cursor {
+            let rpc = rpc.clone();
+            let thread_id = thread_id.clone();
+            let handle = tokio::runtime::Handle::current();
+            let mut next_cursor = Some(cursor);
+            sink.tell_earlier(Box::new(move || loop {
+                let Some(cur) = next_cursor.take() else {
+                    return Ok(None);
+                };
+                let rpc = rpc.clone();
+                let id = thread_id.clone();
+                let (turns, next, children) = block_on(&handle, async move {
+                    let (turns, next) = turns_page(&rpc, &id, &Value::String(cur)).await?;
+                    let children = subagent_histories(&rpc, &turns).await;
+                    Ok::<_, String>((turns, next, children))
+                })??;
+                next_cursor = next;
+                let mut out = Vec::new();
+                history::replay(&thread_id, &turns, &children, &items::read_file, &mut out);
+                if !out.is_empty() {
+                    return Ok(Some(out));
+                }
+            }));
         }
         Ok(())
     }

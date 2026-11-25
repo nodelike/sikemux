@@ -66,11 +66,19 @@ pub struct Turn {
     pub failure: Option<Failure>,
 }
 
+const MAX_SENT: usize = 256;
+const MAX_COMPLETED_TOOLS: usize = 256;
+const MAX_COMPLETED_TASKS: usize = 128;
+const MAX_COMPLETED_SUBAGENTS: usize = 128;
+const MAX_FOREGROUND: usize = 64;
+
 #[derive(Default, Serialize, Deserialize)]
 pub struct Shared {
     pub turn: Option<Turn>,
     /// Every message this side wrote, whose echoes are not shown again.
     pub sent: HashSet<String>,
+    #[serde(default)]
+    pub sent_order: VecDeque<String>,
     /// Claude Code's permission mode for the chat, which an approved plan
     /// goes back to.
     pub mode: String,
@@ -97,6 +105,30 @@ pub struct Shared {
     /// The account's plan is used up, so each call to the model is billed to its usage credits.
     #[serde(default)]
     pub on_credits: bool,
+}
+
+impl Shared {
+    pub fn note_sent(&mut self, uuid: String) {
+        if self.sent.insert(uuid.clone()) {
+            self.sent_order.push_back(uuid);
+        }
+        let mut checked = 0;
+        let limit = self.sent_order.len();
+        while self.sent_order.len() > MAX_SENT && checked < limit {
+            checked += 1;
+            let Some(oldest) = self.sent_order.pop_front() else {
+                break;
+            };
+            let pinned = self.turn.as_ref().is_some_and(|turn| {
+                turn.messages.contains(&oldest) || turn.waiting.contains(&oldest)
+            });
+            if pinned {
+                self.sent_order.push_back(oldest);
+                continue;
+            }
+            self.sent.remove(&oldest);
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -159,6 +191,12 @@ pub(crate) struct ReaderState {
     /// starting. It reports their end like background work's, but their tool
     /// result already says it. One moved to the background is shown then.
     foreground: HashMap<String, Value>,
+    #[serde(default)]
+    completed_tools: VecDeque<String>,
+    #[serde(default)]
+    completed_tasks: VecDeque<String>,
+    #[serde(default)]
+    completed_subagents: VecDeque<String>,
     compaction: Option<String>,
     /// The chat was told the running compaction ended, with no size, so a boundary without
     /// one does not tell it again.
@@ -488,6 +526,9 @@ impl Reader {
                 held: HashMap::new(),
                 tasks: HashMap::new(),
                 foreground: HashMap::new(),
+                completed_tools: VecDeque::new(),
+                completed_tasks: VecDeque::new(),
+                completed_subagents: VecDeque::new(),
                 compaction: None,
                 told_no_size: false,
                 offline_retries: false,
@@ -1076,6 +1117,7 @@ impl Reader {
                         self.send(None, plan);
                     }
                 }
+                self.data.tools.remove(&id);
                 continue;
             }
             if tools::is_subagent_tool(&name) {
@@ -1121,6 +1163,91 @@ impl Reader {
             if let Some(tool) = self.data.tools.get_mut(&id) {
                 tool.input = Value::Null;
             }
+            for payload in self.data.foreground.values_mut() {
+                if text(payload, "tool_use_id") == Some(id.as_str()) {
+                    *payload = Value::Null;
+                }
+            }
+            self.note_completed_tool(id);
+        }
+    }
+
+    fn note_completed_tool(&mut self, id: String) {
+        self.data.completed_tools.push_back(id);
+        let mut checked = 0;
+        let limit = self.data.completed_tools.len();
+        while self.data.completed_tools.len() > MAX_COMPLETED_TOOLS && checked < limit {
+            checked += 1;
+            let Some(oldest) = self.data.completed_tools.pop_front() else {
+                break;
+            };
+            let pinned = self.data.children.contains_key(&oldest)
+                || self
+                    .data
+                    .foreground
+                    .values()
+                    .any(|payload| text(payload, "tool_use_id") == Some(oldest.as_str()));
+            if pinned {
+                self.data.completed_tools.push_back(oldest);
+                continue;
+            }
+            self.data.tools.remove(&oldest);
+            self.data.shown.remove(&oldest);
+        }
+    }
+
+    fn note_completed_task(&mut self, task_id: String) {
+        self.data.completed_tasks.push_back(task_id);
+        while self.data.completed_tasks.len() > MAX_COMPLETED_TASKS {
+            let Some(oldest) = self.data.completed_tasks.pop_front() else {
+                break;
+            };
+            if self.data.tasks.get(&oldest).is_some_and(|task| task.ended) {
+                self.data.tasks.remove(&oldest);
+            }
+        }
+    }
+
+    fn note_completed_subagent(&mut self, session_id: String) {
+        self.data.completed_subagents.push_back(session_id);
+        let mut checked = 0;
+        let limit = self.data.completed_subagents.len();
+        while self.data.completed_subagents.len() > MAX_COMPLETED_SUBAGENTS && checked < limit {
+            checked += 1;
+            let Some(oldest) = self.data.completed_subagents.pop_front() else {
+                break;
+            };
+            let Some(child) = self.data.subagents.get(&oldest) else {
+                continue;
+            };
+            if !child.ended {
+                continue;
+            }
+            self.data.subagents.remove(&oldest);
+            let spawners: Vec<String> = self
+                .data
+                .children
+                .iter()
+                .filter(|(_, session)| *session == &oldest)
+                .map(|(spawner, _)| spawner.clone())
+                .collect();
+            for spawner in spawners {
+                self.data.children.remove(&spawner);
+                self.data.tools.remove(&spawner);
+                self.data.shown.remove(&spawner);
+            }
+        }
+    }
+
+    fn prune_foreground(&mut self) {
+        if self.turn_running() {
+            return;
+        }
+        for payload in self.data.foreground.values_mut() {
+            *payload = Value::Null;
+        }
+        if self.data.foreground.len() > MAX_FOREGROUND {
+            self.data.foreground.retain(|_, payload| !payload.is_null());
         }
     }
 
@@ -1270,6 +1397,7 @@ impl Reader {
             TurnEnd::Completed(turn_answer(stop_reason(result)))
         };
         self.data.offline_retries = false;
+        self.prune_foreground();
         self.sink.end_turn(turn.number, end);
     }
 
@@ -1439,6 +1567,11 @@ impl Reader {
                     self.backgrounded(&task_id);
                 }
                 if let Some(status) = &patch.status {
+                    if TaskState::from_status(status).is_some_and(TaskState::ended) {
+                        if let Some(payload) = self.data.foreground.get_mut(&task_id) {
+                            *payload = Value::Null;
+                        }
+                    }
                     self.task_ended(&task_id, status, None, patch.output_file.as_deref());
                 }
             }
@@ -1455,7 +1588,7 @@ impl Reader {
                     && !self.data.subagents.contains_key(&task_id)
                 {
                     // A resumed session reports every task its last process left behind as stopped.
-                    if self.data.foreground.contains_key(&task_id)
+                    if self.data.foreground.remove(&task_id).is_some()
                         || states::outcome(&status) == Some(states::Outcome::Stopped)
                     {
                         return;
@@ -1599,9 +1732,13 @@ impl Reader {
                     .ended_already(&mut turn)
                     .unwrap_or_else(|| TurnEnd::Completed(turn_answer(StopReason::EndTurn)));
                 self.data.offline_retries = false;
+                self.prune_foreground();
                 self.sink.end_turn(turn.number, end);
             }
-            None => self.sink.work_ended(StopReason::EndTurn),
+            None => {
+                self.prune_foreground();
+                self.sink.work_ended(StopReason::EndTurn);
+            }
         }
     }
 
@@ -1927,6 +2064,7 @@ impl Reader {
             if let Some(name) = woke {
                 self.task_notice(task_id, &name, status);
             }
+            self.note_completed_subagent(task_id.to_owned());
             return;
         }
         let Some(state) = TaskState::from_status(status).filter(|state| state.ended()) else {
@@ -1939,6 +2077,7 @@ impl Reader {
             return;
         }
         task.ended = true;
+        task.agents = None;
         let mut update = state.update(task_id);
         if let Some(fields) = update.as_object_mut() {
             if let Some(summary) = summary {
@@ -1949,6 +2088,7 @@ impl Reader {
             }
         }
         self.sink.update(&self.data.session_id, update);
+        self.note_completed_task(task_id.to_owned());
     }
 
     /// Background work Claude Code reports ending, which wakes the agent; the
@@ -1975,6 +2115,7 @@ impl Reader {
                 let parent = child.parent.clone();
                 self.sink
                     .update(&parent, Subagent::Cancelled.update(task_id));
+                self.note_completed_subagent(task_id.to_owned());
             }
             return;
         }
@@ -1982,6 +2123,7 @@ impl Reader {
             return;
         };
         task.ended = true;
+        task.agents = None;
         let name = task.name.clone();
         self.sink
             .update(&self.data.session_id, TaskState::Stopped.update(task_id));
@@ -1989,6 +2131,7 @@ impl Reader {
             &self.data.session_id,
             notice("info", "Task stopped by user", Some(&format!("{name}."))),
         );
+        self.note_completed_task(task_id.to_owned());
     }
 
     /// Work the turn was waiting on that Claude Code moved to the background,
@@ -2001,8 +2144,8 @@ impl Reader {
         if let Some(mut started) = self.data.foreground.remove(task_id) {
             if let Some(fields) = started.as_object_mut() {
                 fields.insert("is_backgrounded".to_owned(), json!(true));
+                self.task_started(&started);
             }
-            self.task_started(&started);
         }
     }
 }
