@@ -871,10 +871,11 @@ fn agent_launch(core: &CoreProcess, provider: &str, agent_id: &str) -> ChatLaunc
     }
 }
 
-/// The stand-in agents `pid` started that are still its children.
+/// The stand-in agents `pid` started that are still its children, without those it only ran to
+/// name their version.
 fn children(pid: u32) -> Vec<u32> {
     let listed = sikemux_process::user_environment::command("ps")
-        .args(["-A", "-o", "pid=,ppid=,comm="])
+        .args(["-A", "-o", "pid=,ppid=,command="])
         .output()
         .expect("ps");
     let mut pids: Vec<u32> = String::from_utf8_lossy(&listed.stdout)
@@ -884,7 +885,10 @@ fn children(pid: u32) -> Vec<u32> {
             let child = fields.next()?.parse().ok()?;
             let parent: u32 = fields.next()?.parse().ok()?;
             let command = fields.next()?;
-            (parent == pid && command.contains("sikemux-fake")).then_some(child)
+            let names_its_version = fields.next() == Some("--version");
+            let exiting = command.starts_with(['(', '[']);
+            (parent == pid && command.contains("sikemux-fake") && !names_its_version && !exiting)
+                .then_some(child)
         })
         .collect();
     pids.sort_unstable();
