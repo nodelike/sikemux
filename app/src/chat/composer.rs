@@ -547,72 +547,74 @@ impl RenderOnce for Composer {
                 });
             })
             .children(self.notice.map(|notice| notice_line(notice, cx)))
-            .child(
-                div()
+            .child({
+                let card = div()
                     .relative()
                     .w_full()
                     .max_w(super::column::composer(cx))
-                    .rounded(theme::radius_3())
-                    .child(
-                        div()
-                            .relative()
-                            .w_full()
-                            .p(SPACE_2)
-                            .flex()
-                            .flex_col()
-                            .border(crate::theme::border())
-                            .border_color(if yolo_on {
-                                Hsla {
-                                    a: YOLO_EDGE,
-                                    ..t.accent
-                                }
-                            } else {
-                                edge
-                            })
-                            .rounded(theme::radius_3())
-                            .bg(fill)
-                            .when(!self.slim, |box_| box_.backdrop_blur(px(COMPOSER_BLUR)))
-                            .children(tiles)
-                            .child(
-                                div()
-                                    .relative()
-                                    .py(SPACE_0)
-                                    .min_h(px(14.5
-                                        * self.text_scale
-                                        * 1.75
-                                        * if self.slim { 1. } else { 2.5 }))
-                                    .children(suggestion)
-                                    .child(
-                                        Textarea::new(&self.draft)
-                                            .appearance(false)
-                                            .text_size(px(14.5 * self.text_scale))
-                                            .line_height(gpui_kit::relative(1.75))
-                                            .text_color(t.text_primary)
-                                            .when_some(on_paste, |draft, on_paste| {
-                                                draft.on_paste(move |item, window, cx| {
-                                                    on_paste(item, window, cx)
-                                                })
+                    .rounded(theme::radius_3());
+                #[cfg(test)]
+                let card = card.debug_selector(|| "composer-card".into());
+                card.child(
+                    div()
+                        .relative()
+                        .w_full()
+                        .p(SPACE_2)
+                        .flex()
+                        .flex_col()
+                        .border(crate::theme::border())
+                        .border_color(if yolo_on {
+                            Hsla {
+                                a: YOLO_EDGE,
+                                ..t.accent
+                            }
+                        } else {
+                            edge
+                        })
+                        .rounded(theme::radius_3())
+                        .bg(fill)
+                        .when(!self.slim, |box_| box_.backdrop_blur(px(COMPOSER_BLUR)))
+                        .children(tiles)
+                        .child(
+                            div()
+                                .relative()
+                                .py(SPACE_0)
+                                .min_h(px(14.5
+                                    * self.text_scale
+                                    * 1.75
+                                    * if self.slim { 1. } else { 2.5 }))
+                                .children(suggestion)
+                                .child(
+                                    Textarea::new(&self.draft)
+                                        .appearance(false)
+                                        .text_size(px(14.5 * self.text_scale))
+                                        .line_height(gpui_kit::relative(1.75))
+                                        .text_color(t.text_primary)
+                                        .when_some(on_paste, |draft, on_paste| {
+                                            draft.on_paste(move |item, window, cx| {
+                                                on_paste(item, window, cx)
                                             })
-                                            .when_some(chip, |draft, chip| {
-                                                draft.token(move |token, window, cx| {
-                                                    chip(token, window, cx)
-                                                })
-                                            }),
-                                    ),
-                            )
-                            .children(self.heard.map(|heard| {
-                                div()
-                                    .px(SPACE_2H)
-                                    .pb(SPACE_1)
-                                    .text_size(px(14.5 * self.text_scale))
-                                    .text_color(t.text_disabled)
-                                    .child(heard)
-                            }))
-                            .child(bar)
-                            .children(self.menu)
-                            .children(self.tray.map(|tray| ui::dock_shell(cx).child(tray))),
-                    ),
-            )
+                                        })
+                                        .when_some(chip, |draft, chip| {
+                                            draft.token(move |token, window, cx| {
+                                                chip(token, window, cx)
+                                            })
+                                        }),
+                                ),
+                        )
+                        .children(self.heard.map(|heard| {
+                            div()
+                                .px(SPACE_2H)
+                                .pb(SPACE_1)
+                                .text_size(px(14.5 * self.text_scale))
+                                .text_color(t.text_disabled)
+                                .child(heard)
+                        }))
+                        .child(bar)
+                        .children(self.menu)
+                        .children(self.tray.map(|tray| ui::dock_shell(cx).child(tray))),
+                )
+            })
             .children(context)
     }
 }
@@ -1732,4 +1734,209 @@ pub(crate) fn send(
             }
         })
         .child(mark)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{px, size, AppContext, Context, Render, StyleRefinement, TestAppContext};
+    use std::cell::Cell;
+
+    struct IsolatedComposer {
+        draft: Entity<TextareaState>,
+    }
+
+    impl Render for IsolatedComposer {
+        fn render(&mut self, _: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let noop: Act = Rc::new(|_, _| {});
+            let composer = Composer::new(
+                &self.draft,
+                "antigravity",
+                "Antigravity",
+                noop.clone(),
+                noop,
+            );
+            div().child(div().child(composer))
+        }
+    }
+
+    struct SplitStage {
+        composer: Entity<IsolatedComposer>,
+        split: Option<(f32, f32)>,
+        on_right: bool,
+        renders: Rc<Cell<usize>>,
+    }
+
+    impl Render for SplitStage {
+        fn render(&mut self, _: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            self.renders.set(self.renders.get() + 1);
+            let pane = div()
+                .size_full()
+                .border(px(1.))
+                .p(px(6.))
+                .flex()
+                .flex_col()
+                .child(div().flex_1().min_h_0())
+                .child(self.composer.clone().into_element().isolated());
+            match self.split {
+                Some((left, right)) => {
+                    let mut left_cell =
+                        div().flex().min_w_0().min_h_0().flex_basis(px(0.)).h_full();
+                    left_cell.style().flex_grow = Some(left);
+                    let mut right_cell =
+                        div().flex().min_w_0().min_h_0().flex_basis(px(0.)).h_full();
+                    right_cell.style().flex_grow = Some(right);
+                    let (left_cell, right_cell) = if self.on_right {
+                        (left_cell.child(div().size_full()), right_cell.child(pane))
+                    } else {
+                        (left_cell.child(pane), right_cell.child(div().size_full()))
+                    };
+                    div()
+                        .flex()
+                        .size_full()
+                        .child(left_cell)
+                        .child(div().flex_none().w(px(10.)).h_full())
+                        .child(right_cell)
+                }
+                None => div().flex().size_full().child(pane),
+            }
+        }
+    }
+
+    struct SplitHost {
+        stage: Entity<SplitStage>,
+        rail_width: f32,
+        stage_width: f32,
+    }
+
+    impl Render for SplitHost {
+        fn render(&mut self, _: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .w(px(self.rail_width + self.stage_width))
+                .h(px(600.))
+                .flex()
+                .child(div().flex_none().w(px(self.rail_width)).h_full())
+                .child(
+                    div().flex_1().min_w_0().h_full().child(
+                        self.stage
+                            .clone()
+                            .cached(StyleRefinement::default().size_full()),
+                    ),
+                )
+        }
+    }
+
+    #[gpui::test]
+    fn composer_keeps_horizontal_bounds_while_typing_on_external_displays(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::install(cx);
+        });
+
+        struct LayoutCase {
+            stage_width: f32,
+            split: Option<(f32, f32)>,
+            on_right: bool,
+        }
+
+        let layouts = [
+            LayoutCase {
+                stage_width: 1001.,
+                split: None,
+                on_right: false,
+            },
+            LayoutCase {
+                stage_width: 1801.,
+                split: Some((500., 500.)),
+                on_right: false,
+            },
+            LayoutCase {
+                stage_width: 1813.,
+                split: Some((500., 500.)),
+                on_right: false,
+            },
+            LayoutCase {
+                stage_width: 1813.,
+                split: Some((500., 500.)),
+                on_right: true,
+            },
+            LayoutCase {
+                stage_width: 1505.,
+                split: Some((623., 377.)),
+                on_right: false,
+            },
+            LayoutCase {
+                stage_width: 1806.,
+                split: Some((500., 500.)),
+                on_right: false,
+            },
+            LayoutCase {
+                stage_width: 1815.,
+                split: Some((500., 500.)),
+                on_right: true,
+            },
+        ];
+
+        for scale in [1.0_f32, 1.25, 1.5, 2.0] {
+            for &LayoutCase {
+                stage_width,
+                split,
+                on_right,
+            } in &layouts
+            {
+                let renders = Rc::new(Cell::new(0));
+                let rail_width = 270.0_f32;
+                let (host, wcx) = cx.add_window_view(|window, cx| {
+                    window.set_scale_factor(scale);
+                    window.resize(size(px(rail_width + stage_width), px(600.)));
+                    let draft = cx.new(|cx| TextareaState::new(window, cx).auto_grow(2, 12));
+                    let composer = cx.new(|_| IsolatedComposer { draft });
+                    let stage = cx.new(|_| SplitStage {
+                        composer,
+                        split,
+                        on_right,
+                        renders: renders.clone(),
+                    });
+                    SplitHost {
+                        stage,
+                        rail_width,
+                        stage_width,
+                    }
+                });
+                wcx.run_until_parked();
+                let full_bounds = wcx.debug_bounds("composer-card");
+                assert!(full_bounds.is_some());
+                let stage_renders = renders.get();
+
+                let draft = host.read_with(wcx, |host, cx| {
+                    host.stage.read(cx).composer.read(cx).draft.clone()
+                });
+                for ch in "Done bruv.".chars() {
+                    draft.update_in(wcx, |state, window, cx| {
+                        state.insert(ch.to_string(), window, cx);
+                    });
+                    wcx.run_until_parked();
+                    assert_eq!(
+                        renders.get(),
+                        stage_renders,
+                        "typing should repaint only the isolated composer (scale={scale}, stage_width={stage_width})"
+                    );
+                    assert_eq!(
+                        wcx.debug_bounds("composer-card"),
+                        full_bounds,
+                        "composer card shifted during typing (scale={scale}, stage_width={stage_width}, ch={ch:?})"
+                    );
+                }
+
+                let stage = host.read_with(wcx, |host, _| host.stage.clone());
+                stage.update(wcx, |_, cx| cx.notify());
+                wcx.run_until_parked();
+                assert_eq!(
+                    wcx.debug_bounds("composer-card"),
+                    full_bounds,
+                    "composer card shifted on full stage redraw (scale={scale}, stage_width={stage_width})"
+                );
+            }
+        }
+    }
 }
