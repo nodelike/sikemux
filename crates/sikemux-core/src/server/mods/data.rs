@@ -393,6 +393,7 @@ fn open(path: &Path, account: Option<String>) -> rusqlite::Result<Open> {
     connection.execute_batch(
         "PRAGMA journal_mode = WAL;
          PRAGMA synchronous = NORMAL;
+         PRAGMA journal_size_limit = 16777216;
          CREATE TABLE IF NOT EXISTS documents (
              mod TEXT NOT NULL,
              collection TEXT NOT NULL,
@@ -412,6 +413,8 @@ fn open(path: &Path, account: Option<String>) -> rusqlite::Result<Open> {
          CREATE INDEX IF NOT EXISTS documents_to_push ON documents (dirty) WHERE dirty = 1;
          CREATE INDEX IF NOT EXISTS documents_to_reseal ON documents (generation)
              WHERE dirty = 0 AND revision > 0;
+         CREATE INDEX IF NOT EXISTS documents_badges ON documents (collection, id)
+             WHERE collection = '.mod' AND id = 'badge' AND value IS NOT NULL;
          CREATE TABLE IF NOT EXISTS mods (
              mod TEXT PRIMARY KEY,
              changes INTEGER NOT NULL,
@@ -917,11 +920,11 @@ impl Store {
                 .connection
                 .prepare_cached(
                     "SELECT mod, value FROM documents
-                     WHERE collection = ?1 AND id = ?2 AND value IS NOT NULL",
+                     WHERE collection = '.mod' AND id = 'badge' AND value IS NOT NULL",
                 )
                 .map_err(failed)?;
             let rows = statement
-                .query_map(params![OWN, BADGE], |row| {
+                .query_map([], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
                 })
                 .map_err(failed)?;

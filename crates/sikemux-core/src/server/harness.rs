@@ -178,6 +178,7 @@ pub(crate) struct Harness {
     /// Questions agents asked that wait on an answer.
     pub(crate) questions: Questions,
     pub(crate) spawning: spawn::Spawning,
+    pub(crate) page_index: Arc<page_index::PageIndex>,
     pub(crate) page_shares: pages::PageShares,
 }
 
@@ -198,6 +199,7 @@ impl Harness {
             mailbox: Mailbox::new(data_dir, &known),
             questions: Questions::new(data_dir, &known),
             spawning: spawn::Spawning::default(),
+            page_index: Arc::new(page_index::PageIndex::new(data_dir)),
             page_shares: pages::PageShares::default(),
         }
     }

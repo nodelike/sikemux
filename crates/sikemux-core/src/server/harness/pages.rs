@@ -106,7 +106,8 @@ pub(super) async fn show_page(
     core: &Arc<Core>,
     mut request: HarnessRequest,
 ) -> Result<Value, String> {
-    let (data_dir, dir) = pages_dir(core)?;
+    let (_, dir) = pages_dir(core)?;
+    let index = core.harness().page_index.clone();
     let asker = request.agent_id.clone();
     let ask = (asker.as_deref()).and_then(|agent_id| core.chats().get(agent_id)?.answering());
     let keep = request.params.get("keep").and_then(Value::as_bool) == Some(true);
@@ -125,13 +126,12 @@ pub(super) async fn show_page(
                     Ok(changed) => changed,
                     Err(error) => return Ok(Err(error)),
                 };
-                let title = (page_index::title_of(&data_dir, &id))
+                let title = index
+                    .shown_again(&id, ask, changed, keep)
+                    .ok()
+                    .flatten()
                     .or_else(|| crate::pages::title(&dir, &id))
                     .unwrap_or_else(|| "Page".to_owned());
-                let _ = page_index::shown_again(&data_dir, &id, ask, changed);
-                if keep {
-                    let _ = page_index::keep(&data_dir, &id, true);
-                }
                 Ok(Ok(crate::pages::PageRef { id, title }))
             })
             .await
@@ -158,10 +158,8 @@ pub(super) async fn show_page(
                 if let Ok(page) = &page {
                     shown.id = page.id.clone();
                     shown.title = page.title.clone();
-                    if let Err(error) = page_index::add(&data_dir, &shown) {
+                    if let Err(error) = index.add(&shown, keep) {
                         eprintln!("sikemux core: page {} was not indexed: {error}", page.id);
-                    } else if keep {
-                        let _ = page_index::keep(&data_dir, &page.id, true);
                     }
                 }
                 Ok(page)
@@ -218,7 +216,8 @@ pub(super) async fn show_page(
 
 /// The latest version of each page agents showed, newest first.
 pub(super) async fn list_pages(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
-    let (data_dir, _) = pages_dir(core)?;
+    let _ = pages_dir(core)?;
+    let index = core.harness().page_index.clone();
     let words = request.params.get("words").and_then(Value::as_str);
     let words: Vec<String> = (words.unwrap_or_default().split_whitespace())
         .take(8)
@@ -228,8 +227,7 @@ pub(super) async fn list_pages(core: &Core, request: &HarnessRequest) -> Result<
     let project = (!every).then(|| crate::server::caller::project_of(core, request));
     let open_calls = core.harness().questions.open_ids();
     let pages = blocking(move || {
-        Ok(page_index::list(
-            &data_dir,
+        Ok(index.list(
             &words,
             project.as_deref(),
             &open_calls,
@@ -256,30 +254,31 @@ pub(super) async fn list_pages(core: &Core, request: &HarnessRequest) -> Result<
 
 /// Every page agents showed in a project, for its library.
 pub(crate) async fn library(core: &Core, params: PagesParams) -> CoreResult<Vec<ListedPage>> {
-    let (data_dir, _) = pages_dir(core)?;
+    let _ = pages_dir(core)?;
+    let index = core.harness().page_index.clone();
     let words: Vec<String> = (params.words.split_whitespace())
         .take(8)
         .map(str::to_owned)
         .collect();
     let open_calls = core.harness().questions.open_ids();
     blocking(move || {
-        page_index::list(
-            &data_dir,
-            &words,
-            Some(&params.project),
-            &open_calls,
-            page_index::LIBRARY_HOLDS,
-        )
-        .map_err(CoreError::from)
+        index
+            .list(
+                &words,
+                Some(&params.project),
+                &open_calls,
+                page_index::LIBRARY_HOLDS,
+            )
+            .map_err(CoreError::from)
     })
     .await
 }
 
 /// Keeps a page, or lets it go again.
 pub(crate) async fn keep_page(core: &Core, params: KeepPageParams) -> CoreResult<()> {
-    let (data_dir, _) = pages_dir(core)?;
-    blocking(move || page_index::keep(&data_dir, &params.id, params.keep).map_err(CoreError::from))
-        .await?;
+    let _ = pages_dir(core)?;
+    let index = core.harness().page_index.clone();
+    blocking(move || index.keep(&params.id, params.keep).map_err(CoreError::from)).await?;
     core.changed(What::Read(Topic::Pages));
     Ok(())
 }
@@ -287,8 +286,9 @@ pub(crate) async fn keep_page(core: &Core, params: KeepPageParams) -> CoreResult
 /// Shares a page through a link of its own, which keeps it. A page already shared keeps its link
 /// and when it ends.
 pub(crate) async fn share_page(core: &Core, params: SharePageParams) -> CoreResult<PageShare> {
-    let (data_dir, dir) = pages_dir(core)?;
-    let initial = read_shared(data_dir.clone(), dir.clone(), params.id.clone()).await?;
+    let (_, dir) = pages_dir(core)?;
+    let index = core.harness().page_index.clone();
+    let initial = read_shared(index.clone(), dir.clone(), params.id.clone()).await?;
     let (link, existing) = match initial.link {
         Some(link) => (
             page_index::Link {
@@ -318,7 +318,7 @@ pub(crate) async fn share_page(core: &Core, params: SharePageParams) -> CoreResu
     let gate = core.harness().page_shares.cancel_and_gate(&link.id);
     let _busy = gate.busy.lock().await;
     let (latest_id, title, html, seen_behind) =
-        read_latest(data_dir.clone(), dir.clone(), params.id.clone()).await?;
+        read_latest(index.clone(), dir.clone(), params.id.clone()).await?;
     let html = blocking(move || {
         crate::pages::for_share(&dir, &latest_id, &html, crate::pages::MAX_SHARED_HTML_BYTES)
             .map_err(CoreError::from)
@@ -326,11 +326,8 @@ pub(crate) async fn share_page(core: &Core, params: SharePageParams) -> CoreResu
     .await?;
     if let Err(error) = upload(core, &link, &title, &html).await {
         if matches!(error, PutError::Ended) && existing {
-            let (data_dir, link_id) = (data_dir.clone(), link.id.clone());
-            let _ = blocking(move || {
-                page_index::drop_share(&data_dir, &link_id).map_err(CoreError::from)
-            })
-            .await;
+            let (index, link_id) = (index.clone(), link.id.clone());
+            let _ = blocking(move || index.drop_share(&link_id).map_err(CoreError::from)).await;
             core.harness().page_shares.forget_gate(&link.id);
             core.changed(What::Read(Topic::Pages));
         }
@@ -338,7 +335,9 @@ pub(crate) async fn share_page(core: &Core, params: SharePageParams) -> CoreResu
     }
     let (id, stored) = (params.id, link.clone());
     let still_behind = blocking(move || {
-        page_index::shared(&data_dir, &id, &stored, seen_behind).map_err(CoreError::from)
+        index
+            .shared(&id, &stored, seen_behind)
+            .map_err(CoreError::from)
     })
     .await?;
     drop(_busy);
@@ -356,24 +355,21 @@ pub(crate) async fn share_page(core: &Core, params: SharePageParams) -> CoreResu
 
 /// Ends a page's link. The page stays kept.
 pub(crate) async fn stop_page_share(core: &Core, params: PageParams) -> CoreResult<()> {
-    let (data_dir, _) = pages_dir(core)?;
-    let (from, id) = (data_dir.clone(), params.id.clone());
-    let link = blocking(move || page_index::share_of(&from, &id).map_err(CoreError::from)).await?;
+    let _ = pages_dir(core)?;
+    let index = core.harness().page_index.clone();
+    let (from, id) = (index.clone(), params.id.clone());
+    let link = blocking(move || from.share_of(&id).map_err(CoreError::from)).await?;
     if let Some(link) = link {
         let gate = core.harness().page_shares.cancel_and_gate(&link.id);
         let _busy = gate.busy.lock().await;
         crate::server::share::page::delete(core, &link.id).await?;
-        let (data_dir, id) = (data_dir.clone(), params.id.clone());
-        blocking(move || {
-            page_index::unshared(&data_dir, &id)
-                .map(drop)
-                .map_err(CoreError::from)
-        })
-        .await?;
+        let id = params.id.clone();
+        blocking(move || index.unshared(&id).map(drop).map_err(CoreError::from)).await?;
         core.harness().page_shares.forget_gate(&link.id);
     } else {
         blocking(move || {
-            page_index::unshared(&data_dir, &params.id)
+            index
+                .unshared(&params.id)
                 .map(drop)
                 .map_err(CoreError::from)
         })
@@ -387,7 +383,11 @@ struct ToShare {
     link: Option<page_index::Link>,
 }
 
-async fn read_shared(data_dir: PathBuf, dir: PathBuf, id: String) -> CoreResult<ToShare> {
+async fn read_shared(
+    index: Arc<page_index::PageIndex>,
+    dir: PathBuf,
+    id: String,
+) -> CoreResult<ToShare> {
     if !crate::pages::is_page_id(&id) {
         return Err("that is not a page's id".into());
     }
@@ -395,22 +395,23 @@ async fn read_shared(data_dir: PathBuf, dir: PathBuf, id: String) -> CoreResult<
         if !dir.join(format!("{id}.html")).is_file() {
             return Err("that page is gone".into());
         }
-        let link = page_index::share_of(&data_dir, &id)?;
+        let link = index.share_of(&id)?;
         Ok(ToShare { link })
     })
     .await
 }
 
 async fn read_latest(
-    data_dir: PathBuf,
+    index: Arc<page_index::PageIndex>,
     dir: PathBuf,
     id: String,
 ) -> CoreResult<(String, String, String, Option<i64>)> {
     blocking(move || {
-        let (latest_id, title, behind) = match page_index::latest_for_page(&data_dir, &id)? {
+        let (latest_id, title, behind) = match index.latest_for_page(&id)? {
             Some((latest_id, title, behind)) => (latest_id, title, behind),
             None => {
-                let title = (page_index::title_of(&data_dir, &id))
+                let title = index
+                    .title_of(&id)
                     .or_else(|| crate::pages::title(&dir, &id))
                     .unwrap_or_else(|| "Page".to_owned());
                 (id, title, None)
@@ -481,9 +482,11 @@ async fn serve_uploads_with(core: Arc<Core>, data_dir: PathBuf, backoff: Backoff
             .signed_in_again
             .swap(false, Ordering::AcqRel)
         {
-            let dir = data_dir.clone();
+            let index = core.harness().page_index.clone();
             let cleared = blocking(move || {
-                page_index::clear_problem(&dir, SIGNED_OUT_PROBLEM).map_err(CoreError::from)
+                index
+                    .clear_problem(SIGNED_OUT_PROBLEM)
+                    .map_err(CoreError::from)
             })
             .await;
             if matches!(cleared, Ok(n) if n > 0) {
@@ -512,15 +515,19 @@ async fn serve_uploads_with(core: Arc<Core>, data_dir: PathBuf, backoff: Backoff
 }
 
 async fn sync_pending(core: &Arc<Core>, data_dir: &Path, failures: u32) -> SyncOutcome {
-    let dir = data_dir.to_owned();
-    let (pending, expired_dropped) =
-        match blocking(move || page_index::pending_shares(&dir).map_err(CoreError::from)).await {
-            Ok(pending) => pending,
-            Err(error) => {
-                eprintln!("sikemux core: shared pages index could not be read: {error}");
-                return SyncOutcome::Retry(None);
-            }
-        };
+    let index = core.harness().page_index.clone();
+    let (pending, expired_dropped) = match blocking({
+        let index = index.clone();
+        move || index.pending_shares().map_err(CoreError::from)
+    })
+    .await
+    {
+        Ok(pending) => pending,
+        Err(error) => {
+            eprintln!("sikemux core: shared pages index could not be read: {error}");
+            return SyncOutcome::Retry(None);
+        }
+    };
     if expired_dropped {
         core.changed(What::Read(Topic::Pages));
     }
@@ -539,16 +546,16 @@ async fn sync_pending(core: &Arc<Core>, data_dir: &Path, failures: u32) -> SyncO
             more = true;
             continue;
         }
-        let (dir, id) = (data_dir.to_owned(), link_id.clone());
+        let (index_read, id) = (index.clone(), link_id.clone());
         let Ok(Some(share)) =
-            blocking(move || page_index::pending_for(&dir, &id).map_err(CoreError::from)).await
+            blocking(move || index_read.pending_for(&id).map_err(CoreError::from)).await
         else {
             continue;
         };
         if share.link.expires <= epoch_ms() {
-            let (dir, id) = (data_dir.to_owned(), link_id.clone());
+            let (index_drop, id) = (index.clone(), link_id.clone());
             if matches!(
-                blocking(move || page_index::drop_share(&dir, &id).map_err(CoreError::from)).await,
+                blocking(move || index_drop.drop_share(&id).map_err(CoreError::from)).await,
                 Ok(true)
             ) {
                 core.harness().page_shares.forget_gate(&link_id);
@@ -578,9 +585,9 @@ async fn sync_pending(core: &Arc<Core>, data_dir: &Path, failures: u32) -> SyncO
             None => None,
         };
         let Some(prepared) = prepared else {
-            let (dir, id) = (data_dir.to_owned(), link_id.clone());
+            let (index_drop, id) = (index.clone(), link_id.clone());
             if matches!(
-                blocking(move || page_index::drop_share(&dir, &id).map_err(CoreError::from)).await,
+                blocking(move || index_drop.drop_share(&id).map_err(CoreError::from)).await,
                 Ok(true)
             ) {
                 core.harness().page_shares.forget_gate(&link_id);
@@ -603,22 +610,19 @@ async fn sync_pending(core: &Arc<Core>, data_dir: &Path, failures: u32) -> SyncO
         };
         match outcome {
             Ok(()) => {
-                let (dir, id, behind) = (data_dir.to_owned(), link_id.clone(), share.behind);
+                let (index_sync, id, behind) = (index.clone(), link_id.clone(), share.behind);
                 if matches!(
-                    blocking(move || {
-                        page_index::mark_synced(&dir, &id, behind).map_err(CoreError::from)
-                    })
-                    .await,
+                    blocking(move || index_sync.mark_synced(&id, behind).map_err(CoreError::from))
+                        .await,
                     Ok(true)
                 ) {
                     more = true;
                 }
             }
             Err(PutError::Ended) => {
-                let (dir, id) = (data_dir.to_owned(), link_id.clone());
+                let (index_drop, id) = (index.clone(), link_id.clone());
                 if matches!(
-                    blocking(move || page_index::drop_share(&dir, &id).map_err(CoreError::from))
-                        .await,
+                    blocking(move || index_drop.drop_share(&id).map_err(CoreError::from)).await,
                     Ok(true)
                 ) {
                     core.harness().page_shares.forget_gate(&link_id);
@@ -626,10 +630,11 @@ async fn sync_pending(core: &Arc<Core>, data_dir: &Path, failures: u32) -> SyncO
                 }
             }
             Err(PutError::SignedOut) => {
-                let (dir, id, behind) = (data_dir.to_owned(), link_id.clone(), share.behind);
+                let (index_prob, id, behind) = (index.clone(), link_id.clone(), share.behind);
                 if matches!(
                     blocking(move || {
-                        page_index::set_problem(&dir, &id, behind, SIGNED_OUT_PROBLEM)
+                        index_prob
+                            .set_problem(&id, behind, SIGNED_OUT_PROBLEM)
                             .map_err(CoreError::from)
                     })
                     .await,
@@ -640,10 +645,11 @@ async fn sync_pending(core: &Arc<Core>, data_dir: &Path, failures: u32) -> SyncO
             }
             Err(PutError::Refused(message)) => {
                 eprintln!("sikemux core: shared page {link_id} was refused: {message}");
-                let (dir, id, behind) = (data_dir.to_owned(), link_id.clone(), share.behind);
+                let (index_prob, id, behind) = (index.clone(), link_id.clone(), share.behind);
                 if matches!(
                     blocking(move || {
-                        page_index::set_problem(&dir, &id, behind, &message)
+                        index_prob
+                            .set_problem(&id, behind, &message)
                             .map_err(CoreError::from)
                     })
                     .await,
@@ -705,13 +711,15 @@ pub(crate) async fn read_page(core: &Core, params: PageParams) -> CoreResult<Pag
     }
     let data_dir = (core.config().data_dir.clone()).ok_or("this core keeps no pages")?;
     let dir = data_dir.join(crate::pages::FOLDER);
+    let index = core.harness().page_index.clone();
     let id = params.id.clone();
-    let shown = blocking(move || Ok(page_index::shown_by(&data_dir, &id))).await?;
+    let shown = blocking(move || Ok(index.shown_by(&id))).await?;
     let desk = desk_for(core, params.agent, shown);
     blocking(move || {
         use base64::Engine as _;
-        let html = std::fs::read_to_string(dir.join(format!("{}.html", params.id)))
-            .map_err(|_| CoreError::from("that page is gone"))?;
+        let path = dir.join(format!("{}.html", params.id));
+        let html =
+            std::fs::read_to_string(&path).map_err(|_| CoreError::from("that page is gone"))?;
         let picture = std::fs::read(picture_path(&dir, &params.id))
             .ok()
             .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes));
@@ -719,6 +727,7 @@ pub(crate) async fn read_page(core: &Core, params: PageParams) -> CoreResult<Pag
             Some(crate::pages::media_folder(&dir, &params.id)).filter(|media| media.is_dir());
         Ok(PageHtml {
             html,
+            path: Some(path),
             picture,
             media,
             written_in: crate::pages::written_in(&dir, &params.id),
@@ -979,7 +988,9 @@ mod tests {
             .await
             .unwrap();
         wait_until(|| {
-            page_index::list(dir.path(), &[], Some("/proj"), &HashSet::new(), 10)
+            core.harness()
+                .page_index
+                .list(&[], Some("/proj"), &HashSet::new(), 10)
                 .ok()
                 .and_then(|pages| pages.into_iter().next()?.shared?.problem)
                 .is_some()
@@ -1008,7 +1019,9 @@ mod tests {
             .await
             .unwrap();
         wait_until(|| {
-            page_index::list(dir.path(), &[], Some("/proj"), &HashSet::new(), 10)
+            core.harness()
+                .page_index
+                .list(&[], Some("/proj"), &HashSet::new(), 10)
                 .ok()
                 .and_then(|pages| pages.into_iter().next()?.shared?.problem)
                 .as_deref()

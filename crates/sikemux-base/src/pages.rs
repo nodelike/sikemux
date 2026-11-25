@@ -321,7 +321,7 @@ fn keep(dir: &Path, id: &str, source: &Path, title: &str) -> Result<(), String> 
     std::fs::write(source_file(dir, id), source.to_string_lossy().as_bytes()).map_err(failed)
 }
 
-fn source_file(dir: &Path, id: &str) -> PathBuf {
+pub fn source_file(dir: &Path, id: &str) -> PathBuf {
     dir.join(format!("{id}.source"))
 }
 

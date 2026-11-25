@@ -21,6 +21,9 @@ impl PageParams {
 #[derive(Serialize, Deserialize)]
 pub struct PageHtml {
     pub html: String,
+    /// Where the core keeps the page on its computer, so a local app can serve it directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<std::path::PathBuf>,
     /// A JPEG of the page as its desk tab first drew it, in base64, for a page shown in a tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picture: Option<String>,

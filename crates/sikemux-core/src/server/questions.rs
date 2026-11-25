@@ -1600,15 +1600,14 @@ fn pages_param(params: &Value) -> Result<Vec<String>, String> {
 
 /// Records each page `question` names as linked to its call, so the page knows its call.
 async fn link_pages(core: &Core, question: &Question) {
-    let Some(data_dir) = core.config().data_dir.clone() else {
-        return;
-    };
+    let index = core.harness().page_index.clone();
     let pages: Vec<String> = question.pages().map(|page| page.id.clone()).collect();
+    if pages.is_empty() {
+        return;
+    }
     let call = question.id.clone();
     let linked = move || {
-        for page in &pages {
-            super::harness::page_index::link_call(&data_dir, page, &call);
-        }
+        index.link_calls(&pages, &call);
         Ok(())
     };
     let _ = super::connection::blocking(linked).await;
