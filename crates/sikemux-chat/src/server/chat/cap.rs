@@ -33,20 +33,43 @@ const COMPACTING_MS: u64 = 10 * 60_000;
 /// Claude Code keeps the prompt cache an hour; idle this long, a compaction still reads it warm.
 const IDLE_COMPACT_MS: u64 = 50 * 60_000;
 const CACHE_MS: u64 = 60 * 60_000;
+/// Gemini implicit prompt cache expires near 5 minutes; compact at 4 minutes while still warm.
+const ANTIGRAVITY_IDLE_COMPACT_MS: u64 = 4 * 60_000;
+const ANTIGRAVITY_CACHE_MS: u64 = 5 * 60_000;
+const ANTIGRAVITY_IDLE_COMPACT_TOKENS: u64 = 100_000;
 
 /// Providers whose calls the core does not see drop an idle cache as early as this.
 const UNSEEN_CACHE_MS: u64 = 5 * 60_000;
 
-/// How long the prompt cache lives: an hour, or in a debug build whatever `SIKEMUX_CACHE_MS`
-/// says, so a throwaway core can watch a cache expire in a minute.
-fn cache_ms() -> u64 {
-    static LIFE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
-    *LIFE.get_or_init(|| {
+fn debug_cache_ms() -> Option<u64> {
+    static OVERRIDE: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+    *OVERRIDE.get_or_init(|| {
         cfg!(debug_assertions)
             .then(|| std::env::var("SIKEMUX_CACHE_MS").ok()?.parse().ok())
             .flatten()
-            .unwrap_or(CACHE_MS)
     })
+}
+
+/// How long the prompt cache lives: an hour, or in a debug build whatever `SIKEMUX_CACHE_MS`
+/// says, so a throwaway core can watch a cache expire in a minute.
+fn cache_ms() -> u64 {
+    debug_cache_ms().unwrap_or(CACHE_MS)
+}
+
+fn cache_ms_for(provider: &str) -> Option<u64> {
+    match provider {
+        "claude" => Some(cache_ms()),
+        "antigravity" => Some(debug_cache_ms().unwrap_or(ANTIGRAVITY_CACHE_MS)),
+        _ => None,
+    }
+}
+
+fn idle_compact_ms_for(provider: &str) -> Option<u64> {
+    match provider {
+        "claude" => Some(IDLE_COMPACT_MS),
+        "antigravity" => Some(ANTIGRAVITY_IDLE_COMPACT_MS),
+        _ => None,
+    }
 }
 /// Below this a cold start costs a chief less than a compaction would save.
 const IDLE_COMPACT_CHIEF_TOKENS: u64 = 100_000;
@@ -185,10 +208,10 @@ impl Meter {
 
     /// The session has sat idle since a call whose cache is still warm, big enough that a
     /// compaction pays, and none has run since.
-    fn worth_compacting(&self, now: u64, big_from: u64) -> Option<u64> {
+    fn worth_compacting(&self, now: u64, big_from: u64, cache_life: u64) -> Option<u64> {
         let last = self.last_call_ms.load(Ordering::Acquire);
         let idle = now.saturating_sub(last);
-        let warm = last > 0 && idle < cache_ms();
+        let warm = last > 0 && idle < cache_life;
         let big = self.context.load(Ordering::Acquire) >= big_from;
         (warm && big && !self.compacted.load(Ordering::Acquire)).then_some(idle)
     }
@@ -317,30 +340,42 @@ pub fn ago(now: u64, at: u64) -> String {
 }
 
 fn big_from(chat: &Chat) -> u64 {
-    if chat.chief() {
+    if chat.provider() == "antigravity" {
+        ANTIGRAVITY_IDLE_COMPACT_TOKENS
+    } else if chat.chief() {
         IDLE_COMPACT_CHIEF_TOKENS
     } else {
         IDLE_COMPACT_TOKENS
     }
 }
 
-/// A big Claude chat whose prompt cache has expired since its last call, uncompacted: its next
+fn expired_big_from(provider: &str) -> u64 {
+    if provider == "antigravity" {
+        ANTIGRAVITY_IDLE_COMPACT_TOKENS
+    } else {
+        IDLE_COMPACT_TOKENS
+    }
+}
+
+/// A big chat whose prompt cache has expired since its last call, uncompacted: its next
 /// message reads its whole history again unless the chat is summarised first, which it is
 /// unless the person keeps the full history.
 fn expired_cache(chat: &Chat, now: u64) -> Option<ExpiredCache> {
-    let busy = chat.meter.compacting();
-    expired_from(chat.provider() == "claude" && !busy, chat.meter.kept(), now)
+    if chat.meter.compacting() {
+        return None;
+    }
+    expired_from(chat.provider(), chat.meter.kept(), now)
 }
 
-fn expired_from(claude: bool, meter: KeptMeter, now: u64) -> Option<ExpiredCache> {
-    let expired = claude
-        && meter.last_call_ms > 0
-        && now.saturating_sub(meter.last_call_ms) >= cache_ms()
-        && meter.context >= IDLE_COMPACT_TOKENS
+fn expired_from(provider: &str, meter: KeptMeter, now: u64) -> Option<ExpiredCache> {
+    let life = cache_ms_for(provider)?;
+    let expired = meter.last_call_ms > 0
+        && now.saturating_sub(meter.last_call_ms) >= life
+        && meter.context >= expired_big_from(provider)
         && !meter.compacted;
     expired.then_some(ExpiredCache {
         tokens: meter.context,
-        at: meter.last_call_ms + cache_ms(),
+        at: meter.last_call_ms + life,
         summarise: !meter.keeps_history,
     })
 }
@@ -352,8 +387,8 @@ pub fn tell_expired(core: &Core, now: u64) {
             chat.feed.set_expired_cache(expired_cache(&chat, now));
         }
     }
-    for (feed, meter, claude) in core.chats().resting_meters() {
-        feed.set_expired_cache(expired_from(claude, meter, now));
+    for (feed, meter, provider) in core.chats().resting_meters() {
+        feed.set_expired_cache(expired_from(&provider, meter, now));
     }
 }
 
@@ -395,11 +430,11 @@ pub fn keep_history(core: &Core, params: KeepHistoryParams) -> CoreResult<()> {
             .set_expired_cache(expired_cache(&chat, epoch_ms()));
         return Ok(());
     }
-    let (feed, meter, claude) = core
+    let (feed, meter, provider) = core
         .chats()
         .resting_keeps_history(&params.agent_id, params.keep)
         .ok_or("no such chat")?;
-    feed.set_expired_cache(expired_from(claude, meter, epoch_ms()));
+    feed.set_expired_cache(expired_from(&provider, meter, epoch_ms()));
     Ok(())
 }
 
@@ -440,13 +475,22 @@ pub fn compact_idle(core: &Core, now: u64) {
         let Some(chat) = core.chats().get(&agent_id) else {
             continue;
         };
+        let (Some(cache_life), Some(idle_after)) = (
+            cache_ms_for(chat.provider()),
+            idle_compact_ms_for(chat.provider()),
+        ) else {
+            continue;
+        };
         let due = chat.is_ready()
             && !chat.prompted()
             && chat.state_now() == AgentState::Idle
+            && !chat.feed.has_queued()
+            && !chat.meter.compacting()
+            && !waiting_on_process(core, &chat)
             && chat
                 .meter
-                .worth_compacting(now, big_from(&chat))
-                .is_some_and(|idle| idle >= IDLE_COMPACT_MS);
+                .worth_compacting(now, big_from(&chat), cache_life)
+                .is_some_and(|idle| idle >= idle_after);
         if due {
             compact(core, &chat, now);
         }
@@ -459,9 +503,17 @@ pub fn compact_before_sleep(core: &Core, agent_id: &str, now: u64) -> bool {
     let Some(chat) = core.chats().get(agent_id) else {
         return false;
     };
+    let Some(cache_life) = cache_ms_for(chat.provider()) else {
+        return false;
+    };
     let due = !chat.chief()
+        && !chat.prompted()
+        && chat.state_now() == AgentState::Idle
+        && !chat.feed.has_queued()
+        && !chat.meter.compacting()
+        && !waiting_on_process(core, &chat)
         && (chat.meter)
-            .worth_compacting(now, IDLE_COMPACT_TOKENS)
+            .worth_compacting(now, big_from(&chat), cache_life)
             .is_some();
     if due {
         compact(core, &chat, now);
@@ -486,6 +538,10 @@ pub fn holds_awake(core: &Core, agent_id: &str, now: u64) -> bool {
     core.chats().get(agent_id).is_some_and(|chat| {
         chat.meter.compacting()
             || (chat.chief()
-                && (chat.meter.worth_compacting(now, IDLE_COMPACT_CHIEF_TOKENS)).is_some())
+                && cache_ms_for(chat.provider()).is_some_and(|life| {
+                    chat.meter
+                        .worth_compacting(now, IDLE_COMPACT_CHIEF_TOKENS, life)
+                        .is_some()
+                }))
     })
 }

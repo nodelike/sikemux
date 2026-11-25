@@ -39,7 +39,7 @@ pub struct Resting {
     pub feed: Arc<Feed>,
     /// The chat's meter as it fell asleep, taken up again as it wakes.
     pub meter: super::cap::KeptMeter,
-    pub claude: bool,
+    pub provider: String,
 }
 
 /// The most history kept for chats asleep or closed in all; past it, the one read least lately
@@ -151,7 +151,7 @@ impl Chats {
             agent_id: chat.agent_id().to_owned(),
             feed: chat.feed.clone(),
             meter: chat.meter.kept(),
-            claude: chat.provider() == "claude",
+            provider: chat.provider().to_owned(),
         });
     }
 
@@ -254,7 +254,7 @@ impl Chats {
         feed.outlive_chat();
         self.resting.locked().push(Resting {
             agent_id: agent_id.to_owned(),
-            claude: shelved.claude,
+            provider: shelved.provider,
             feed: feed.clone(),
             meter: Default::default(),
         });
@@ -291,10 +291,16 @@ impl Chats {
         Some((rested.feed, rested.meter))
     }
 
-    /// The sleeping chats' feeds, each with its meter and whether it is Claude's.
-    pub fn resting_meters(&self) -> Vec<(Arc<Feed>, super::cap::KeptMeter, bool)> {
+    /// The sleeping chats' feeds, each with its meter and provider.
+    pub fn resting_meters(&self) -> Vec<(Arc<Feed>, super::cap::KeptMeter, String)> {
         (self.resting.locked().iter())
-            .map(|resting| (resting.feed.clone(), resting.meter, resting.claude))
+            .map(|resting| {
+                (
+                    resting.feed.clone(),
+                    resting.meter,
+                    resting.provider.clone(),
+                )
+            })
             .collect()
     }
 
@@ -303,13 +309,13 @@ impl Chats {
         &self,
         agent_id: &str,
         keep: bool,
-    ) -> Option<(Arc<Feed>, super::cap::KeptMeter, bool)> {
+    ) -> Option<(Arc<Feed>, super::cap::KeptMeter, String)> {
         let mut resting = self.resting.locked();
         let rested = resting
             .iter_mut()
             .find(|resting| resting.agent_id == agent_id)?;
         rested.meter.keep_history(keep);
-        Some((rested.feed.clone(), rested.meter, rested.claude))
+        Some((rested.feed.clone(), rested.meter, rested.provider.clone()))
     }
 
     /// Lets go of what a chat that cannot be opened again kept, its history file with it.
