@@ -787,10 +787,11 @@ impl Fold {
     /// Lets go of the session, capabilities and setup of the chat's last agent.
     pub fn leave_agent(&mut self) {
         self.offers_effort = false;
+        self.head.connection = ChatConnection::Connecting;
         self.head.session_id = None;
         self.head.capabilities = Default::default();
         self.head.setup = Value::Object(Map::new());
-        for field in ["sessionId", "capabilities", "setup"] {
+        for field in ["connection", "sessionId", "capabilities", "setup"] {
             self.set_head(field);
         }
         self.read_pickers();

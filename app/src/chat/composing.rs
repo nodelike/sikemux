@@ -581,6 +581,7 @@ fn models_unread(
     agent: &AgentRow,
     saved: &WorkspaceAgent,
     failure: &ChatFailure,
+    retry: crate::chat::model_picker::Retry,
 ) -> crate::chat::model_picker::Unread {
     let name = bench.agent_name(&agent.provider);
     let host = match &agent.place {
@@ -615,6 +616,7 @@ fn models_unread(
         sign_in: account.filter(|_| {
             failure.kind == FailureKind::SignIn && agent.place == crate::hosts::Place::This
         }),
+        retry: (failure.kind != FailureKind::SignIn).then_some(retry),
     }
 }
 
@@ -738,7 +740,8 @@ pub(super) fn composer(
                     head.connection,
                     ChatConnection::Starting | ChatConnection::Initializing
                 )
-            });
+            })
+            || matches!(kind.and_then(|kind| kind.chat), Some(ChatDriver::Acp));
         let picked = crate::chat::model_picker::Picked {
             provider: agent.provider.clone(),
             profile: saved.profile_id.clone(),
@@ -757,7 +760,13 @@ pub(super) fn composer(
             unread: head
                 .and_then(|head| head.models_unread.as_ref())
                 .filter(|_| !started)
-                .map(|failure| models_unread(bench, agent, saved, failure)),
+                .map(|failure| {
+                    let (this, id) = (this.clone(), agent.id.clone());
+                    let retry = Rc::new(move |_: &mut Window, cx: &mut App| {
+                        this.update(cx, |bench, _| bench.read_models(&id)).ok();
+                    });
+                    models_unread(bench, agent, saved, failure, retry)
+                }),
             set: pick.clone(),
             moving,
             account: matches!(

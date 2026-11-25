@@ -75,7 +75,7 @@ use sikemux_process::clock::epoch_ms;
 use turn::{Turn, TurnProgress};
 
 pub use actions::*;
-pub use offers::{models_of, read_models, tell_update, AgentModelsParams};
+pub use offers::{ask_offers, models_of, read_models, tell_update, AgentModelsParams};
 pub use registry::Chats;
 pub use start::*;
 

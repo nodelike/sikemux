@@ -91,6 +91,8 @@ pub struct Moving {
 
 /// Sets one of the session's settings, by the setting's id, to a value.
 pub type Set = Rc<dyn Fn(&str, &str, &mut Window, &mut App)>;
+/// Asks the agent for its models again.
+pub type Retry = Rc<dyn Fn(&mut Window, &mut App)>;
 /// Moves the chat to another agent, account or provider.
 pub type Move = Rc<dyn Fn(Moving, &mut Window, &mut App)>;
 
@@ -130,6 +132,7 @@ pub struct Picked {
 pub struct Unread {
     pub said: SharedString,
     pub sign_in: Option<String>,
+    pub retry: Option<Retry>,
 }
 
 type Route = ModelRoute;
@@ -172,6 +175,8 @@ enum Act {
     Update,
     /// Signs in to the account the chat's agent is signed out of.
     SignIn(String),
+    /// Asks the chat's agent for its models again, after it could not say.
+    Retry,
 }
 
 #[derive(Clone)]
@@ -465,6 +470,16 @@ impl Menu {
                 act: Act::SignIn(account),
             });
         }
+        if (self.picked.unread.as_ref()).is_some_and(|unread| unread.retry.is_some()) {
+            options.push(Row {
+                group: OWN,
+                mark: None,
+                label: t!("Try again").into(),
+                meta: None,
+                current: false,
+                act: Act::Retry,
+            });
+        }
         if folded && query.is_empty() {
             options.push(Row {
                 group: OWN,
@@ -522,7 +537,7 @@ impl Menu {
         options.retain(|option| {
             matches!(
                 option.act,
-                Act::AddProvider | Act::Fold | Act::Update | Act::SignIn(_)
+                Act::AddProvider | Act::Fold | Act::Update | Act::SignIn(_) | Act::Retry
             ) || format!(
                 "{} {} {}",
                 option.label,
@@ -605,6 +620,13 @@ impl Menu {
                     bench.update(cx, |bench, cx| {
                         crate::accounts::sign_in(bench, &account, cx)
                     });
+                }
+            }
+            Act::Retry => {
+                if let Some(retry) =
+                    (self.picked.unread.as_ref()).and_then(|unread| unread.retry.clone())
+                {
+                    retry(window, cx);
                 }
             }
             Act::AddProvider => {
@@ -802,7 +824,7 @@ impl Menu {
         let (menu, act) = (this.clone(), row.act.clone());
         let adds = matches!(
             row.act,
-            Act::AddProvider | Act::Fold | Act::Update | Act::SignIn(_)
+            Act::AddProvider | Act::Fold | Act::Update | Act::SignIn(_) | Act::Retry
         );
         let key = nth.map(|nth| ui::keycap(numbered(nth), cx));
         div()
@@ -839,6 +861,7 @@ impl Menu {
                             Act::Fold => Icon::Chevron,
                             Act::Update => Icon::Download,
                             Act::SignIn(_) => Icon::User,
+                            Act::Retry => Icon::Refresh,
                             _ => Icon::Plus,
                         },
                         13.,
@@ -977,7 +1000,11 @@ impl Menu {
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(t.text_tertiary)
                 .child(
-                    match self.picked.pending.filter(|_| self.picked.effort.is_some()) {
+                    match self
+                        .picked
+                        .pending
+                        .filter(|_| self.picked.effort.is_some() || self.picked.model.is_none())
+                    {
                         Some(_) => t!("Effort shows once the agent starts"),
                         None => t!("This model has no effort to pick"),
                     },

@@ -3,6 +3,10 @@
 //! standard input and output. Their session updates already have the shape
 //! the chat reads, so they pass through as they come.
 
+mod options;
+
+pub use options::read_options;
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -293,12 +297,7 @@ impl Driver {
         message: impl Serialize,
         wait: Option<Duration>,
     ) -> Result<Value, String> {
-        self.rpc
-            .start(method, params(message)?)
-            .map_err(|error| describe(&error))?
-            .answer(wait)
-            .await
-            .map_err(|error| describe(&error))
+        call(&self.rpc, method, message, wait).await
     }
 
     fn answered(&self, turn: u64, answer: Result<Value, Value>) {
@@ -598,6 +597,53 @@ struct AcpState {
     kept: Kept,
 }
 
+/// The added Antigravity account `launch` runs on.
+fn account_of(launch: &ChatLaunch) -> Result<Option<accounts::OnAccount>, String> {
+    match is_antigravity(launch) {
+        true => accounts::added_in(&launch.env)?
+            .map(|added| added.chat())
+            .transpose(),
+        false => Ok(None),
+    }
+}
+
+fn spawn(
+    launch: &ChatLaunch,
+    account: Option<&accounts::OnAccount>,
+) -> Result<(Process, Writer, Lines), String> {
+    let (mut args, mut env) = match is_antigravity(launch) {
+        true => (
+            antigravity::launch_args(launch.permission_mode),
+            antigravity::launch_env(&launch.env),
+        ),
+        false => (Vec::new(), Vec::new()),
+    };
+    if let Some(account) = account {
+        args.extend(account.args());
+        env.push(account.env());
+    }
+    Process::spawn(launch, args, env)
+}
+
+fn initialize() -> InitializeRequest {
+    InitializeRequest::new(ProtocolVersion::V1)
+        .client_capabilities(air::client_capabilities())
+        .client_info(Implementation::new("sikemux", env!("CARGO_PKG_VERSION")))
+}
+
+async fn call(
+    rpc: &Rpc,
+    method: &str,
+    message: impl Serialize,
+    wait: Option<Duration>,
+) -> Result<Value, String> {
+    rpc.start(method, params(message)?)
+        .map_err(|error| describe(&error))?
+        .answer(wait)
+        .await
+        .map_err(|error| describe(&error))
+}
+
 #[derive(Clone, Copy)]
 enum Reopens {
     /// `session/load`, replaying its history.
@@ -623,26 +669,8 @@ pub struct Acp {
 
 impl Acp {
     async fn begin(launch: &ChatLaunch, sink: Sink) -> Result<(Self, Opened), String> {
-        let account = match is_antigravity(launch) {
-            true => accounts::added_in(&launch.env)?
-                .map(|added| added.chat())
-                .transpose(),
-            false => Ok(None),
-        };
-        let account = account.inspect_err(|_| sink.needs_sign_in())?;
-        let (mut args, mut extra_env) = if is_antigravity(launch) {
-            (
-                antigravity::launch_args(launch.permission_mode),
-                antigravity::launch_env(&launch.env),
-            )
-        } else {
-            (Vec::new(), Vec::new())
-        };
-        if let Some(account) = &account {
-            args.extend(account.args());
-            extra_env.push(account.env());
-        }
-        let (process, writer, lines) = Process::spawn(launch, args, extra_env)?;
+        let account = account_of(launch).inspect_err(|_| sink.needs_sign_in())?;
+        let (process, writer, lines) = spawn(launch, account.as_ref())?;
         let driver = Driver {
             rpc: Rpc::new(writer, true),
             sink,
@@ -657,11 +685,8 @@ impl Acp {
         let (reading, _) = Reading::start(driver.clone(), lines);
         let failed = |error: String| process.start_error(error);
 
-        let initialize = InitializeRequest::new(ProtocolVersion::V1)
-            .client_capabilities(air::client_capabilities())
-            .client_info(Implementation::new("sikemux", env!("CARGO_PKG_VERSION")));
         let initialized = driver
-            .call(AGENT_METHOD_NAMES.initialize, initialize, None)
+            .call(AGENT_METHOD_NAMES.initialize, initialize(), None)
             .await
             .map_err(failed)?;
         let command =

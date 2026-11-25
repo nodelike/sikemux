@@ -368,10 +368,10 @@ pub async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<Cha
     let earlier = (!params.fork)
         .then(|| core.chats().handoffs.back(&params.agent_id))
         .flatten();
-    if let Some((back, _)) = earlier
-        .as_ref()
-        .filter(|(back, _)| back.provider == params.provider)
-    {
+    if let Some((back, _)) = earlier.as_ref().filter(|(back, _)| {
+        back.provider == params.provider
+            && (params.profile_id.is_none() || params.profile_id == back.profile_id)
+    }) {
         return go_back(core, source, back.clone(), params).await;
     }
     let said = said(core, &source)

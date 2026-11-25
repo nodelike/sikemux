@@ -6,9 +6,10 @@ use crate::server::workspace::{launcher_of, ModelPick, OfferRead};
 use crate::server::workspace_state::WorkspaceParts;
 use sikemux_view::workspace::ConfigPicker;
 
+use super::native::ReadsOptions;
 use super::*;
 
-/// The options a chat that waits for the person offers: those its launcher's last session
+/// The options a chat that waits for the person offers: those its launcher's agent last
 /// offered, on the model it will start with and that model's efforts, but not its speed,
 /// which only a running session takes. The model it starts with is always among them, as one
 /// a provider serves is not among its agent's own.
@@ -103,14 +104,29 @@ pub fn read_models(core: &Arc<Core>, agent_id: &str) {
     }
 }
 
-fn ask_offers(core: &Arc<Core>, launcher: String, launch: ChatLaunch) {
-    if !native::reads_options(&launch.provider) || !core.workspaces().start_offer_read(&launcher) {
+/// Asks `launch`'s agent what it offers, for the chats of `launcher` that wait and those to
+/// come. One asked once already in a session opened for it is not asked again.
+pub fn ask_offers(core: &Arc<Core>, launcher: String, launch: ChatLaunch) {
+    let reads = native::reads_options(&launch.provider);
+    let asks_in_session = reads == ReadsOptions::Unkept;
+    let asks = match reads {
+        ReadsOptions::Always => true,
+        ReadsOptions::Unkept => !core.workspaces().keeps_options(&launcher),
+        ReadsOptions::Never => false,
+    };
+    if !asks || !core.workspaces().start_offer_read(&launcher) {
         return;
     }
     let core = core.clone();
     tokio::spawn(async move {
+        if core.workspaces().forget_failed_read(&launcher) {
+            tell_waiting(&core, &launcher);
+        }
         let asked = asked_of(&launch);
-        let read = native::read_options(&launch).await;
+        let read = match asks_in_session && signed_out(&launch) {
+            true => Err("it is not signed in".to_owned()),
+            false => native::read_options(&launch).await,
+        };
         let unread = unread(&launch, read.as_ref().err());
         match &read {
             Ok(options) => core.workspaces().note_config_options(&launcher, options),
@@ -123,14 +139,21 @@ fn ask_offers(core: &Arc<Core>, launcher: String, launch: ChatLaunch) {
                 unread,
             },
         );
-        let waiting = core.chats().all().into_iter().filter(|chat| {
-            chat.unstarted() && chat.origin.launcher.as_deref() == Some(launcher.as_str())
-        });
-        for chat in waiting {
-            let options = waiting_options(&core, &chat).unwrap_or(Value::Array(Vec::new()));
-            tell_options(&chat, options);
-        }
+        tell_waiting(&core, &launcher);
     });
+}
+
+/// Tells the chats of `launcher` that wait what they offer to pick.
+fn tell_waiting(core: &Core, launcher: &str) {
+    let waiting = core
+        .chats()
+        .all()
+        .into_iter()
+        .filter(|chat| chat.unstarted() && chat.origin.launcher.as_deref() == Some(launcher));
+    for chat in waiting {
+        let options = waiting_options(core, &chat).unwrap_or(Value::Array(Vec::new()));
+        tell_options(&chat, options);
+    }
 }
 
 /// The environment `launch`'s agent runs in, its account's included.
@@ -153,12 +176,14 @@ fn asked_of(launch: &ChatLaunch) -> String {
     format!("{} {changed:?} {signed_in:?}", program.display())
 }
 
+fn signed_out(launch: &ChatLaunch) -> bool {
+    sign_in::signed_in(&launch.provider, &account_env(launch)) == Some(sign_in::SignIn::SignedOut)
+}
+
 /// Why `launch`'s agent cannot say what it offers, or cannot run what it says, as a failure:
 /// signed out, or the ask's `error`.
 fn unread(launch: &ChatLaunch, error: Option<&String>) -> Option<Value> {
-    let signed_out = sign_in::signed_in(&launch.provider, &account_env(launch))
-        == Some(sign_in::SignIn::SignedOut);
-    let kind = match (signed_out, error) {
+    let kind = match (signed_out(launch), error) {
         (true, _) => "signIn",
         (false, Some(_)) => "other",
         (false, None) => return None,
@@ -300,6 +325,6 @@ pub struct AgentModelsParams {
 
 /// The model choice `agent` last offered, from any launcher of it.
 pub fn models_of(core: &Core, agent: &str) -> Option<ConfigPicker> {
-    let options = core.workspaces().agent_options(agent)?;
+    let options = core.workspaces().launcher_options(agent)?;
     pickers::pickers(&options).0
 }

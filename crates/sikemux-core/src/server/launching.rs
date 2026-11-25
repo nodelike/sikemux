@@ -608,7 +608,7 @@ pub(super) fn model_of(
             crate::agent_accounts::defaults::configured_default_model(kind, config_path.as_deref())
         })
         .or_else(|| {
-            let options = core.workspaces().agent_options(kind)?;
+            let options = core.workspaces().launcher_options(kind)?;
             crate::acp::pickers::current_choice(&json!({ "configOptions": options }), "model")
         })
         .filter(|model| !model.eq_ignore_ascii_case("default"))

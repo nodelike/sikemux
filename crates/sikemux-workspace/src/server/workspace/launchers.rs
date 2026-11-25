@@ -156,9 +156,7 @@ pub struct ChatChoice {
 
 /// A launcher as devices see it, with the models and effort its last session offered.
 pub fn launcher_info(saved: &Saved, launcher: &Launcher) -> LauncherInfo {
-    let config_options = saved
-        .launcher_options
-        .get(&launcher.id)
+    let config_options = offered(&saved.launcher_options, &launcher.id)
         .cloned()
         .unwrap_or(Value::Null);
     let (model, effort) = pickers::pickers(&config_options);
@@ -179,6 +177,25 @@ pub fn launcher_info(saved: &Saved, launcher: &Launcher) -> LauncherInfo {
             .cloned()
             .unwrap_or_default(),
     }
+}
+
+/// What `launcher`'s agent offered last, or while it has said nothing on its account, what it
+/// offered on another.
+fn offered<'a>(kept: &'a BTreeMap<String, Value>, launcher: &str) -> Option<&'a Value> {
+    let kind = LauncherId::parse(launcher).kind;
+    let of_a_profile = format!("{kind}:");
+    let others = kept
+        .iter()
+        .filter(|(id, _)| id.starts_with(&of_a_profile))
+        .map(|(_, options)| options);
+    (kept.get(launcher).into_iter())
+        .chain(kept.get(kind))
+        .chain(others)
+        .find(|options| !says_nothing(options))
+}
+
+fn says_nothing(options: &Value) -> bool {
+    options.as_array().is_none_or(Vec::is_empty)
 }
 
 /// How many models a kind of agent's recent list keeps.
@@ -508,7 +525,7 @@ impl Workspaces {
         let mut options = options.clone();
         let kind = LauncherId::parse(launcher).kind;
         let published = self.published.locked();
-        if let Some(before) = published.saved.launcher_options.get(launcher) {
+        if let Some(before) = offered(&published.saved.launcher_options, launcher) {
             pickers::carry_efforts(&mut options, before);
         }
         if let Some(pick) = published.saved.model_picks.get(kind) {
@@ -606,34 +623,36 @@ impl Workspaces {
         self.offers_asking.locked().remove(launcher);
     }
 
+    /// Forgets that the last ask of `launcher`'s agent failed, as it is asked again; one signed
+    /// out stays so until the ask says otherwise. Whether there was one to forget.
+    pub fn forget_failed_read(&self, launcher: &str) -> bool {
+        let mut reads = self.offers_read.locked();
+        let failed = reads
+            .get(launcher)
+            .and_then(|read| read.unread.as_ref())
+            .is_some_and(|unread| unread["kind"] != "signIn");
+        if failed {
+            reads.remove(launcher);
+        }
+        failed
+    }
+
     /// How the last ask of `launcher`'s agent since the core started went.
     pub fn last_offer_read(&self, launcher: &str) -> Option<OfferRead> {
         self.offers_read.locked().get(launcher).cloned()
     }
 
-    /// The `configOptions` the launcher's last session offered, once one has.
+    /// The `configOptions` the launcher's agent offered last, or while none are kept for its
+    /// account, another account's.
     pub fn launcher_options(&self, launcher: &str) -> Option<Value> {
-        self.published
-            .locked()
-            .saved
-            .launcher_options
-            .get(launcher)
-            .cloned()
+        offered(&self.published.locked().saved.launcher_options, launcher).cloned()
     }
 
-    /// What `agent`'s launchers offered last: its own default launcher's, else another's.
-    pub fn agent_options(&self, agent: &str) -> Option<Value> {
+    /// Whether what the launcher's agent offers is kept for its own account.
+    pub fn keeps_options(&self, launcher: &str) -> bool {
         let published = self.published.locked();
-        let options = &published.saved.launcher_options;
-        let of_a_profile = format!("{agent}:");
-        options
-            .get(agent)
-            .or_else(|| {
-                options
-                    .iter()
-                    .find_map(|(id, kept)| id.starts_with(&of_a_profile).then_some(kept))
-            })
-            .cloned()
+        (published.saved.launcher_options.get(launcher))
+            .is_some_and(|options| !says_nothing(options))
     }
 
     pub fn accounts(&self) -> Option<Book> {

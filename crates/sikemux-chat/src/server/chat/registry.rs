@@ -540,7 +540,7 @@ impl Chats {
         let (feed, flags) = kept.unwrap_or_else(|| {
             let feed = match rested {
                 Some(rested) => {
-                    if rested.provider != launch.provider {
+                    if rested.provider != launch.provider || launch.resume_id.is_none() {
                         rested.feed.leave_agent();
                     }
                     rested.feed

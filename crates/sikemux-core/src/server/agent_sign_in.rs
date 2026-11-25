@@ -148,7 +148,7 @@ pub(super) fn move_after_sign_in(core: &Core, after: AfterSignIn) -> CoreResult<
     Ok(())
 }
 
-/// Moves the chats waiting for the account in `config_path` onto it.
+/// Moves the chats waiting for the account in `config_path` onto it, and asks what it offers.
 fn signed_in(core: &Arc<Core>, account: &Account) {
     let book = core
         .workspaces()
@@ -159,6 +159,7 @@ fn signed_in(core: &Arc<Core>, account: &Account) {
         profile.provider == account.agent.as_str() && profile.config_path == account.config_path
     });
     for profile in profiles {
+        tokio::spawn(read_options(core.clone(), profile.clone()));
         let Some(chats) = waiting().remove(&profile.id) else {
             continue;
         };
@@ -173,6 +174,31 @@ fn signed_in(core: &Arc<Core>, account: &Account) {
                 }
             });
         }
+    }
+}
+
+/// Asks `profile`'s agent what it offers, so a chat that takes the account has its models.
+async fn read_options(core: Arc<Core>, profile: crate::agent_accounts::Profile) {
+    let id = super::workspace::LauncherId::on(&profile.provider, &profile.id).to_string();
+    let launch = async {
+        let launcher = core.workspaces().launcher(&id)?;
+        let program = launcher.agent.program().await?;
+        let folder = match profile.config_path.as_deref() {
+            Some(path) => sikemux_process::paths::account_dir(path),
+            None => std::env::temp_dir(),
+        };
+        let owner = core.clone();
+        super::connection::blocking(move || {
+            owner
+                .workspaces()
+                .chat_launch(&launcher, program, &folder, None, None)
+                .map_err(CoreError::from)
+        })
+        .await
+    };
+    match launch.await {
+        Ok(launch) => super::chat::ask_offers(&core, id, launch),
+        Err(error) => eprintln!("sikemux core: {id} could not be asked what it offers: {error}"),
     }
 }
 

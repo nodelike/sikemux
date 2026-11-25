@@ -129,18 +129,7 @@ async fn a_chat_switched_away_and_back_hands_nothing_over_and_resumes_its_sessio
         .start_chat("claude:builtin-claude".into(), "widget".into(), None)
         .await
         .expect("a chat");
-    let (_watching, mut chat) = open(&socket, &id).await;
-    app.ask(ask::AcpPrompt {
-        agent_id: id.clone(),
-        message_id: Some(uuid::Uuid::new_v4().to_string()),
-        text: "hello there".into(),
-        paths: Vec::new(),
-        context: Vec::new(),
-    })
-    .await
-    .expect("prompt");
-    chat.until(|chat| chat.text().contains("echo: hello there"))
-        .await;
+    say(&app, &socket, &id, "hello there").await;
     let session = agent(&app, &id).await["resumeId"].clone();
     assert!(session.is_string(), "the Claude session is noted");
 
@@ -298,18 +287,7 @@ async fn switching_harness_and_back_keeps_account_and_avoids_full_account() {
     );
 
     // Prompt it and confirm the process ran in Kishore's CLAUDE_CONFIG_DIR.
-    let (_watching, mut chat) = open(&socket, &fresh_id).await;
-    app.ask(ask::AcpPrompt {
-        agent_id: fresh_id.clone(),
-        message_id: Some(uuid::Uuid::new_v4().to_string()),
-        text: "ping fresh".into(),
-        paths: Vec::new(),
-        context: Vec::new(),
-    })
-    .await
-    .expect("prompt");
-    chat.until(|chat| chat.text().contains("echo: ping fresh"))
-        .await;
+    say(&app, &socket, &fresh_id, "ping fresh").await;
     let session = agent(&app, &fresh_id).await["resumeId"]
         .as_str()
         .expect("session")
@@ -450,4 +428,169 @@ async fn a_chat_moved_to_an_agent_with_no_known_models_lists_none_of_the_last_ag
     assert_eq!(moved["provider"], "omp");
     assert!(moved["model"].is_null(), "{moved}");
     assert!(moved["effort"].is_null(), "{moved}");
+}
+
+/// The Antigravity accounts' stand-in agy: what it offers depends on the account's folder.
+fn write_agy(root: &Path) -> std::path::PathBuf {
+    let agy = root.join("agy");
+    let model = |name: &str| json!([{ "value": name, "name": name }]).to_string();
+    std::fs::write(
+        &agy,
+        format!(
+            r#"#!/bin/sh
+[ "$1" = acp ] || exit 0
+folder= log=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --gemini-dir) folder=$2 ;;
+    --log-file) log=$2 ;;
+  esac
+  shift
+done
+[ -z "$log" ] || echo 'Using file-based token storage' > "$log"
+[ ! -e "$folder/broken" ] || {{ exit 1; }}
+case "$folder" in
+  '') FAKE_ACP_MODELS='{first}' ;;
+  *) FAKE_ACP_MODELS='{second}' ;;
+esac
+export FAKE_ACP_MODELS
+[ -z "$folder" ] || while [ -e '{gate}' ]; do sleep 0.05; done
+exec '{agent}'
+"#,
+            first = model("first-model"),
+            second = model("second-model"),
+            gate = root.join("gate").display(),
+            agent = FAKE_AGENT,
+        ),
+    )
+    .expect("agy");
+    std::fs::set_permissions(&agy, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("agy runs");
+    agy
+}
+
+fn write_agy_account(dir: &Path) {
+    std::fs::create_dir_all(dir.join("antigravity-cli")).expect("account dir");
+    std::fs::write(dir.join(".sikemux-account"), "").expect("the marker");
+    std::fs::write(
+        dir.join("antigravity-cli/antigravity-oauth-token"),
+        "not a token",
+    )
+    .expect("a sign-in");
+}
+
+fn models(chat: &folded::Folded) -> Vec<String> {
+    (chat.head().model.iter())
+        .flat_map(|model| &model.choices)
+        .map(|choice| choice.value.clone())
+        .collect()
+}
+
+/// The person's report, 25 Nov: their second Antigravity account, just signed in, offered "no
+/// models to pick" in a chat handed to it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_handed_to_an_account_never_used_offers_its_models() {
+    let root = tempfile::Builder::new()
+        .prefix("account-models")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
+    let (project, second, third) = (
+        root.join("project"),
+        root.join("second"),
+        root.join("third"),
+    );
+    for dir in [root.join("home"), project.clone()] {
+        std::fs::create_dir_all(dir).expect("dir");
+    }
+    write_agy_account(&second);
+    write_agy_account(&third);
+    std::fs::write(third.join("broken"), "").expect("an account agy fails on");
+    let agy = write_agy(&root);
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [
+        { "id": "first", "name": "First", "provider": "antigravity", "accent": "#4285f4",
+          "executablePath": agy },
+        { "id": "second", "name": "Second", "provider": "antigravity", "accent": "#4285f4",
+          "executablePath": agy, "configPath": second },
+        { "id": "third", "name": "Third", "provider": "antigravity", "accent": "#4285f4",
+          "executablePath": agy, "configPath": third },
+        { "id": "fake", "name": "Fake", "provider": "omp", "accent": "#a277ff",
+          "executablePath": FAKE_AGENT },
+    ] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "widget", "name": "widget", "path": project }),
+    )
+    .await
+    .expect("the project");
+
+    let (first, _) = app
+        .start_chat("antigravity:first".into(), "widget".into(), None)
+        .await
+        .expect("a chat");
+    say(&app, &socket, &first, "hello there").await;
+
+    let (moved, _) = app
+        .start_chat("omp:fake".into(), "widget".into(), None)
+        .await
+        .expect("a chat");
+    say(&app, &socket, &moved, "hello again").await;
+    std::fs::write(root.join("gate"), "").expect("the gate");
+    hand_over(&app, &moved, "second").await;
+    let (_watching, mut chat) = open(&socket, &moved).await;
+    chat.until(|chat| models(chat) == ["first-model"]).await;
+    assert!(!chat.ready(), "no agent runs the chat yet");
+    std::fs::remove_file(root.join("gate")).expect("the gate opens");
+    chat.until(|chat| models(chat) == ["second-model"]).await;
+    say(&app, &socket, &moved, "and now").await;
+
+    hand_over(&app, &moved, "first").await;
+    let (_watching, mut chat) = open(&socket, &moved).await;
+    chat.until(|chat| models(chat) == ["first-model"]).await;
+
+    hand_over(&app, &moved, "third").await;
+    let (_watching, mut chat) = open(&socket, &moved).await;
+    chat.until(|chat| {
+        (chat.head().models_unread.as_ref())
+            .and_then(|unread| unread.details.as_deref())
+            .is_some_and(|why| why.contains("stopped before it answered"))
+    })
+    .await;
+    std::fs::remove_file(third.join("broken")).expect("agy works again");
+    app.call("readModels", json!({ "agentId": moved }))
+        .await
+        .expect("asked again");
+    chat.until(|chat| chat.head().models_unread.is_none() && models(chat) == ["second-model"])
+        .await;
+    say(&app, &socket, &moved, "once more").await;
+}
+
+async fn say(app: &CoreClient, socket: &Path, id: &str, text: &str) {
+    let (_watching, mut chat) = open(socket, id).await;
+    app.ask(ask::AcpPrompt {
+        agent_id: id.to_owned(),
+        message_id: Some(uuid::Uuid::new_v4().to_string()),
+        text: text.to_owned(),
+        paths: Vec::new(),
+        context: Vec::new(),
+    })
+    .await
+    .expect("prompt");
+    chat.until(|chat| chat.text().contains(&format!("echo: {text}")) && !chat.head().running)
+        .await;
+}
+
+async fn hand_over(app: &CoreClient, id: &str, profile: &str) {
+    app.call(
+        "handOff",
+        json!({ "agentId": id, "provider": "antigravity", "profileId": profile }),
+    )
+    .await
+    .expect("handed over");
 }

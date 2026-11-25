@@ -64,15 +64,27 @@ fn shows_saved(provider: &str) -> bool {
     crate::agent_catalog::agent(provider).is_some_and(|agent| agent.history_before_start)
 }
 
-/// Whether `provider`'s CLI says what it offers without a session, so `read_options` can ask.
-pub fn reads_options(provider: &str) -> bool {
-    matches!(
-        driver(provider),
-        Some(ChatDriver::Claude | ChatDriver::Codex | ChatDriver::Pi | ChatDriver::Opencode)
-    )
+/// When `read_options` asks an agent what it offers.
+#[derive(Clone, Copy, PartialEq)]
+pub enum ReadsOptions {
+    /// Its CLI says so without a session.
+    Always,
+    /// It says so only in a session opened for it, so only while nothing it said is kept.
+    Unkept,
+    Never,
 }
 
-/// The models and efforts `launch`'s agent offers, asked of its CLI without a session.
+pub fn reads_options(provider: &str) -> ReadsOptions {
+    match driver(provider) {
+        Some(ChatDriver::Claude | ChatDriver::Codex | ChatDriver::Pi | ChatDriver::Opencode) => {
+            ReadsOptions::Always
+        }
+        Some(ChatDriver::Acp { .. }) => ReadsOptions::Unkept,
+        Some(ChatDriver::Muse) | None => ReadsOptions::Never,
+    }
+}
+
+/// The models and efforts `launch`'s agent offers, asked of its CLI without a chat.
 pub async fn read_options(launch: &ChatLaunch) -> Result<Value, String> {
     let mut command = sikemux_process::command::Command::into_async(
         sikemux_process::user_environment::agent_command(&launch.program),
@@ -101,7 +113,14 @@ pub async fn read_options(launch: &ChatLaunch) -> Result<Value, String> {
             )
             .await
         }
-        Some(ChatDriver::Muse | ChatDriver::Acp { .. }) | None => Err(format!(
+        Some(ChatDriver::Acp { .. }) => {
+            let mut asked = launch.clone();
+            if let Some(account) = &launch.account {
+                asked.env.extend(account.env.clone());
+            }
+            acp::read_options(&asked).await
+        }
+        Some(ChatDriver::Muse) | None => Err(format!(
             "{} offers its options only in a session",
             launch.provider
         )),
