@@ -45,7 +45,7 @@ pub struct Active<'a> {
     /// The account this host is signed in to, so one person on several hosts
     /// counts once. Only a hash of it leaves the machine.
     pub account: Option<&'a str>,
-    /// Someone who makes Sikemux, whose use stays out of the counts of people.
+    /// Whether the signed-in account is Sikemux staff, sent as metadata.
     pub staff: bool,
 }
 
@@ -278,12 +278,13 @@ fn funnel_event(
     {
         properties.extend(own);
     }
-    let timestamp = time::OffsetDateTime::from_unix_timestamp((reached.at_ms / 1000) as i64)
-        .ok()
-        .and_then(|at| {
-            at.format(&time::format_description::well_known::Rfc3339)
-                .ok()
-        });
+    let timestamp =
+        time::OffsetDateTime::from_unix_timestamp_nanos((reached.at_ms as i128) * 1_000_000)
+            .ok()
+            .and_then(|at| {
+                at.format(&time::format_description::well_known::Rfc3339)
+                    .ok()
+            });
     json!({
         "event": reached.event,
         "distinct_id": install_id,
