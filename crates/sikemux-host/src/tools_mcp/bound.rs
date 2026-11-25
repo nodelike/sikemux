@@ -14,9 +14,9 @@ use sikemux_core::cut::MARK;
 use sikemux_process::files::write_atomic_unsynced;
 use sikemux_process::sync::Locked;
 
-/// About five thousand tokens: well under what Claude Code shows the model, and
-/// above nearly every answer the tools give.
-pub(super) const BUDGET: usize = 20 * 1024;
+/// About 2.5k tokens: keeps MCP tool answers near 10k characters, with the whole
+/// JSON saved to a file the agent can read.
+pub(super) const BUDGET: usize = 10 * 1024;
 
 /// What is kept of a text, at least, however far over the budget an answer is.
 const LEAST_TEXT: usize = 400;

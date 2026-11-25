@@ -433,6 +433,14 @@ impl Claude {
         ]
         .map(|(key, value)| (key.to_owned(), value.to_owned()))
         .into();
+        if !launch.env.contains_key("BASH_MAX_OUTPUT_LENGTH")
+            && sikemux_process::user_environment::var("BASH_MAX_OUTPUT_LENGTH").is_none()
+        {
+            env.push((
+                "BASH_MAX_OUTPUT_LENGTH".to_owned(),
+                config::BASH_MAX_OUTPUT_CHARS.to_string(),
+            ));
+        }
         if spawned_worker {
             for (key, value) in [
                 ("ENABLE_CLAUDEAI_MCP_SERVERS", "false"),
@@ -705,6 +713,9 @@ impl Backend for Claude {
             })
             .unwrap_or_else(|| config::DEFAULT.to_owned());
         let mut flag_settings = config::cache_lifetimes(&settings, &launch.env, routed);
+        if let Some(limit) = config::bash_output_limit(&settings, &launch.env) {
+            flag_settings.insert("bashOutputMaxChars".into(), json!(limit));
+        }
         if sink.spawned_worker() {
             if let Some(commands) = initialized.get("commands").and_then(Value::as_array) {
                 let overrides = config::worker_skill_overrides(commands);

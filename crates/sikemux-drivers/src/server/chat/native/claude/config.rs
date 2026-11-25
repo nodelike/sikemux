@@ -14,6 +14,7 @@ use crate::launch::PermissionMode;
 
 pub const DEFAULT: &str = "default";
 pub(crate) const FAST: &str = "fast";
+pub(crate) const BASH_MAX_OUTPUT_CHARS: u64 = 10_000;
 
 /// The effort Claude Code runs each model at when none is set, which its model list does not
 /// say, by the model's full name.
@@ -59,6 +60,17 @@ pub(crate) fn cache_lifetimes(
         lifetimes.insert("subagentPromptCacheTtl".into(), json!("5m"));
     }
     lifetimes
+}
+
+pub(crate) fn bash_output_limit(settings: &Value, env: &BTreeMap<String, String>) -> Option<u64> {
+    let env_set = env.contains_key("BASH_MAX_OUTPUT_LENGTH")
+        || settings["env"].get("BASH_MAX_OUTPUT_LENGTH").is_some()
+        || sikemux_process::user_environment::var("BASH_MAX_OUTPUT_LENGTH").is_some();
+    if settings.get("bashOutputMaxChars").is_none() && !env_set {
+        Some(BASH_MAX_OUTPUT_CHARS)
+    } else {
+        None
+    }
 }
 
 pub(crate) fn worker_disabled_plugins(account_root: Option<&Path>) -> Option<String> {
