@@ -101,6 +101,12 @@ fn typed(text: &str, caret: usize) -> Option<Typed> {
     })
 }
 
+/// The word the person is writing in `draft`; a pill's own words are not one.
+fn writing(draft: &TextareaState) -> Option<Typed> {
+    typed(&draft.value(), draft.cursor())
+        .filter(|typed| !(draft.tokens().iter()).any(|span| span.range().contains(&typed.start)))
+}
+
 /// What the menu offers.
 #[derive(Clone)]
 enum Choice {
@@ -232,7 +238,7 @@ pub struct Tray<'a> {
 impl Menu {
     /// Whether the caret is still at the end of the word the menu was made for.
     pub fn answers(&self, draft: &TextareaState) -> bool {
-        self.pinned || typed(&draft.value(), draft.cursor()).as_ref() == Some(&self.typed)
+        self.pinned || writing(draft).as_ref() == Some(&self.typed)
     }
 
     /// The Stash's tray, when the menu is it.
@@ -319,8 +325,7 @@ impl Workbench {
             return;
         };
         let draft = composing.draft.read(cx);
-        let typed =
-            typed(&draft.value(), draft.cursor()).filter(|typed| names(agent, typed.trigger));
+        let typed = writing(draft).filter(|typed| names(agent, typed.trigger));
         let kept = composing.menu.as_ref().map(|menu| &menu.typed);
         let pinned = composing.menu.as_ref().is_some_and(|menu| menu.pinned);
         if typed.as_ref() == kept && !pinned {

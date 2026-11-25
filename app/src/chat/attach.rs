@@ -464,7 +464,19 @@ impl Workbench {
                         .ok();
                     }
                     Some(Err(error)) => {
-                        eprintln!("sikemux: {} does not read: {error}", path.display())
+                        let note = match path.is_dir() {
+                            true => t!(
+                                "{name} is a folder, which can't go to another host",
+                                name = name
+                            ),
+                            false => {
+                                t!("{name} does not read: {error}", name = name, error = error)
+                            }
+                        };
+                        this.update(cx, |bench, cx| {
+                            bench.notify(crate::toast::error(note), cx);
+                        })
+                        .ok();
                     }
                     None => {
                         let note = t!(
