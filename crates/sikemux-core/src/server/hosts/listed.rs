@@ -150,11 +150,16 @@ fn forget_unlinked(core: &Core, links: &[super::super::remote::StoredLink]) -> b
     if before == now {
         return false;
     }
-    let mut installed = core.hosts().installed.locked();
-    let count = installed.len();
-    installed.retain(|key, _| now.contains(key) || !before.contains(key));
-    if installed.len() != count {
-        core.hosts().installed_kept.save(&*installed);
+    let save = {
+        let mut installed = core.hosts().installed.locked();
+        let count = installed.len();
+        installed.retain(|key, _| now.contains(key) || !before.contains(key));
+        (installed.len() != count)
+            .then(|| core.hosts().installed_kept.prepare(&*installed))
+            .flatten()
+    };
+    if let Some(save) = save {
+        save.write_blocking();
     }
     true
 }
@@ -199,10 +204,14 @@ pub(crate) fn note_reached(core: &Core, key: String, alias: String) {
 
 /// Notes that `alias` reaches the host `key`, which no other host's row is reached at then.
 pub(crate) fn note_installed(core: &Core, key: String, alias: String) {
-    let mut map = core.hosts().installed.locked();
-    map.retain(|_, held| *held != alias);
-    map.insert(key, alias);
-    core.hosts().installed_kept.save(&*map);
-    drop(map);
+    let save = {
+        let mut map = core.hosts().installed.locked();
+        map.retain(|_, held| *held != alias);
+        map.insert(key, alias);
+        core.hosts().installed_kept.prepare(&*map)
+    };
+    if let Some(save) = save {
+        save.write_blocking();
+    }
     core.changed(What::Read(Topic::Hosts));
 }

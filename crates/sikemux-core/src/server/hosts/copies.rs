@@ -181,9 +181,12 @@ impl Copies {
 
     pub(super) fn forget(&self, host: &str) {
         self.told.locked().remove(host);
-        let mut heard = self.heard.locked();
-        if heard.remove(host).is_some() {
-            self.kept.save(&*heard);
+        let save = {
+            let mut heard = self.heard.locked();
+            heard.remove(host).and_then(|_| self.kept.prepare(&*heard))
+        };
+        if let Some(save) = save {
+            save.write_blocking();
         }
     }
 
@@ -364,15 +367,20 @@ pub(crate) fn share(core: &Arc<Core>) {
 /// `host` told this one what it holds.
 pub(super) fn heard(core: &Core, host: &str, params: HeldParams) -> Answer {
     let copies = &core.hosts().copies;
-    let changed = {
+    let (changed, save) = {
         let mut heard = copies.heard.locked();
         let changed = heard.get(host) != Some(&params.projects);
-        if changed {
+        let save = if changed {
             heard.insert(host.to_owned(), params.projects);
-            copies.kept.save(&*heard);
-        }
-        changed
+            copies.kept.prepare(&*heard)
+        } else {
+            None
+        };
+        (changed, save)
     };
+    if let Some(save) = save {
+        save.write_blocking();
+    }
     let ids_from = (copies.heard.locked().values().flatten())
         .map(|held| held.ids_from)
         .max();

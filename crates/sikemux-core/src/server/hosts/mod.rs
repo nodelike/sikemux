@@ -205,11 +205,16 @@ impl Hosts {
         if carried.is_empty() {
             return;
         }
-        let mut installed = self.installed.locked();
-        for (key, alias) in carried {
-            installed.entry(key).or_insert(alias);
+        let save = {
+            let mut installed = self.installed.locked();
+            for (key, alias) in carried {
+                installed.entry(key).or_insert(alias);
+            }
+            self.installed_kept.prepare(&*installed)
+        };
+        if let Some(save) = save {
+            save.write_blocking();
         }
-        self.installed_kept.save(&*installed);
     }
 
     /// Whether the teammates here of `host`'s agents were told it was out of reach, since it
@@ -753,7 +758,7 @@ async fn flush_lane(core: Arc<Core>, host: String, lane: String) {
         .await;
         match sent {
             Ok(_) => {
-                core.hosts().outbox.sent(&host, post.seq);
+                core.hosts().outbox.sent(&host, post.seq).await;
                 if post.method == "question" {
                     if let Some(id) = post.params.get("id").and_then(Value::as_str) {
                         super::questions::relay_arrived(&core, id);
@@ -765,10 +770,11 @@ async fn flush_lane(core: Arc<Core>, host: String, lane: String) {
             {
                 core.hosts()
                     .outbox
-                    .carry(&host, post.seq, calls::Commits::METHOD);
+                    .carry(&host, post.seq, calls::Commits::METHOD)
+                    .await;
             }
             Err(Failed::Refused(why)) => {
-                if core.hosts().outbox.sent(&host, post.seq) {
+                if core.hosts().outbox.sent(&host, post.seq).await {
                     turned_away(&core, &host, &post, &why);
                 }
             }

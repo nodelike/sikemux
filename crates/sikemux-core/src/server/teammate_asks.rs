@@ -3,7 +3,7 @@
 //! with a question does, and keeps the question and answer for the person to read and stop.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -19,6 +19,7 @@ use sikemux_view::task_list::{AskingOff, ProjectTasks, TeammateAsk, TeammateAsks
 
 use super::changed::{ChangedCore, Topic, What};
 use super::connection::blocking;
+use super::kept::Kept as KeptFile;
 use super::messages::log::{AskEntry, Teammate};
 use super::remote_state::RemoteParts;
 use super::roster;
@@ -73,42 +74,18 @@ pub(crate) struct Stopped {
 }
 
 pub(crate) struct Teammates {
-    file: Option<PathBuf>,
+    file: KeptFile,
     kept: Mutex<Kept>,
     answering: Mutex<HashMap<String, usize>>,
 }
 
 impl Teammates {
     pub(crate) fn new(folder: Option<&Path>) -> Self {
-        let file = folder.map(|folder| folder.join(FILE));
-        let kept = (file.as_ref())
-            .and_then(|file| {
-                sikemux_process::files::read_or_set_aside(file, |bytes| {
-                    serde_json::from_slice(bytes)
-                })
-            })
-            .unwrap_or_default();
+        let file = KeptFile::new(folder, FILE);
         Self {
+            kept: Mutex::new(file.load()),
             file,
-            kept: Mutex::new(kept),
             answering: Mutex::new(HashMap::new()),
-        }
-    }
-
-    fn save(&self, kept: &Kept) {
-        let Some(file) = &self.file else {
-            return;
-        };
-        let written = serde_json::to_vec(kept)
-            .map_err(std::io::Error::other)
-            .and_then(|bytes| {
-                if let Some(folder) = file.parent() {
-                    std::fs::create_dir_all(folder)?;
-                }
-                sikemux_process::files::write_atomic(file, &bytes, true)
-            });
-        if let Err(error) = written {
-            eprintln!("sikemux core: who may ask about this person's tasks was not kept: {error}");
         }
     }
 
@@ -118,47 +95,58 @@ impl Teammates {
 
     /// Stops or lets again everyone asking about `project`, or the one person `member` names.
     pub(crate) fn set_stopped(&self, project: &str, member: Option<(&str, &str)>, stop: bool) {
-        let mut kept = self.kept.locked();
-        let stopped = kept.stopped.entry(project.to_owned()).or_default();
-        match member {
-            None => stopped.everyone = stop,
-            Some((member, name)) if stop => {
-                stopped.people.insert(member.to_owned(), name.to_owned());
+        let save = {
+            let mut kept = self.kept.locked();
+            let stopped = kept.stopped.entry(project.to_owned()).or_default();
+            match member {
+                None => stopped.everyone = stop,
+                Some((member, name)) if stop => {
+                    stopped.people.insert(member.to_owned(), name.to_owned());
+                }
+                Some((member, _)) => {
+                    stopped.people.remove(member);
+                }
             }
-            Some((member, _)) => {
-                stopped.people.remove(member);
+            if !stopped.everyone && stopped.people.is_empty() {
+                kept.stopped.remove(project);
             }
+            self.file.prepare(&*kept)
+        };
+        if let Some(save) = save {
+            save.write_blocking();
         }
-        if !stopped.everyone && stopped.people.is_empty() {
-            kept.stopped.remove(project);
-        }
-        self.save(&kept);
     }
 
     /// Takes one of `member`'s questions for the day and one of their places at once, or says
     /// why there is none.
     fn take(&self, member: &str, daily: usize, now: u64) -> Result<Answering<'_>, String> {
-        let mut answering = self.answering.locked();
-        let at_once = answering.entry(member.to_owned()).or_default();
-        if *at_once >= AT_ONCE {
-            return Err(format!(
-                "Your agents have {AT_ONCE} questions being answered here already; ask again once one returns."
-            ));
+        let save = {
+            let mut answering = self.answering.locked();
+            let at_once = answering.entry(member.to_owned()).or_default();
+            if *at_once >= AT_ONCE {
+                return Err(format!(
+                    "Your agents have {AT_ONCE} questions being answered here already; ask again once one returns."
+                ));
+            }
+            let mut kept = self.kept.locked();
+            kept.asked.retain(|_, times| {
+                times.retain(|at| now.saturating_sub(*at) < DAY_MS);
+                !times.is_empty()
+            });
+            let times = kept.asked.entry(member.to_owned()).or_default();
+            if times.len() >= daily {
+                return Err(format!(
+                    "Your agents have asked {daily} questions here in the last day, as many as your org allows a day."
+                ));
+            }
+            times.push(now);
+            let save = self.file.prepare(&*kept);
+            *at_once += 1;
+            save
+        };
+        if let Some(save) = save {
+            save.write_blocking();
         }
-        let mut kept = self.kept.locked();
-        kept.asked.retain(|_, times| {
-            times.retain(|at| now.saturating_sub(*at) < DAY_MS);
-            !times.is_empty()
-        });
-        let times = kept.asked.entry(member.to_owned()).or_default();
-        if times.len() >= daily {
-            return Err(format!(
-                "Your agents have asked {daily} questions here in the last day, as many as your org allows a day."
-            ));
-        }
-        times.push(now);
-        self.save(&kept);
-        *at_once += 1;
         Ok(Answering {
             teammates: self,
             member: member.to_owned(),
@@ -184,21 +172,28 @@ impl Answering<'_> {
 
 impl Drop for Answering<'_> {
     fn drop(&mut self) {
-        if !self.answered {
+        let save = if !self.answered {
             let mut kept = self.teammates.kept.locked();
             if let Some(times) = kept.asked.get_mut(&self.member) {
                 if let Some(at) = times.iter().rposition(|at| *at == self.at) {
                     times.remove(at);
                 }
             }
-            self.teammates.save(&kept);
-        }
-        let mut answering = self.teammates.answering.locked();
-        if let Some(at_once) = answering.get_mut(&self.member) {
-            *at_once = at_once.saturating_sub(1);
-            if *at_once == 0 {
-                answering.remove(&self.member);
+            self.teammates.file.prepare(&*kept)
+        } else {
+            None
+        };
+        {
+            let mut answering = self.teammates.answering.locked();
+            if let Some(at_once) = answering.get_mut(&self.member) {
+                *at_once = at_once.saturating_sub(1);
+                if *at_once == 0 {
+                    answering.remove(&self.member);
+                }
             }
+        }
+        if let Some(save) = save {
+            save.write_blocking();
         }
     }
 }

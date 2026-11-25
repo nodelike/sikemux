@@ -84,20 +84,26 @@ pub(crate) struct Doing<'a> {
 
 impl Doing<'_> {
     /// The call ended with `answer`, which a call sent again gets.
-    pub(crate) fn done(self, answer: &Answer) {
-        let mut state = self.receipts.state.locked();
-        let now = epoch_ms();
-        let receipts = &mut state.record.receipts;
-        receipts.retain(|receipt| now.saturating_sub(receipt.at) < KEEP_MS);
-        receipts.push(Receipt {
-            host: self.key.0.clone(),
-            call: self.key.1.clone(),
-            answer: answer.clone(),
-            at: now,
-        });
-        let over = receipts.len().saturating_sub(MAX_RECEIPTS);
-        receipts.drain(..over);
-        self.receipts.kept.save(&state.record);
+    pub(crate) async fn done(self, answer: &Answer) {
+        let save = {
+            let mut state = self.receipts.state.locked();
+            let now = epoch_ms();
+            let receipts = &mut state.record.receipts;
+            receipts.retain(|receipt| now.saturating_sub(receipt.at) < KEEP_MS);
+            receipts.push(Receipt {
+                host: self.key.0.clone(),
+                call: self.key.1.clone(),
+                answer: answer.clone(),
+                at: now,
+            });
+            let over = receipts.len().saturating_sub(MAX_RECEIPTS);
+            receipts.drain(..over);
+            state.running.remove(&self.key);
+            self.receipts.kept.prepare(&state.record)
+        };
+        if let Some(save) = save {
+            save.write_async().await;
+        }
     }
 }
 
@@ -152,11 +158,16 @@ impl Receipts {
 
     /// Lets go of what `host` called, once it is no longer linked.
     pub(crate) fn forget(&self, host: &str) {
-        let mut state = self.state.locked();
-        let before = state.record.receipts.len();
-        state.record.receipts.retain(|receipt| receipt.host != host);
-        if state.record.receipts.len() != before {
-            self.kept.save(&state.record);
+        let save = {
+            let mut state = self.state.locked();
+            let before = state.record.receipts.len();
+            state.record.receipts.retain(|receipt| receipt.host != host);
+            (state.record.receipts.len() != before)
+                .then(|| self.kept.prepare(&state.record))
+                .flatten()
+        };
+        if let Some(save) = save {
+            save.write_blocking();
         }
     }
 }

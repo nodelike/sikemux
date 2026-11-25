@@ -23,6 +23,7 @@ use sikemux_view::pins::{
 };
 use sikemux_wire::protocol::ChatContext;
 
+use super::connection::blocking;
 use super::{Core, CoreError, CoreResult, What};
 use crate::git::Git;
 
@@ -129,22 +130,32 @@ impl Pins {
             }));
             (lines, rewrites, dropped)
         };
-        for pin in &dropped {
-            self.forget_pictures(pin);
-        }
-        let _writing = self.writing.locked();
-        for (project, kept) in rewrites {
-            let Some(path) = self.file(&project) else {
-                continue;
-            };
-            let full = std::fs::metadata(&path).is_ok_and(|file| file.len() > MAX_FILE_BYTES);
-            let written: Vec<&Pin> = match full {
-                true => kept.iter().collect(),
-                false => lines.iter().filter(|pin| pin.project == project).collect(),
-            };
-            if let Err(error) = write_lines(&path, &written, full) {
-                eprintln!("sikemux core: a pin was not kept: {error}");
+        let write = || {
+            for pin in &dropped {
+                self.forget_pictures(pin);
             }
+            let _writing = self.writing.locked();
+            for (project, kept) in rewrites {
+                let Some(path) = self.file(&project) else {
+                    continue;
+                };
+                let full = std::fs::metadata(&path).is_ok_and(|file| file.len() > MAX_FILE_BYTES);
+                let written: Vec<&Pin> = match full {
+                    true => kept.iter().collect(),
+                    false => lines.iter().filter(|pin| pin.project == project).collect(),
+                };
+                if let Err(error) = write_lines(&path, &written, full) {
+                    eprintln!("sikemux core: a pin was not kept: {error}");
+                }
+            }
+        };
+        let multi_thread = tokio::runtime::Handle::try_current().is_ok_and(|handle| {
+            handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread
+        });
+        if multi_thread {
+            tokio::task::block_in_place(write);
+        } else {
+            write();
         }
     }
 
@@ -302,52 +313,65 @@ pub(crate) async fn place(core: &Arc<Core>, params: PlacePinParams) -> CoreResul
     let project = (named.as_ref().map(|named| named.project.clone()))
         .or_else(|| cwd.as_ref().map(|cwd| core.workspaces().project_of(cwd)))
         .ok_or_else(|| CoreError::from("That agent is gone"))?;
-    let commit = cwd.and_then(|cwd| {
-        Git::quick(&cwd)
-            .trimmed(&["rev-parse", "--short", "HEAD"])
-            .ok()
-    });
-    let before = match params.before.as_deref() {
-        Some(data) => Some(core.pins().keep_picture(data)?),
-        None => None,
+    let (pin, markup) = {
+        let core = core.clone();
+        let note = note.to_owned();
+        blocking(move || {
+            let commit = cwd.and_then(|cwd| {
+                Git::quick(&cwd)
+                    .trimmed(&["rev-parse", "--short", "HEAD"])
+                    .ok()
+            });
+            let before = match params.before.as_deref() {
+                Some(data) => Some(core.pins().keep_picture(data)?),
+                None => None,
+            };
+            let now = epoch_ms();
+            let pin = Pin {
+                id: format!("pin-{}", uuid::Uuid::new_v4().simple()),
+                project,
+                agent_id: params.agent_id,
+                agent_name: named.map(|named| named.name),
+                url: cut(&params.url, MAX_URL),
+                title: cut(&params.title, MAX_LABEL),
+                width: params.width,
+                height: params.height,
+                label: cut(&params.label, MAX_LABEL),
+                selector: cut(&params.selector, MAX_SELECTOR),
+                before,
+                after: None,
+                after_by_hand: false,
+                after_private: false,
+                commit,
+                notes: vec![PinNote {
+                    by: PinBy::Person,
+                    words: cut(&note, MAX_NOTE),
+                    at: now,
+                }],
+                state: PinState::Open,
+                reopened: false,
+                since: now,
+                turn: None,
+                stopped: false,
+                working: false,
+            };
+            let markup = cut(&params.html, MAX_MARKUP);
+            core.pins().keep(vec![pin.clone()]);
+            Ok((pin, markup))
+        })
+        .await?
     };
-    let now = epoch_ms();
-    let pin = Pin {
-        id: format!("pin-{}", uuid::Uuid::new_v4().simple()),
-        project,
-        agent_id: params.agent_id.clone(),
-        agent_name: named.map(|named| named.name),
-        url: cut(&params.url, MAX_URL),
-        title: cut(&params.title, MAX_LABEL),
-        width: params.width,
-        height: params.height,
-        label: cut(&params.label, MAX_LABEL),
-        selector: cut(&params.selector, MAX_SELECTOR),
-        before,
-        after: None,
-        after_by_hand: false,
-        after_private: false,
-        commit,
-        notes: vec![PinNote {
-            by: PinBy::Person,
-            words: cut(note, MAX_NOTE),
-            at: now,
-        }],
-        state: PinState::Open,
-        reopened: false,
-        since: now,
-        turn: None,
-        stopped: false,
-        working: false,
-    };
-    let markup = cut(&params.html, MAX_MARKUP);
-    core.pins().keep(vec![pin.clone()]);
     let words = pin.notes.first().map_or("", |note| note.words.as_str());
     if let Err(error) = send(core, &pin, words, Some(&markup)).await {
-        core.pins().keep(vec![Pin {
-            state: PinState::Closed,
-            ..pin
-        }]);
+        let core = core.clone();
+        let _ = blocking(move || {
+            core.pins().keep(vec![Pin {
+                state: PinState::Closed,
+                ..pin
+            }]);
+            Ok(())
+        })
+        .await;
         return Err(error);
     }
     core.changed(What::View);
@@ -360,29 +384,47 @@ pub(crate) async fn note(core: &Arc<Core>, params: PinNoteParams) -> CoreResult<
     if words.is_empty() {
         return Err(CoreError::from("Say what is still off"));
     }
-    let was = core.pins().get(&params.id)?;
-    let mut pin = was.clone();
-    let now = epoch_ms();
-    pin.reopened |= pin.state != PinState::Open;
-    pin.state = PinState::Open;
-    pin.since = now;
-    pin.turn = None;
-    pin.stopped = false;
-    let after = pin.after.take();
-    pin.after_by_hand = false;
-    pin.after_private = false;
-    add_note(&mut pin, PinBy::Person, words.clone(), now);
-    core.pins().keep(vec![pin.clone()]);
+    let (was, pin, after) = {
+        let core = core.clone();
+        let words = words.clone();
+        blocking(move || {
+            let was = core.pins().get(&params.id)?;
+            let mut pin = was.clone();
+            let now = epoch_ms();
+            pin.reopened |= pin.state != PinState::Open;
+            pin.state = PinState::Open;
+            pin.since = now;
+            pin.turn = None;
+            pin.stopped = false;
+            let after = pin.after.take();
+            pin.after_by_hand = false;
+            pin.after_private = false;
+            add_note(&mut pin, PinBy::Person, words, now);
+            core.pins().keep(vec![pin.clone()]);
+            Ok((was, pin, after))
+        })
+        .await?
+    };
     if let Err(error) = send(core, &pin, &words, None).await {
-        core.pins().keep(vec![was]);
+        let core = core.clone();
+        let _ = blocking(move || {
+            core.pins().keep(vec![was]);
+            Ok(())
+        })
+        .await;
         return Err(error);
     }
     if let Some(after) = after {
-        core.pins().forget_pictures(&Pin {
-            before: None,
-            after: Some(after),
-            ..pin
-        });
+        let core = core.clone();
+        let _ = blocking(move || {
+            core.pins().forget_pictures(&Pin {
+                before: None,
+                after: Some(after),
+                ..pin
+            });
+            Ok(())
+        })
+        .await;
     }
     core.changed(What::View);
     Ok(())
@@ -396,43 +438,55 @@ fn add_note(pin: &mut Pin, by: PinBy, words: String, at: u64) {
 }
 
 /// The person says the spot looks right: the pin and its pictures go.
-pub(crate) fn looks_right(core: &Core, params: PinParams) -> CoreResult<()> {
-    let mut pin = core.pins().get(&params.id)?;
-    pin.state = PinState::Closed;
-    pin.since = epoch_ms();
-    core.pins().keep(vec![pin]);
-    core.changed(What::View);
-    Ok(())
+pub(crate) async fn looks_right(core: &Arc<Core>, params: PinParams) -> CoreResult<()> {
+    let core = core.clone();
+    blocking(move || {
+        let mut pin = core.pins().get(&params.id)?;
+        pin.state = PinState::Closed;
+        pin.since = epoch_ms();
+        core.pins().keep(vec![pin]);
+        core.changed(What::View);
+        Ok(())
+    })
+    .await
 }
 
 /// The picture of an answered pin's spot, or that none could be taken without the person.
-pub(crate) fn after(core: &Core, params: PinAfterParams) -> CoreResult<()> {
-    let mut pin = core.pins().get(&params.id)?;
-    if pin.state != PinState::Answered || pin.after.is_some() {
-        return Ok(());
-    }
-    match params.after.as_deref() {
-        Some(data) => pin.after = Some(core.pins().keep_picture(data)?),
-        None => pin.after_by_hand = true,
-    }
-    core.pins().keep(vec![pin]);
-    core.changed(What::View);
-    Ok(())
+pub(crate) async fn after(core: &Arc<Core>, params: PinAfterParams) -> CoreResult<()> {
+    let core = core.clone();
+    blocking(move || {
+        let mut pin = core.pins().get(&params.id)?;
+        if pin.state != PinState::Answered || pin.after.is_some() {
+            return Ok(());
+        }
+        match params.after.as_deref() {
+            Some(data) => pin.after = Some(core.pins().keep_picture(data)?),
+            None => pin.after_by_hand = true,
+        }
+        core.pins().keep(vec![pin]);
+        core.changed(What::View);
+        Ok(())
+    })
+    .await
 }
 
 /// One of a pin's pictures, as a client draws it.
-pub(crate) fn picture(core: &Core, params: PinPictureParams) -> CoreResult<PinPicture> {
-    let named = (core.pins().by_id.locked().values()).any(|pin| {
-        pin.before.as_ref() == Some(&params.id) || pin.after.as_ref() == Some(&params.id)
-    });
-    let folder = core.pins().pictures().filter(|_| named);
-    let bytes = folder
-        .and_then(|folder| std::fs::read(folder.join(format!("{}.jpg", params.id))).ok())
-        .ok_or_else(|| CoreError::from("That picture is gone"))?;
-    Ok(PinPicture {
-        mime_type: "image/jpeg".into(),
-        data: base64::engine::general_purpose::STANDARD.encode(bytes),
+pub(crate) async fn picture(core: &Arc<Core>, params: PinPictureParams) -> CoreResult<PinPicture> {
+    let core = core.clone();
+    blocking(move || {
+        let named = (core.pins().by_id.locked().values()).any(|pin| {
+            pin.before.as_ref() == Some(&params.id) || pin.after.as_ref() == Some(&params.id)
+        });
+        let folder = core.pins().pictures().filter(|_| named);
+        let bytes = folder
+            .and_then(|folder| std::fs::read(folder.join(format!("{}.jpg", params.id))).ok())
+            .ok_or_else(|| CoreError::from("That picture is gone"))?;
+        Ok(PinPicture {
+            mime_type: "image/jpeg".into(),
+            data: base64::engine::general_purpose::STANDARD.encode(bytes),
+        })
     })
+    .await
 }
 
 /// A turn began: the open pins of its agent that no turn has taken yet are its own.

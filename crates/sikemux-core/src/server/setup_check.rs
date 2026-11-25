@@ -56,10 +56,15 @@ impl Setups {
         }
     }
 
-    fn keep(&self, project: &str, run: SetupRun) {
-        let mut book = self.book.locked();
-        book.runs.insert(project.to_owned(), run);
-        self.kept.save(&*book);
+    async fn keep(&self, project: &str, run: SetupRun) {
+        let save = {
+            let mut book = self.book.locked();
+            book.runs.insert(project.to_owned(), run);
+            self.kept.prepare(&*book)
+        };
+        if let Some(save) = save {
+            save.write_async().await;
+        }
     }
 }
 
@@ -155,7 +160,7 @@ pub(crate) async fn check(
         .retain(|known| known != project);
     let ran = ran.and_then(|ran| ran.map_err(Into::into));
     if let Ok(run) = &ran {
-        core.tasks().setups.keep(project, run.clone());
+        core.tasks().setups.keep(project, run.clone()).await;
     }
     core.changed(super::changed::What::Read(super::changed::Topic::Tasks));
     ran

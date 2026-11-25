@@ -123,9 +123,14 @@ impl Team {
     }
 
     fn change<R>(&self, change: impl FnOnce(&mut Record) -> R) -> R {
-        let mut record = self.record.locked();
-        let changed = change(&mut record);
-        self.kept.save(&*record);
+        let (changed, save) = {
+            let mut record = self.record.locked();
+            let changed = change(&mut record);
+            (changed, self.kept.prepare(&*record))
+        };
+        if let Some(save) = save {
+            save.write_blocking();
+        }
         changed
     }
 

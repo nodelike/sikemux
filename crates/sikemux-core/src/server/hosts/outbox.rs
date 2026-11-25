@@ -156,48 +156,61 @@ impl Outbox {
     }
 
     pub(crate) fn push(&self, host: &str, sending: Sending) {
-        let mut record = self.record.locked();
-        record.next += 1;
-        let call =
-            (sending.call).or_else(|| (sending.key.is_none() || sending.keep).then(super::call_id));
-        let post = Post {
-            seq: record.next,
-            method: sending.method.to_owned(),
-            params: sending.params,
-            key: sending.key,
-            body: sending.body,
-            keep: sending.keep,
-            from: sending.from,
-            call,
-            lane: sending.lane,
-            pulled: sending.pulled,
-            back: sending.back,
-            at: epoch_ms(),
-        };
-        let posts = record.posts.entry(host.to_owned()).or_default();
-        if let Some(key) = &post.key {
-            posts.retain(|waiting| {
-                let replaced = waiting.key.as_ref() == Some(key);
-                if replaced {
-                    drop_body(waiting);
-                }
-                !replaced
-            });
-        }
-        posts.push_back(post);
-        while posts.len() > MAX_POSTS {
-            let Some(oldest) = posts.iter().position(|waiting| !waiting.keep) else {
-                break;
+        let mut drop_bodies = Vec::new();
+        let save = {
+            let mut record = self.record.locked();
+            record.next += 1;
+            let call = (sending.call)
+                .or_else(|| (sending.key.is_none() || sending.keep).then(super::call_id));
+            let post = Post {
+                seq: record.next,
+                method: sending.method.to_owned(),
+                params: sending.params,
+                key: sending.key,
+                body: sending.body,
+                keep: sending.keep,
+                from: sending.from,
+                call,
+                lane: sending.lane,
+                pulled: sending.pulled,
+                back: sending.back,
+                at: epoch_ms(),
             };
-            if let Some(dropped) = posts.remove(oldest) {
-                eprintln!(
-                    "sikemux core: dropped a {} waiting for a linked host, which had {MAX_POSTS} waiting",
-                    dropped.method
-                );
-                drop_body(&dropped);
+            let posts = record.posts.entry(host.to_owned()).or_default();
+            if let Some(key) = &post.key {
+                posts.retain(|waiting| {
+                    let replaced = waiting.key.as_ref() == Some(key);
+                    if replaced {
+                        if let Some(body) = &waiting.body {
+                            drop_bodies.push(body.clone());
+                        }
+                    }
+                    !replaced
+                });
             }
+            posts.push_back(post);
+            while posts.len() > MAX_POSTS {
+                let Some(oldest) = posts.iter().position(|waiting| !waiting.keep) else {
+                    break;
+                };
+                if let Some(dropped) = posts.remove(oldest) {
+                    eprintln!(
+                        "sikemux core: dropped a {} waiting for a linked host, which had {MAX_POSTS} waiting",
+                        dropped.method
+                    );
+                    if let Some(body) = dropped.body {
+                        drop_bodies.push(body);
+                    }
+                }
+            }
+            self.kept.prepare(&*record)
+        };
+        for body in drop_bodies {
+            let _ = std::fs::remove_file(body);
         }
-        self.kept.save(&*record);
+        if let Some(save) = save {
+            save.write_blocking();
+        }
     }
 
     /// The next post of `lane` to go to `host`.
@@ -231,15 +244,20 @@ impl Outbox {
     }
 
     /// The post `seq` carries its file after all, for a host too old to fetch it.
-    pub(crate) fn carry(&self, host: &str, seq: u64, method: &str) {
-        let mut record = self.record.locked();
-        if let Some(post) =
-            (record.posts.get_mut(host).into_iter().flatten()).find(|post| post.seq == seq)
-        {
-            post.pulled = false;
-            post.method = method.to_owned();
+    pub(crate) async fn carry(&self, host: &str, seq: u64, method: &str) {
+        let save = {
+            let mut record = self.record.locked();
+            if let Some(post) =
+                (record.posts.get_mut(host).into_iter().flatten()).find(|post| post.seq == seq)
+            {
+                post.pulled = false;
+                post.method = method.to_owned();
+            }
+            self.kept.prepare(&*record)
+        };
+        if let Some(save) = save {
+            save.write_async().await;
         }
-        self.kept.save(&*record);
     }
 
     pub(crate) fn has(&self, host: &str) -> bool {
@@ -252,41 +270,62 @@ impl Outbox {
 
     /// Takes away the post `seq`, which has gone. Answers whether it still waited, rather than
     /// a newer post with its key having replaced it.
-    pub(crate) fn sent(&self, host: &str, seq: u64) -> bool {
-        let mut record = self.record.locked();
-        let Some(posts) = record.posts.get_mut(host) else {
-            return false;
-        };
-        let before = posts.len();
-        posts.retain(|post| {
-            let gone = post.seq == seq;
-            if gone {
-                drop_body(post);
+    pub(crate) async fn sent(&self, host: &str, seq: u64) -> bool {
+        let mut drop_bodies = Vec::new();
+        let (waited, save) = {
+            let mut record = self.record.locked();
+            let Some(posts) = record.posts.get_mut(host) else {
+                return false;
+            };
+            let before = posts.len();
+            posts.retain(|post| {
+                let gone = post.seq == seq;
+                if gone {
+                    if let Some(body) = &post.body {
+                        drop_bodies.push(body.clone());
+                    }
+                }
+                !gone
+            });
+            let waited = posts.len() != before;
+            if posts.is_empty() {
+                record.posts.remove(host);
             }
-            !gone
-        });
-        let waited = posts.len() != before;
-        if posts.is_empty() {
-            record.posts.remove(host);
+            (waited, self.kept.prepare(&*record))
+        };
+        if !drop_bodies.is_empty() || save.is_some() {
+            let _ = tokio::task::spawn_blocking(move || {
+                for body in drop_bodies {
+                    let _ = std::fs::remove_file(body);
+                }
+                if let Some(save) = save {
+                    save.write();
+                }
+            })
+            .await;
         }
-        self.kept.save(&*record);
         waited
     }
 
     /// Takes out what waits for `host` that `wanted` picks, in the order it was sent.
     pub(crate) fn take(&self, host: &str, wanted: impl Fn(&Post) -> bool) -> Vec<Post> {
-        let mut record = self.record.locked();
-        let Some(posts) = record.posts.get_mut(host) else {
-            return Vec::new();
+        let (taken, save) = {
+            let mut record = self.record.locked();
+            let Some(posts) = record.posts.get_mut(host) else {
+                return Vec::new();
+            };
+            let (taken, kept): (VecDeque<Post>, VecDeque<Post>) = std::mem::take(posts)
+                .into_iter()
+                .partition(|post| wanted(post));
+            *posts = kept;
+            if posts.is_empty() {
+                record.posts.remove(host);
+            }
+            (taken, self.kept.prepare(&*record))
         };
-        let (taken, kept): (VecDeque<Post>, VecDeque<Post>) = std::mem::take(posts)
-            .into_iter()
-            .partition(|post| wanted(post));
-        *posts = kept;
-        if posts.is_empty() {
-            record.posts.remove(host);
+        if let Some(save) = save {
+            save.write_blocking();
         }
-        self.kept.save(&*record);
         taken.into()
     }
 
@@ -296,24 +335,37 @@ impl Outbox {
         if posts.is_empty() {
             return;
         }
-        let mut record = self.record.locked();
-        for mut post in posts {
-            record.next += 1;
-            post.seq = record.next;
-            record
-                .posts
-                .entry(host.to_owned())
-                .or_default()
-                .push_back(post);
+        let save = {
+            let mut record = self.record.locked();
+            for mut post in posts {
+                record.next += 1;
+                post.seq = record.next;
+                record
+                    .posts
+                    .entry(host.to_owned())
+                    .or_default()
+                    .push_back(post);
+            }
+            self.kept.prepare(&*record)
+        };
+        if let Some(save) = save {
+            save.write_blocking();
         }
-        self.kept.save(&*record);
     }
 
     pub(crate) fn forget(&self, host: &str) {
-        let mut record = self.record.locked();
-        if let Some(posts) = record.posts.remove(host) {
+        let (dropped, save) = {
+            let mut record = self.record.locked();
+            match record.posts.remove(host) {
+                Some(posts) => (Some(posts), self.kept.prepare(&*record)),
+                None => (None, None),
+            }
+        };
+        if let Some(posts) = dropped {
             posts.iter().for_each(drop_body);
-            self.kept.save(&*record);
+        }
+        if let Some(save) = save {
+            save.write_blocking();
         }
     }
 

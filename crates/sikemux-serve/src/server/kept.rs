@@ -2,8 +2,9 @@
 //! whole each time it changes, so it outlives a crash and a restart.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex, PoisonError};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError};
+use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -19,6 +20,49 @@ const RETRIES: usize = 5;
 pub struct Kept {
     path: Option<PathBuf>,
     queue: Arc<Queue>,
+    sync: Arc<SyncWrite>,
+}
+
+#[derive(Default)]
+struct SyncWrite {
+    next_seq: AtomicU64,
+    io: Mutex<u64>,
+}
+
+/// Serialized bytes captured under a caller's state lock, ready to be written durably after
+/// releasing that lock.
+pub struct PreparedSave {
+    path: PathBuf,
+    bytes: Vec<u8>,
+    seq: u64,
+    sync: Arc<SyncWrite>,
+}
+
+impl PreparedSave {
+    pub fn write(self) {
+        let mut written = self.sync.io.locked();
+        if self.seq <= *written {
+            return;
+        }
+        if write(&self.path, &self.bytes).is_ok() {
+            *written = self.seq;
+        }
+    }
+
+    pub async fn write_async(self) {
+        let _ = tokio::task::spawn_blocking(move || self.write()).await;
+    }
+
+    pub fn write_blocking(self) {
+        let multi_thread = tokio::runtime::Handle::try_current().is_ok_and(|handle| {
+            handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread
+        });
+        if multi_thread {
+            tokio::task::block_in_place(|| self.write());
+        } else {
+            self.write();
+        }
+    }
 }
 
 #[derive(Default)]
@@ -29,13 +73,143 @@ struct Queue {
 
 #[derive(Default)]
 struct Pending {
-    /// What was last handed to be saved.
-    last: Vec<u8>,
+    /// Sha256 digest of what was last handed to be saved.
+    last: Option<[u8; 32]>,
     next: Option<Vec<u8>>,
     writing: bool,
     hurry: bool,
+    failed: usize,
     /// Why the latest change handed to be saved did not reach the disk.
     unsaved: Option<String>,
+}
+
+struct Job {
+    due: Instant,
+    retry: bool,
+    path: PathBuf,
+    queue: Arc<Queue>,
+}
+
+struct Saver {
+    jobs: Mutex<Vec<Job>>,
+    wake: Condvar,
+}
+
+impl Saver {
+    fn schedule(&self, path: PathBuf, queue: Arc<Queue>, due: Instant, retry: bool) {
+        self.jobs.locked().push(Job {
+            due,
+            retry,
+            path,
+            queue,
+        });
+        self.wake.notify_one();
+    }
+
+    fn hurry(&self, queue: &Arc<Queue>) {
+        let now = Instant::now();
+        let mut jobs = self.jobs.locked();
+        let mut moved = false;
+        for job in jobs.iter_mut() {
+            if !job.retry && Arc::ptr_eq(&job.queue, queue) {
+                job.due = now;
+                moved = true;
+            }
+        }
+        if moved {
+            self.wake.notify_one();
+        }
+    }
+
+    fn run(&self) {
+        loop {
+            let job = {
+                let mut jobs = self.jobs.locked();
+                loop {
+                    let Some((index, earliest)) = jobs
+                        .iter()
+                        .enumerate()
+                        .min_by_key(|(_, job)| job.due)
+                        .map(|(index, job)| (index, job.due))
+                    else {
+                        jobs = self.wake.wait(jobs).unwrap_or_else(PoisonError::into_inner);
+                        continue;
+                    };
+                    let now = Instant::now();
+                    if earliest <= now {
+                        break jobs.swap_remove(index);
+                    }
+                    let wait = earliest.saturating_duration_since(now);
+                    jobs = self
+                        .wake
+                        .wait_timeout(jobs, wait)
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .0;
+                }
+            };
+            let bytes = {
+                let mut pending = job.queue.state.locked();
+                match pending.next.take() {
+                    Some(bytes) => bytes,
+                    None => {
+                        pending.writing = false;
+                        pending.hurry = false;
+                        pending.failed = 0;
+                        job.queue.changed.notify_all();
+                        continue;
+                    }
+                }
+            };
+            let written = write(&job.path, &bytes);
+            let mut pending = job.queue.state.locked();
+            match written {
+                Ok(()) => {
+                    pending.failed = 0;
+                    pending.unsaved = None;
+                }
+                Err(_) if pending.next.is_none() && pending.failed < RETRIES => {
+                    pending.failed += 1;
+                    pending.next = Some(bytes);
+                    drop(pending);
+                    self.schedule(job.path, job.queue, Instant::now() + SETTLE, true);
+                    continue;
+                }
+                Err(error) => {
+                    pending.failed = 0;
+                    pending.last = None;
+                    pending.unsaved = Some(error);
+                }
+            }
+            if pending.next.is_some() {
+                let due = if pending.hurry {
+                    Instant::now()
+                } else {
+                    Instant::now() + SETTLE
+                };
+                drop(pending);
+                self.schedule(job.path, job.queue, due, false);
+            } else {
+                pending.writing = false;
+                pending.hurry = false;
+                job.queue.changed.notify_all();
+            }
+        }
+    }
+}
+
+fn saver() -> &'static Arc<Saver> {
+    static SAVER: OnceLock<Arc<Saver>> = OnceLock::new();
+    SAVER.get_or_init(|| {
+        let saver = Arc::new(Saver {
+            jobs: Mutex::default(),
+            wake: Condvar::new(),
+        });
+        let worker = saver.clone();
+        let _ = std::thread::Builder::new()
+            .name("sikemux-save".into())
+            .spawn(move || worker.run());
+        saver
+    })
 }
 
 impl Kept {
@@ -44,6 +218,7 @@ impl Kept {
         Self {
             path: data_dir.map(|dir| dir.join(file)),
             queue: Arc::default(),
+            sync: Arc::default(),
         }
     }
 
@@ -76,19 +251,33 @@ impl Kept {
         std::fs::copy(path, &copy).map(|_| ())
     }
 
-    pub fn save<T: Serialize>(&self, value: &T) {
-        let Some(path) = &self.path else {
-            return;
-        };
+    /// Serializes `value` under the caller's lock and returns a write to run after dropping it.
+    pub fn prepare<T: Serialize>(&self, value: &T) -> Option<PreparedSave> {
+        let path = self.path.clone()?;
         match serde_json::to_vec(value) {
             Ok(bytes) => {
-                let _ = write(path, &bytes);
+                let seq = self.sync.next_seq.fetch_add(1, Ordering::AcqRel) + 1;
+                Some(PreparedSave {
+                    path,
+                    bytes,
+                    seq,
+                    sync: self.sync.clone(),
+                })
             }
-            Err(error) => eprintln!("sikemux core: {} was not saved: {error}", path.display()),
+            Err(error) => {
+                eprintln!("sikemux core: {} was not saved: {error}", path.display());
+                None
+            }
         }
     }
 
-    /// Saves on a thread of its own, so whoever changed the value never waits
+    pub fn save<T: Serialize>(&self, value: &T) {
+        if let Some(prepared) = self.prepare(value) {
+            prepared.write();
+        }
+    }
+
+    /// Saves on a shared background thread, so whoever changed the value never waits
     /// on the disk. Changes made while one is being written are saved together
     /// after it, only the latest of them. Answers false when `value` is what
     /// was last saved, which is then not written again.
@@ -103,35 +292,38 @@ impl Kept {
                 return true;
             }
         };
+        let digest: [u8; 32] = Sha256::digest(&bytes).into();
         let mut pending = self.queue.state.locked();
-        if pending.last == bytes {
+        if pending.last == Some(digest) {
             return false;
         }
-        pending.last.clone_from(&bytes);
+        pending.last = Some(digest);
         pending.next = Some(bytes);
         if pending.writing {
             return true;
         }
         pending.writing = true;
         drop(pending);
-        let (target, queue) = (path.clone(), self.queue.clone());
-        let spawned = std::thread::Builder::new()
-            .name("sikemux-save".into())
-            .spawn(move || queue.write_all(&target));
-        if spawned.is_err() {
-            self.queue.write_all(path);
-        }
+        saver().schedule(
+            path.clone(),
+            self.queue.clone(),
+            Instant::now() + SETTLE,
+            false,
+        );
         true
     }
 
     /// Waits until every [`Kept::save_soon`] so far is on disk.
     pub fn flush(&self) {
-        let mut pending = self.queue.state.locked();
-        if !pending.writing {
-            return;
+        {
+            let mut pending = self.queue.state.locked();
+            if !pending.writing {
+                return;
+            }
+            pending.hurry = true;
         }
-        pending.hurry = true;
-        self.queue.changed.notify_all();
+        saver().hurry(&self.queue);
+        let pending = self.queue.state.locked();
         drop(
             self.queue
                 .changed
@@ -144,48 +336,6 @@ impl Kept {
     /// once its writes, tries again included, are over.
     pub fn unsaved(&self) -> Option<String> {
         self.queue.state.locked().unsaved.clone()
-    }
-}
-
-impl Queue {
-    fn write_all(&self, path: &Path) {
-        let mut pending = self.state.locked();
-        let mut failed = 0;
-        loop {
-            if !pending.hurry {
-                pending = self
-                    .changed
-                    .wait_timeout_while(pending, SETTLE, |pending| !pending.hurry)
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .0;
-            }
-            let Some(bytes) = pending.next.take() else {
-                break;
-            };
-            drop(pending);
-            let written = write(path, &bytes);
-            if written.is_err() && failed < RETRIES {
-                std::thread::sleep(SETTLE);
-            }
-            pending = self.state.locked();
-            match written {
-                Ok(()) => {
-                    failed = 0;
-                    pending.unsaved = None;
-                }
-                Err(_) if pending.next.is_none() && failed < RETRIES => {
-                    failed += 1;
-                    pending.next = Some(bytes);
-                }
-                Err(error) => {
-                    pending.last.clear();
-                    pending.unsaved = Some(error);
-                }
-            }
-        }
-        pending.writing = false;
-        pending.hurry = false;
-        self.changed.notify_all();
     }
 }
 

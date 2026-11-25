@@ -386,7 +386,7 @@ pub(super) fn send_to(core: &Core, home: &str, posts: Vec<Post>) {
                 _ => Ok(()),
             };
             if let Some(doing) = doing {
-                doing.done(&done.clone().map(|()| Value::Null));
+                doing.done(&done.clone().map(|()| Value::Null)).await;
             }
             if let Err(error) = done {
                 eprintln!(

@@ -567,9 +567,9 @@ calls! { core, client, method, params;
     "countAsProduction" = CountAsProduction: Full, counted => super::places::count_as_production(&core, &client.peer, params).await?,
     "placePin" = PlacePin: Full, counted => super::pins::place(&core, params).await?,
     "notePin" = NotePin: Full, counted => super::pins::note(&core, params).await?,
-    "pinLooksRight" = PinLooksRight: Full, counted => super::pins::looks_right(&core, params)?,
-    "pinAfter" = PinAfter: Full => super::pins::after(&core, params)?,
-    "pinPicture" = PinPicture: Watch => super::pins::picture(&core, params)?,
+    "pinLooksRight" = PinLooksRight: Full, counted => super::pins::looks_right(&core, params).await?,
+    "pinAfter" = PinAfter: Full => super::pins::after(&core, params).await?,
+    "pinPicture" = PinPicture: Watch => super::pins::picture(&core, params).await?,
     "checkWebWrite" = CheckWebWrite: Owner => ship::check_web_write(&core, params).await?,
     "agentMessages": Watch, any_program => answer(messages::agent_messages(&core, parse(params)?).await?),
     "agentMessageRows" = AgentMessageRows: Watch, any_program => {

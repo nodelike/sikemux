@@ -158,31 +158,36 @@ impl Tasks {
                 ),
             }
         }
-        let mut state = self.state.locked();
-        let trust = &mut state.trust;
-        match grant {
-            Grant::Config(config) => {
-                trust
-                    .configs
-                    .retain(|known| known.trusted.path != config.path);
-                trust.configs.push(Granted {
-                    trusted: config,
-                    answered_by,
-                });
-                let over = trust.configs.len().saturating_sub(MAX_TRUSTED);
-                trust.configs.drain(..over);
+        let save = {
+            let mut state = self.state.locked();
+            let trust = &mut state.trust;
+            match grant {
+                Grant::Config(config) => {
+                    trust
+                        .configs
+                        .retain(|known| known.trusted.path != config.path);
+                    trust.configs.push(Granted {
+                        trusted: config,
+                        answered_by,
+                    });
+                    let over = trust.configs.len().saturating_sub(MAX_TRUSTED);
+                    trust.configs.drain(..over);
+                }
+                Grant::Personal(task) => {
+                    trust.personal.retain(|known| known.trusted != task);
+                    trust.personal.push(Granted {
+                        trusted: task,
+                        answered_by,
+                    });
+                    let over = trust.personal.len().saturating_sub(MAX_TRUSTED);
+                    trust.personal.drain(..over);
+                }
             }
-            Grant::Personal(task) => {
-                trust.personal.retain(|known| known.trusted != task);
-                trust.personal.push(Granted {
-                    trusted: task,
-                    answered_by,
-                });
-                let over = trust.personal.len().saturating_sub(MAX_TRUSTED);
-                trust.personal.drain(..over);
-            }
+            self.kept.prepare(&state.trust)
+        };
+        if let Some(save) = save {
+            save.write_blocking();
         }
-        self.kept.save(&state.trust);
     }
 
     /// A run of a test task ended; what it left is read once.

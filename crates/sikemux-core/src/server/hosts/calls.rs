@@ -131,8 +131,8 @@ pub(super) async fn answer(
     };
     let answer = work(core, host, method, params, body).await;
     match &answer {
-        Ok(value) if value.get("needs").is_none() => doing.done(&Ok(value.clone())),
-        Err(refusal) if refusal.kind == Kind::Final => doing.done(&Err(refusal.why.clone())),
+        Ok(value) if value.get("needs").is_none() => doing.done(&Ok(value.clone())).await,
+        Err(refusal) if refusal.kind == Kind::Final => doing.done(&Err(refusal.why.clone())).await,
         _ => {}
     }
     answer
