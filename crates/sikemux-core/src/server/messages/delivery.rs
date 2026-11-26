@@ -422,17 +422,22 @@ fn paste(core: &Arc<Core>, agent_id: &str, terminal: Arc<Session>, texts: Vec<Qu
             session::Typist::Other,
             Box::new(drop),
         );
-        if let Some(pasted) = core
-            .harness()
-            .mailbox
-            .state
-            .locked()
-            .pasted
-            .get_mut(&agent_id)
-        {
-            pasted.entered_at = Some(epoch_ms());
-        }
+        entered(&core, &agent_id);
     });
+}
+
+/// Enter went after the paste.
+pub(super) fn entered(core: &Core, agent_id: &str) {
+    if let Some(pasted) = core
+        .harness()
+        .mailbox
+        .state
+        .locked()
+        .pasted
+        .get_mut(agent_id)
+    {
+        pasted.entered_at = Some(core.uptime_ms());
+    }
 }
 
 /// The paste the agent did not take waits again, ahead of the rest.
@@ -575,7 +580,6 @@ pub(crate) fn prompt_taken(core: &Core, agent_id: &str) {
     let mailbox = &core.harness().mailbox;
     let taken = {
         let mut state = mailbox.state.locked();
-        state.missed_pastes.remove(agent_id);
         let entered = state
             .pasted
             .get(agent_id)
@@ -583,6 +587,7 @@ pub(crate) fn prompt_taken(core: &Core, agent_id: &str) {
         if !entered {
             return;
         }
+        state.missed_pastes.remove(agent_id);
         state.delivering.remove(agent_id);
         let taken = state.pasted.remove(agent_id);
         mailbox.kept.save_soon(&state.record());
@@ -626,16 +631,20 @@ pub(crate) fn prompt_settled(core: &Core, agent_id: &str, last_output_ms: u64) {
 pub(crate) fn settle(core: &Arc<Core>) {
     let mailbox = &core.harness().mailbox;
     show(core);
-    let capped: Vec<String> = mailbox.state.locked().capped.keys().cloned().collect();
-    for agent_id in capped
+    let held: Vec<String> = {
+        let state = mailbox.state.locked();
+        (state.capped.keys())
+            .chain(state.waiting.keys())
+            .chain(state.pasted.keys())
+            .cloned()
+            .collect()
+    };
+    for agent_id in held
         .into_iter()
         .filter(|agent_id| core.workspaces().closed(agent_id))
     {
-        let dropped = mailbox.change(|state| {
-            state.auto_turns.remove(&agent_id);
-            state.capped.remove(&agent_id).unwrap_or_default()
-        });
-        log(core, &agent_id, &dropped, MessageOutcome::Dropped);
+        mailbox.state.locked().auto_turns.remove(&agent_id);
+        drop_waiting(core, &agent_id);
     }
     let pasted: Vec<String> = mailbox.state.locked().pasted.keys().cloned().collect();
     for agent_id in pasted {
@@ -759,18 +768,27 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 Some(retry) if retry > epoch_ms() => next = sooner(next, Some(retry)),
                 _ => deliver_later(core, agent_id, Pending::Asleep),
             }
-        } else if core.workspaces().closed(&agent_id) {
-            log(
-                core,
-                &agent_id,
-                &mailbox.take(&agent_id),
-                MessageOutcome::Dropped,
-            );
         }
     }
     if let Some(next) = next {
         mailbox.wake.at(next);
     }
+}
+
+/// Drops every message waiting for the agent, pasted or held, unread. Answers how many there were.
+pub(crate) fn drop_waiting(core: &Core, agent_id: &str) -> usize {
+    let dropped = core.harness().mailbox.change(|state| {
+        state.missed_pastes.remove(agent_id);
+        state.offered.remove(agent_id);
+        state.offered_last.remove(agent_id);
+        let pasted = state.pasted.remove(agent_id).map(|pasted| pasted.texts);
+        (pasted.into_iter().flatten())
+            .chain(state.waiting.remove(agent_id).into_iter().flatten())
+            .chain(state.capped.remove(agent_id).into_iter().flatten())
+            .collect::<Vec<Queued>>()
+    });
+    log(core, agent_id, &dropped, MessageOutcome::Dropped);
+    dropped.len()
 }
 
 /// Puts the messages waiting for the chat in its feed, as it starts or wakes.

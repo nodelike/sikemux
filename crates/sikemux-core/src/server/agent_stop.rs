@@ -108,12 +108,21 @@ fn may_stop(core: &Core, target: &Listed, caller: &str) -> Result<(), String> {
     Err(format!("@{name} is not one you started"))
 }
 
-/// Stops the turn of an agent here for `by`, which leads it. Answers whether the turn is over.
+/// Stops the turn of an agent here for `by`, which leads it, and drops the messages waiting for
+/// it. Answers whether the turn is over.
 pub(crate) async fn stop_here(core: &Arc<Core>, agent_id: &str, by: &str) -> Result<bool, String> {
     let name = core.names().name_or_id(agent_id);
     if core.harness().mailbox.person_waiting(agent_id) {
         return Err(format!("the person is talking to @{name}"));
     }
+    let dropped = super::messages::drop_waiting(core, agent_id);
+    match stop_turn(core, agent_id, &name, by).await {
+        Err(_) if dropped > 0 && !core.agent_now(agent_id).mid_turn() => Ok(true),
+        stopped => stopped,
+    }
+}
+
+async fn stop_turn(core: &Arc<Core>, agent_id: &str, name: &str, by: &str) -> Result<bool, String> {
     let in_turn = (core.chats().get(agent_id)).is_some_and(|chat| chat.working());
     let waits = !in_turn && core.chats().resets.waits(agent_id);
     let persons = || {
@@ -129,10 +138,10 @@ pub(crate) async fn stop_here(core: &Arc<Core>, agent_id: &str, by: &str) -> Res
         return Ok(true);
     }
     if let Some(chat) = core.chats().get(agent_id) {
-        return stop_chat(core, &chat, &name, by).await;
+        return stop_chat(core, &chat, name, by).await;
     }
     match core.agent_session(agent_id) {
-        Some(terminal) => stop_terminal(core, agent_id, &terminal, &name, by).await,
+        Some(terminal) => stop_terminal(core, agent_id, &terminal, name, by).await,
         None => Err(format!("@{name} has no turn to stop")),
     }
 }

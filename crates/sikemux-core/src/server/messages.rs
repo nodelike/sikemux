@@ -35,7 +35,8 @@ mod reports;
 mod tests;
 
 pub(crate) use delivery::{
-    from_person, person_wrote, prompt_settled, prompt_taken, seed, settle, used_tool, worked,
+    drop_waiting, from_person, person_wrote, prompt_settled, prompt_taken, seed, settle, used_tool,
+    worked,
 };
 pub(crate) use format::{task, Answered, Answering, Carried, Sender};
 pub(crate) use mailbox::Mailbox;
