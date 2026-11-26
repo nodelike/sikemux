@@ -508,6 +508,8 @@ pub struct Fold {
     /// Decisions the agent recorded during the running turn, which go under its reply when the
     /// turn ends, as part of it, by the event that brought each and when it came.
     decided_in_turn: Vec<(u64, Option<u64>, AgentNotice)>,
+    /// Rebuilt from mid-turn events, so the first row's id may differ from what clients hold.
+    cut_start: bool,
 }
 
 /// A call's row worked out afresh, still counting the calls it stands for.
@@ -832,7 +834,12 @@ impl Fold {
             runs: HashMap::new(),
             sent_bytes: RefCell::default(),
             decided_in_turn: Vec::new(),
+            cut_start: false,
         }
+    }
+
+    pub fn set_cut_start(&mut self) {
+        self.cut_start = true;
     }
 
     /// Shows an effort picker from the start, as agents that offer effort on
@@ -1392,6 +1399,9 @@ impl Fold {
             return;
         };
         let gone: Vec<Row> = self.main.rows.drain(at..).collect();
+        if self.main.rows.is_empty() {
+            self.cut_start = false;
+        }
         for row in &gone {
             self.main.bytes -= row.bytes;
             self.forget_row(&None, row);

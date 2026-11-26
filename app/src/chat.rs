@@ -1078,6 +1078,10 @@ impl Chat {
         }
     }
 
+    pub(crate) fn resume_mark(&self) -> Option<ChatMark> {
+        (!self.detached).then(|| self.mark.clone()).flatten()
+    }
+
     /// What the core answered an attach with. A chat that can't be attached to while it holds
     /// rows from its middle, such as one asleep, asks for its latest rows instead.
     fn attached(
@@ -2321,7 +2325,7 @@ impl Workbench {
         };
         if let Some(chat) = self.chats.open.get_mut(&agent) {
             if std::mem::take(&mut chat.resting) {
-                let since = chat.mark.clone();
+                let since = chat.resume_mark();
                 self.ask_chat(ChatAsk::Attach { agent, since });
             }
             return;

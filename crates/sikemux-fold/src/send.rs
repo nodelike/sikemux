@@ -692,6 +692,9 @@ impl Fold {
             cut += 1;
         }
         let gone: Vec<Row> = self.main.rows.drain(..cut).collect();
+        if cut > 0 {
+            self.cut_start = false;
+        }
         for row in &gone {
             self.main.bytes -= row.bytes;
             self.forget_row(&None, row);
@@ -878,6 +881,9 @@ impl Fold {
     /// the window starts past what it held, and it needs the view whole.
     pub fn catch_up(&self, since: u64) -> Option<Vec<ChatChange>> {
         let start = self.window_start();
+        if self.cut_start && (start == 0 || !starts_turn(&self.main.rows, start)) {
+            return None;
+        }
         let rows = self.main.rows.get(start..).unwrap_or_default();
         if rows.first().is_some_and(|row| row.v > since) {
             return None;
@@ -889,6 +895,9 @@ impl Fold {
     /// them. None when more changed than the window holds, and it needs the view whole.
     pub fn added_since(&self, since: u64) -> Option<Vec<ChatChange>> {
         let start = self.window_start();
+        if self.cut_start && (start == 0 || !starts_turn(&self.main.rows, start)) {
+            return None;
+        }
         let within = !self.main.rows.iter().take(start).any(|row| row.v > since);
         within.then(|| self.changes_since(since, start, false))
     }

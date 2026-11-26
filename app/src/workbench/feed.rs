@@ -80,7 +80,7 @@ impl Workbench {
                 for (agent, chat) in self.chats.open.iter().filter(|(_, chat)| !chat.resting) {
                     self.ask_chat(ChatAsk::Attach {
                         agent: agent.clone(),
-                        since: chat.mark.clone(),
+                        since: chat.resume_mark(),
                     });
                 }
                 self.terminals.reattach(&self.asks);

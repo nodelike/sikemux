@@ -488,6 +488,17 @@ impl Feed {
                 } else if let Some(status) = &inner.status {
                     fold.apply(inner.replay.next_index, ChatEventKind::Status, status, 0);
                 }
+                let first_entry = inner.replay.entries.front();
+                let first_index = first_entry.map_or(inner.replay.next_index, |entry| entry.index);
+                let has_earlier = inner.replay.is_trimmed()
+                    || inner
+                        .replay
+                        .history
+                        .as_ref()
+                        .and_then(History::first)
+                        .is_some_and(|first| first < first_index);
+                let cut_mid_turn =
+                    has_earlier && first_entry.is_none_or(|entry| !entry.starts_turn);
                 fold.answering(inner.replay.held_ask());
                 for (index, seq, event) in inner.replay.fold_events() {
                     let at = event
@@ -497,6 +508,9 @@ impl Feed {
                         .unwrap_or_default();
                     fold.number(seq);
                     fold.apply(index, event.kind, &event.payload, at);
+                }
+                if cut_mid_turn || fold.floor().is_some_and(|floor| floor < first_index) {
+                    fold.set_cut_start();
                 }
                 // The events kept may no longer reach back to where a long turn started.
                 fold.set_running(inner.replay.in_turn);

@@ -419,3 +419,111 @@ async fn replacing_a_feed_tells_listening_clients_to_reattach() {
     }
     assert_eq!(gap, Some((mark.seq + 2, json!([]))));
 }
+
+#[tokio::test]
+async fn reattaching_an_asleep_long_turn_sends_full_view_instead_of_mismatched_keep() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = crate::server::Core::new(Default::default(), None).unwrap();
+    let (client, mut frames) = ClientConn::inside(&core, crate::server::access::Peer::Local);
+    let feed = Feed::new(
+        "agent".into(),
+        PermissionMode::WorkspaceWrite,
+        Some(dir.path()),
+    );
+    feed.set_start(ChatStart {
+        session_id: "s".into(),
+        capabilities: json!({}),
+        setup: json!({}),
+    });
+    feed.prompted(
+        None,
+        "build the connector",
+        &[],
+        &[],
+        sikemux_chat::server::chat::Whose::PERSON,
+        None,
+    );
+    feed.emit(ChatEventKind::TurnStarted, json!({}));
+    let blob = "x".repeat(60_000);
+    for n in 0..24 {
+        feed.emit(
+            ChatEventKind::SessionUpdate,
+            json!({
+                "sessionId": "s",
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": format!("call-{n}"),
+                    "title": format!("Read file {n}"),
+                    "rawInput": { "data": blob },
+                },
+            }),
+        );
+    }
+    feed.emit(
+        ChatEventKind::SessionUpdate,
+        text("agent_message_chunk", None, "All done and verified."),
+    );
+    feed.emit(
+        ChatEventKind::TurnCompleted,
+        json!({ "stopReason": "end_turn" }),
+    );
+
+    let initial = attached(&feed, &client, &mut frames, None);
+    let left_at = mark_of(&initial);
+    let ChatAttachment::Live { view, .. } = initial else {
+        panic!("initial attach sends the view");
+    };
+    let live_view: sikemux_view::chat::ChatView = serde_json::from_value(view).unwrap();
+    assert_eq!(live_view.rows.len(), 2);
+
+    feed.unsubscribe(client.id);
+    assert!(feed.rest() > 0);
+    assert!(feed.unfolded());
+
+    let reopened = attached(&feed, &client, &mut frames, Some(left_at.clone()));
+    let ChatAttachment::Live { view, .. } = reopened else {
+        panic!("reattaching a mid-turn reloaded asleep chat must send Live, not Resumed");
+    };
+    let view: sikemux_view::chat::ChatView = serde_json::from_value(view).unwrap();
+    assert!(
+        !view.rows.is_empty(),
+        "reopened asleep chat must show its tail rows"
+    );
+    let text_shown: String = view
+        .rows
+        .iter()
+        .flat_map(|row| row.parts.iter())
+        .filter_map(|part| match part {
+            sikemux_view::chat::ChatPart::Text { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(text_shown.contains("All done and verified."));
+    let before = view
+        .older_before
+        .expect("earlier part of the turn pages back");
+    let page = feed.history(feed.id(), before, 20).unwrap();
+    assert!(!page.rows.is_empty());
+
+    feed.outlive_chat();
+    let feed_id = feed.id().to_owned();
+    drop(feed);
+
+    let kept = Feed::kept(
+        "agent".into(),
+        PermissionMode::WorkspaceWrite,
+        dir.path(),
+        &feed_id,
+    );
+    kept.set_start(ChatStart {
+        session_id: "s".into(),
+        capabilities: json!({}),
+        setup: json!({}),
+    });
+    assert!(kept.rest() > 0);
+    let unshelved = attached(&kept, &client, &mut frames, Some(left_at));
+    assert!(
+        matches!(unshelved, ChatAttachment::Live { .. }),
+        "reattaching an unshelved mid-turn chat with a prior mark must send Live"
+    );
+}
