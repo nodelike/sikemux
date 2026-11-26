@@ -21,7 +21,9 @@ use serde_json::{json, Value};
 use sikemux_plugin_api::vault::Caller;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
+use sikemux_view::calls::CallResult;
 use sikemux_view::inbox::{ShipHold, ShipKind};
+use sikemux_view::places::Level;
 use sikemux_view::slice::Verdict;
 
 use super::person_calls::{self, Raise};
@@ -827,10 +829,14 @@ pub(super) fn check_call(
         })
     };
     let standing_yes = |key: &str, once: bool, since: u64| {
-        person_calls::find_key(core, &project, key)
-            .filter(|call| (call.answer.as_ref()).is_some_and(|answer| answer.at >= since))
-            .filter(|call| passes(core, call, agent_id))
-            .filter(|call| core.ship().claim(&call.id, once, follows))
+        let call = person_calls::find_key(core, &project, key)
+            .filter(|call| passes(core, call, agent_id))?;
+        let fresh = (call.answer.as_ref()).is_some_and(|answer| answer.at >= since);
+        if !fresh && call.outcome.is_none() {
+            let unused = person_calls::outcome(CallResult::NotShipped);
+            person_calls::set_outcome(core, &call.id, unused);
+        }
+        Some(call).filter(|call| fresh && core.ship().claim(&call.id, once, follows))
     };
     match judged.goes {
         Goes::Freely => Ok(deploy(None, None)),
@@ -861,10 +867,11 @@ pub(super) fn check_call(
                 reason = "a judgement that asks always names its place"
             )]
             let ((key, once), gated) = keyed.zip(judged.place.clone()).expect("a place asks");
-            // A yes given before the person last set the place's level no longer counts, so a
-            // place they set back to ask does ask.
-            let level_set = (gated.shown.said_by.as_ref()).map_or(0, |said| said.at);
-            if let Some(yes) = standing_yes(&key, once, level_set) {
+            // A yes given before the person set the place back to ask no longer counts.
+            let set_to_ask = (gated.shown.said_by.as_ref())
+                .filter(|_| gated.shown.level == Level::Mine)
+                .map_or(0, |said| said.at);
+            if let Some(yes) = standing_yes(&key, once, set_to_ask) {
                 starts_on_yes(core, agent_id, &yes.id, once, &ship.what)?;
                 return Ok(deploy(Some(yes.id), None));
             }
