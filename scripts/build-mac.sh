@@ -90,6 +90,7 @@ mkdir "$LAYOUT/.background"
 /usr/bin/ditto "$APP_PATH" "$LAYOUT/$APP_NAME.app"
 ln -s /Applications "$LAYOUT/Applications"
 /usr/bin/ditto "$ROOT/packaging/dmg/background.tiff" "$LAYOUT/.background/background.tiff"
+/usr/bin/ditto "$ROOT/packaging/dmg/DS_Store" "$LAYOUT/.DS_Store"
 /usr/bin/ditto "$ROOT/packaging/icons/build/sikemux.icns" "$LAYOUT/.VolumeIcon.icns"
 /usr/bin/hdiutil create -volname "$APP_NAME" -srcfolder "$LAYOUT" -fs HFS+ -format UDRW -ov -quiet "$LAYOUT.rw.dmg" ||
   fail "could not lay out the DMG"

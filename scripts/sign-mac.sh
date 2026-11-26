@@ -166,6 +166,10 @@ if [[ "$(ls -A "$MOUNT/.background")" != "background.tiff" ]] ||
   ! /usr/bin/cmp -s "$MOUNT/.background/background.tiff" "$ROOT/packaging/dmg/background.tiff"; then
   fail "the DMG background is not packaging/dmg/background.tiff"
 fi
+if [[ ! -f "$MOUNT/.DS_Store" ]] ||
+  ! /usr/bin/cmp -s "$MOUNT/.DS_Store" "$ROOT/packaging/dmg/DS_Store"; then
+  fail "the DMG layout is not packaging/dmg/DS_Store"
+fi
 rm -rf "${MOUNT:?}/$APP_NAME.app" "$MOUNT/.fseventsd" "$MOUNT/.Trashes"
 /usr/bin/ditto "$APP" "$MOUNT/$APP_NAME.app"
 /usr/bin/hdiutil detach "$MOUNT" -quiet || fail "could not unmount the DMG"

@@ -79,6 +79,10 @@ if (app.name !== "Sikemux" || app.identifier !== "com.nodelike.sikemux") fail("t
 if (app["dev-name"] !== "Sikemux Dev" || app["dev-identifier"] !== "com.nodelike.sikemux.dev") fail("the dev app's name or identifier changed");
 if (!macBuild.includes("cargo build --release --locked --bin sikemux")) fail("macOS build does not build the GPUI app");
 if (!macBuild.includes('/usr/bin/hdiutil convert "$LAYOUT.rw.dmg" -format ULMO')) fail("macOS build does not pack the DMG");
+if (!macBuild.includes('"$ROOT/packaging/dmg/DS_Store" "$LAYOUT/.DS_Store"')) fail("macOS build does not copy packaging/dmg/DS_Store into the DMG");
+if (!fs.existsSync("packaging/dmg/DS_Store")) fail("packaging/dmg/DS_Store is missing");
+const macSign = fs.readFileSync("scripts/sign-mac.sh", "utf8");
+if (!macSign.includes('"$MOUNT/.DS_Store" "$ROOT/packaging/dmg/DS_Store"')) fail("macOS signing does not verify the DMG's .DS_Store layout");
 if (!macBuild.includes("_aarch64.dmg")) fail("the DMG's name lost the _aarch64.dmg suffix sikemux.com finds its Download button by");
 if (!macBuild.includes('"$ROOT/packaging/icons/build/Assets.car" "$APP_PATH/Contents/Resources/Assets.car"')) fail("Assets.car is not bundled");
 if (!macBuild.includes('-c "Merge $ROOT/packaging/Info.plist"')) fail("pre-signing Info.plist merge is not configured");
