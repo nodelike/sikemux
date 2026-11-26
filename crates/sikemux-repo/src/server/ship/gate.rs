@@ -160,7 +160,7 @@ pub(super) struct Asking<'a> {
 
 /// Whether an ask about `ship` at `place` may offer to stop asking there: the person confirmed
 /// the project's list, which keeps the place, so its level can be set, and the change is an
-/// ordinary one, as that offer leaves the rest waiting for their yes.
+/// ordinary deploy, as that offer leaves the rest waiting for their yes.
 pub(super) fn may_stop_asking(
     core: &Core,
     project: &str,
@@ -272,12 +272,12 @@ pub(super) fn call_for(
                 .filter(|asking| asking.always)
                 .map(|_| CallOption {
                     detail: Some(format!(
-                        "Agents change {} without asking from now on, and you're told each time. Tags, releases and forced pushes still wait for you. Set it back to Mine on the Playbook's Places.",
+                        "Agents deploy to {} without asking from now on, and you're told each time. Releases, forced pushes and anything that isn't a deploy still wait for you. Set it back to Mine on the Playbook's Places.",
                         place.name()
                     )),
                     ..option(
                         ALWAYS,
-                        format!("Change {}, and always allow changes there", place.name()),
+                        format!("Change {}, and always allow deploys there", place.name()),
                     )
                 }),
             Some(option(person_calls::HOLD_REFUSE, "Not now".to_owned())),
@@ -779,7 +779,7 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
             asked
         ),
         Some(ALWAYS) => format!(
-            "The person said yes on the call \"{}\", and to let changes to {place} run from now on, telling them of each; a tag, a release or a forced push there still asks. Run `{action}` again now.",
+            "The person said yes on the call \"{}\", and to let deploys to {place} run from now on, telling them of each; a release, a forced push or anything that isn't a deploy still asks there. Run `{action}` again now.",
             asked
         ),
         _ if said_yes(option.as_deref()) && once => format!(

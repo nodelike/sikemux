@@ -186,16 +186,11 @@ fn level_for(
 }
 
 /// Whether `ship` is a change that `place` lets run once the person always allowed it on a
-/// call: no tag, no GitHub release, and no push that `rewrites`, doing more than send commits.
-/// A place that takes tags or GitHub releases has none, since every change there is a release,
-/// however it is started.
+/// call: a deploy, and no push that `rewrites`, doing more than send commits. A place that
+/// takes tags or GitHub releases has none, since every change there is a release, however it
+/// is started.
 pub fn ordinary(place: &Place, ship: &Ship, rewrites: bool) -> bool {
-    let release = match ship.target.as_ref().map(Target::bare) {
-        Some(Target::Tag { .. }) => true,
-        Some(Target::Package { registry }) => registry == GITHUB_RELEASES,
-        _ => false,
-    };
-    !rewrites && !release && !place.recognise.iter().any(releases)
+    ship.kind == ShipKind::Deploy && !rewrites && !place.recognise.iter().any(releases)
 }
 
 fn releases(fact: &Recognise) -> bool {
