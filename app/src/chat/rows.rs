@@ -231,6 +231,20 @@ pub(super) fn row(
                         open,
                         looks.file_pressed(),
                         |id| super::page::opens_page(id, looks),
+                        |id| {
+                            let open = looks.bench.upgrade()?.read(cx).call_at(id).is_some_and(
+                                |(_, call)| call.state == sikemux_view::calls::CallState::Open,
+                            );
+                            open.then(|| {
+                                let (bench, id, agent) =
+                                    (looks.bench.clone(), id.to_owned(), looks.agent.clone());
+                                std::rc::Rc::new(move |_: &mut Window, cx: &mut App| {
+                                    bench
+                                        .update(cx, |bench, cx| bench.open_in_asks(&id, &agent, cx))
+                                        .ok();
+                                }) as super::page::Opens
+                            })
+                        },
                         cx,
                     ))
                     .when(!parts.is_empty(), |column| {

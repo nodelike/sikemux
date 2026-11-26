@@ -20,7 +20,7 @@ use gpui_kit::{
 use gpui_transcript::FilePress;
 use sikemux_view::chat::{
     tracked_at, tracked_title, SentChip, SentChipKind, SentSpan, TrackedKind, AGENT_URI,
-    ARTIFACT_URI, EARLIER_URI, REPLY_URI, SIDE_URI, STASH_URI, WOKEN_URI,
+    ARTIFACT_URI, CALL_URI, EARLIER_URI, REPLY_URI, SIDE_URI, STASH_URI, WOKEN_URI,
 };
 use sikemux_view::chat::{ChatMessage, SentContext, WhyChip, WhyKind, WhyOpen, WHY_URI};
 use sikemux_wire::protocol::ChatContext;
@@ -1692,6 +1692,7 @@ pub(crate) fn context_chip(
         ),
         None if uri.starts_with(EARLIER_URI) => (Icon::Message, title.to_owned()),
         None if uri.starts_with(ARTIFACT_URI) => (Icon::Presentation, title.to_owned()),
+        None if uri.starts_with(CALL_URI) => (Icon::Bell, title.to_owned()),
         None if uri.starts_with(STASH_URI) => (Icon::Text, title.to_owned()),
         None if uri.starts_with(SIDE_URI) => (Icon::Message, title.to_owned()),
         None if web => (
@@ -1701,7 +1702,7 @@ pub(crate) fn context_chip(
         None if title.is_empty() => (Icon::File, uri.to_owned()),
         None => (Icon::File, title.to_owned()),
     };
-    let tooltip = match uri.starts_with(ARTIFACT_URI) {
+    let tooltip = match uri.starts_with(ARTIFACT_URI) || uri.starts_with(CALL_URI) {
         true => title.clone(),
         false => uri.to_owned(),
     };
@@ -1759,6 +1760,7 @@ pub fn sent(
     open: impl Fn(PathBuf, &mut Window, &mut App) + Clone + 'static,
     file: super::files::FilePressed,
     page: impl Fn(&str) -> super::page::Opens,
+    call: impl Fn(&str) -> Option<super::page::Opens>,
     cx: &App,
 ) -> Option<Div> {
     if message.attachments.is_empty() && message.context.is_empty() {
@@ -1805,12 +1807,16 @@ pub fn sent(
                 None,
                 &t,
             );
-            match item.uri.strip_prefix(ARTIFACT_URI) {
-                Some(id) => {
-                    let open = page(id);
-                    chip.on_click(move |_, window, cx| open(window, cx))
+            if let Some(id) = item.uri.strip_prefix(ARTIFACT_URI) {
+                let open = page(id);
+                chip.on_click(move |_, window, cx| open(window, cx))
+            } else if let Some(id) = item.uri.strip_prefix(CALL_URI) {
+                match call(id) {
+                    Some(open) => chip.on_click(move |_, window, cx| open(window, cx)),
+                    None => chip,
                 }
-                None => chip,
+            } else {
+                chip
             }
         })
         .collect();

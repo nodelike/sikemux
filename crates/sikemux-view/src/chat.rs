@@ -923,6 +923,8 @@ pub const EARLIER_URI: &str = "sikemux://earlier/";
 pub const WOKEN_URI: &str = "sikemux://woken/";
 /// An artifact the person wrote under, by its id.
 pub const ARTIFACT_URI: &str = "sikemux://artifact/";
+/// An open call the person wrote about without answering, by its id.
+pub const CALL_URI: &str = "sikemux://call/";
 /// Something from the person's stash, by its id.
 pub const STASH_URI: &str = "sikemux://stash/";
 /// An earlier answer the person replies to, by its message id, with `#` and a part for one

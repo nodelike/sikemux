@@ -1020,7 +1020,7 @@ yours true:
   `questionId` it returned and `withdraw: true`, then carry on.
 - Its wording, choices, `pick` or pages changed: `ask` with `edit` and the new
   fields changes it in place. Never raise a second call for the same thing.
-- A message starting `On your call "…", which stays open:` is the person
+- A message carrying a `sikemux://call/…` context (`On your call … "…", which stays open.`) is the person
   writing about the call without answering it. Reply in chat, then edit or
   withdraw the call when what they wrote settles it.
 

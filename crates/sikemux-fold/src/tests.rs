@@ -2678,6 +2678,42 @@ mod prompt_context {
     }
 
     #[test]
+    fn a_call_reply_folds_to_clean_words_and_a_call_chip() {
+        const CALL: &str = "sikemux://call/question-b7de9e7a6be144c88d7a66300c01dc84";
+        const TITLE: &str = "Browser Profiles UI";
+        const WRITTEN: &str = "Yeah but there is no edit spaces section in side rail";
+        let body = format!(
+            "{TITLE}\nOn your call question-b7de9e7a6be144c88d7a66300c01dc84 \"{TITLE}\", which stays open."
+        );
+        let sent = [
+            Chat::new()
+                .prompt(json!({
+                    "text": WRITTEN,
+                    "context": [{ "uri": CALL, "title": TITLE }],
+                }))
+                .rows(),
+            Chat::new()
+                .update(say(
+                    "user_message_chunk",
+                    &format!("{WRITTEN}{CALL}\n<context ref=\"{CALL}\">\n{body}\n</context>"),
+                ))
+                .rows(),
+        ];
+        for rows in sent {
+            assert_eq!(rows[0].parts.len(), 1);
+            assert!(
+                matches!(&rows[0].parts[0], ChatPart::Text { text, .. } if text == WRITTEN),
+                "visible bubble text must not carry the call prefix: {:?}",
+                rows[0].parts
+            );
+            assert_eq!(
+                rows[0].context,
+                vec![SentContext::new(CALL.into(), TITLE.into())]
+            );
+        }
+    }
+
+    #[test]
     fn leaves_ordinary_text_alone() {
         assert_eq!(
             prompt::split_sent_context("### Heading\nnot a section"),

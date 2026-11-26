@@ -9,7 +9,7 @@ use gpui_kit::{AnyElement, App, Context, Entity, IntoElement, SharedString, Wind
 use sikemux_calls::call;
 use sikemux_calls::chat::PromptChatParams;
 use sikemux_view::calls::{AnswerCallParams, CallKind, PersonCall};
-use sikemux_view::chat::ARTIFACT_URI;
+use sikemux_view::chat::{ARTIFACT_URI, CALL_URI};
 use sikemux_wire::protocol::ChatContext;
 
 use crate::chat::composer::Act;
@@ -78,15 +78,29 @@ pub(crate) fn composer(
     Some(crate::chat::mounted(owner, composer, offering, cx).into_any_element())
 }
 
-/// What tells the asker of `call` that `words` are about it and leave it open.
-fn note_on(call: &PersonCall, words: &str) -> String {
+/// What tells the asker of `call` that the message is about it and leaves it open, carried as
+/// context so the transcript shows a chip instead of the call id.
+fn call_context(call: &PersonCall) -> ChatContext {
     let about = (call.title.as_deref())
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
         .or_else(|| (call.question.lines().map(str::trim)).find(|line| !line.is_empty()))
-        .unwrap_or_default();
-    format!(
-        "On your call {} \"{about}\", which stays open: {words}",
+        .unwrap_or("Call")
+        .replace(['\r', '\n'], " ");
+    let title = match about.char_indices().nth(240) {
+        Some((cut, _)) => format!("{}…", about.get(..cut).unwrap_or(&about).trim_end()),
+        None => about,
+    };
+    let text = format!(
+        "{title}\nOn your call {} \"{title}\", which stays open.",
         call.id
     )
+    .replace("</context", "&lt;/context");
+    ChatContext {
+        uri: format!("{CALL_URI}{}", call.id),
+        text,
+        title,
+    }
 }
 
 impl Workbench {
@@ -180,14 +194,16 @@ impl Workbench {
             return;
         };
         let words = composing.content(cx).text().trim().to_owned();
-        let paths = composing.outgoing(cx).0;
+        let (paths, mut context) = composing.outgoing(cx);
         if words.is_empty() && paths.is_empty() {
             return;
         }
+        context.push(call_context(call));
         let asker = call.asker.clone();
         let params = PromptChatParams {
             paths,
-            ..PromptChatParams::new(asker.agent_id, note_on(call, &words))
+            context,
+            ..PromptChatParams::new(asker.agent_id, words)
         };
         let to = crate::core::Target::new(&self.asks, place);
         self.send_aside(&owner, params, to, asker.name, window, cx);
@@ -217,20 +233,20 @@ impl Workbench {
             text: format!("Written over the artifact \"{title}\" (page id {id})."),
             title,
         });
-        let (to, name, text) = match self.asked_about(id, agent, cx) {
+        let (to, name) = match self.asked_about(id, agent, cx) {
             Some(call) => {
-                let text = note_on(&call, &words);
-                (call.asker.agent_id, call.asker.name, text)
+                context.push(call_context(&call));
+                (call.asker.agent_id, call.asker.name)
             }
             None => {
                 let name = self.agent_by_id(agent).and_then(|row| row.name);
-                (agent.to_owned(), name.unwrap_or_default(), words)
+                (agent.to_owned(), name.unwrap_or_default())
             }
         };
         let params = PromptChatParams {
             paths,
             context,
-            ..PromptChatParams::new(to, text)
+            ..PromptChatParams::new(to, words)
         };
         let at = self.chat_target(owner);
         self.send_aside(owner, params, at, name, window, cx);
