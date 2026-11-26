@@ -7,16 +7,14 @@ use crate::error::{Cloudflare, CloudflareResult};
 
 const REVOKE_URL: &str = "https://dash.cloudflare.com/oauth2/revoke";
 
-pub const SCOPES: &str = "user.read account.read zone.read zone.write dns.read dns.write \
-    cache_purge.write workers_scripts.read workers_routes.read pages.read offline_access";
+pub const SCOPES: &str = "user-details.read account-settings.read zone.read zone.write dns.read \
+    dns.write cache.purge workers-scripts.metadata_read workers-routes.read page.read \
+    offline_access";
 
 pub static APP: OAuthApp = OAuthApp {
     icon: include_str!("../../../app/assets/icons/cloudflare.svg"),
     callback: "/cloudflare/callback",
-    client_id: match option_env!("CLOUDFLARE_OAUTH_CLIENT_ID") {
-        Some(id) => id,
-        None => "",
-    },
+    client_id: "3817183e7e1e6f383bda840adf76220e",
     secret: Secret::None,
     authorize_url: "https://dash.cloudflare.com/oauth2/auth",
     authorize: Authorize::Code(&[("scope", SCOPES)]),
