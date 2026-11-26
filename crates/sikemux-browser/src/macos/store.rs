@@ -1,7 +1,7 @@
-//! Keeps tabs signed in. WebKit's tracking prevention treats sign-in hosts as
-//! trackers and clears what sites keep in page storage after a week, and cookies
-//! only reach disk a few seconds after a site sets them, so a crash in between
-//! brings back a session the site has already replaced.
+//! Keeps tabs signed in. WebKit's tracking prevention clears what sites keep in
+//! page storage after a week, and cookies only reach disk a few seconds after a
+//! site sets them, so a crash in between brings back a session the site has
+//! already replaced.
 
 use std::cell::{Cell, OnceCell};
 use std::time::Duration;
@@ -56,15 +56,9 @@ define_class!(
 pub(super) fn prepare(mtm: MainThreadMarker) {
     SAVER.with(|saver| {
         saver.get_or_init(|| {
+            keep_page_storage();
             // SAFETY: main thread, as `mtm` proves.
             let store = unsafe { WKWebsiteDataStore::defaultDataStore(mtm) };
-            if store.respondsToSelector(sel!(_setResourceLoadStatisticsEnabled:)) {
-                // SAFETY: WebKit's own switch for tracking prevention, taking a BOOL;
-                // checked above that this WebKit still has it.
-                let _: () = unsafe {
-                    msg_send![&*store, _setResourceLoadStatisticsEnabled: Bool::NO]
-                };
-            }
             let saver: Retained<CookieSaver> =
                 // SAFETY: a fresh CookieSaver, initialised as NSObject documents.
                 unsafe { msg_send![super(CookieSaver::alloc(mtm).set_ivars(Cell::new(false))), init] };
@@ -78,6 +72,24 @@ pub(super) fn prepare(mtm: MainThreadMarker) {
             saver
         });
     });
+}
+
+/// Tracking prevention stays on, since WebKit only keeps the `Partitioned` cookies an
+/// embedded frame sets while it is, and a claude.ai artifact's frame loads nothing
+/// without them. Only its clearing of page storage after a week is switched off, which
+/// WebKit reads from this default when it first sets the store up.
+fn keep_page_storage() {
+    let key = NSString::from_str("WebKitExperimentalIsFirstPartyWebsiteDataRemovalDisabled");
+    let yes = NSNumber::numberWithBool(true);
+    // SAFETY: Foundation's documented calls with the types they take; a registered
+    // default lasts for this run only and is never written to disk.
+    unsafe {
+        let defaults: Retained<NSDictionary> =
+            msg_send![objc2::class!(NSDictionary), dictionaryWithObject: &*yes, forKey: &*key];
+        let standard: Retained<NSObject> =
+            msg_send![objc2::class!(NSUserDefaults), standardUserDefaults];
+        let _: () = msg_send![&*standard, registerDefaults: &*defaults];
+    }
 }
 
 /// Asks WebKit to write every cookie to disk now. It goes on without waiting, so it
