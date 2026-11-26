@@ -452,9 +452,8 @@ impl Workbench {
             "theme.set" => return self.theme_set(request, answer, cx),
             _ => {}
         }
-        let run: Box<dyn FnOnce() -> Result<Value, String> + Send> = if is_sim_method(
-            &request.method,
-        ) {
+        let is_sim = is_sim_method(&request.method);
+        let run: Box<dyn FnOnce() -> Result<Value, String> + Send> = if is_sim {
             let engine = Arc::clone(self.sims.read(cx).engine());
             Box::new(move || sikemux_simulator::tools::execute(&engine, &request))
         } else if let Some(engine) = self
