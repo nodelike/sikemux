@@ -115,14 +115,6 @@ pub(crate) async fn stop_here(core: &Arc<Core>, agent_id: &str, by: &str) -> Res
     if core.harness().mailbox.person_waiting(agent_id) {
         return Err(format!("the person is talking to @{name}"));
     }
-    let dropped = super::messages::drop_waiting(core, agent_id);
-    match stop_turn(core, agent_id, &name, by).await {
-        Err(_) if dropped > 0 && !core.agent_now(agent_id).mid_turn() => Ok(true),
-        stopped => stopped,
-    }
-}
-
-async fn stop_turn(core: &Arc<Core>, agent_id: &str, name: &str, by: &str) -> Result<bool, String> {
     let in_turn = (core.chats().get(agent_id)).is_some_and(|chat| chat.working());
     let waits = !in_turn && core.chats().resets.waits(agent_id);
     let persons = || {
@@ -134,16 +126,25 @@ async fn stop_turn(core: &Arc<Core>, agent_id: &str, name: &str, by: &str) -> Re
     }
     if waits {
         core.inbox().stop_by(agent_id, by);
+        super::messages::drop_waiting(core, agent_id);
         super::chat::reset::stop(core, agent_id);
         return Ok(true);
     }
     if let Some(chat) = core.chats().get(agent_id) {
-        return stop_chat(core, &chat, name, by).await;
+        return stop_chat(core, &chat, &name, by).await;
     }
     match core.agent_session(agent_id) {
-        Some(terminal) => stop_terminal(core, agent_id, &terminal, name, by).await,
-        None => Err(format!("@{name} has no turn to stop")),
+        Some(terminal) => stop_terminal(core, agent_id, &terminal, &name, by).await,
+        None => stop_idle(core, agent_id, &name, by),
     }
+}
+
+fn stop_idle(core: &Core, agent_id: &str, name: &str, by: &str) -> Result<bool, String> {
+    if super::messages::drop_waiting(core, agent_id) > 0 {
+        core.inbox().stop_by(agent_id, by);
+        return Ok(true);
+    }
+    Err(format!("@{name} has no turn to stop"))
 }
 
 async fn stop_chat(
@@ -154,7 +155,7 @@ async fn stop_chat(
 ) -> Result<bool, String> {
     let agent_id = chat.agent_id();
     if !chat.working() {
-        return Err(format!("@{name} has no turn to stop"));
+        return stop_idle(core, agent_id, name, by);
     }
     core.inbox().stop_by(agent_id, by);
     if let Err(error) = super::chat::stop_turn(chat) {
@@ -163,11 +164,13 @@ async fn stop_chat(
     }
     let _ = timeout(STOPS_WITHIN, chat.settled()).await;
     if core.agent_now(agent_id).mid_turn() {
+        super::messages::drop_waiting(core, agent_id);
         return Ok(false);
     }
     if core.inbox().stopped_by(agent_id).is_none() {
         return Err(format!("@{name} had just ended its turn itself"));
     }
+    super::messages::drop_waiting(core, agent_id);
     Ok(!core
         .chats()
         .get(agent_id)
@@ -188,7 +191,7 @@ async fn stop_terminal(
         ));
     }
     if !core.agent_now(agent_id).mid_turn() {
-        return Err(format!("@{name} has no turn to stop"));
+        return stop_idle(core, agent_id, name, by);
     }
     let began = core.seen().started_at(agent_id).unwrap_or_else(epoch_ms);
     let typed = core.ship().spoke_at(agent_id).unwrap_or_default();
@@ -196,6 +199,7 @@ async fn stop_terminal(
         return Err(format!("the person is talking to @{name}"));
     }
     core.inbox().stop_by(agent_id, by);
+    super::messages::drop_waiting(core, agent_id);
     let asked = Instant::now();
     let mut again = Some(ESCAPES_AGAIN_AFTER);
     escape(terminal);

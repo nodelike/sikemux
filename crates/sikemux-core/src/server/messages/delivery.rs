@@ -412,6 +412,17 @@ fn paste(core: &Arc<Core>, agent_id: &str, terminal: Arc<Session>, texts: Vec<Qu
     let (core, agent_id) = (core.clone(), agent_id.to_owned());
     tokio::spawn(async move {
         tokio::time::sleep(ENTER_AFTER_PASTE).await;
+        let pending = core
+            .harness()
+            .mailbox
+            .state
+            .locked()
+            .pasted
+            .get(&agent_id)
+            .is_some_and(|pasted| pasted.entered_at.is_none());
+        if !pending {
+            return;
+        }
         if agent::asks_now(&core, &terminal) {
             unpasted(&core, &agent_id);
             return;
@@ -631,7 +642,7 @@ pub(crate) fn prompt_settled(core: &Core, agent_id: &str, last_output_ms: u64) {
 pub(crate) fn settle(core: &Arc<Core>) {
     let mailbox = &core.harness().mailbox;
     show(core);
-    let held: Vec<String> = {
+    let held: HashSet<String> = {
         let state = mailbox.state.locked();
         (state.capped.keys())
             .chain(state.waiting.keys())
@@ -656,6 +667,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         let mut state = mailbox.state.locked();
         let State {
             waiting,
+            pasted,
             wake_failed,
             missed_pastes,
             delivering,
@@ -664,7 +676,8 @@ pub(crate) fn settle(core: &Arc<Core>) {
         } = &mut *state;
         unsteered.retain(|agent_id| waiting.contains_key(agent_id));
         wake_failed.retain(|agent_id, _| waiting.contains_key(agent_id));
-        missed_pastes.retain(|agent_id, _| waiting.contains_key(agent_id));
+        missed_pastes
+            .retain(|agent_id, _| waiting.contains_key(agent_id) || pasted.contains_key(agent_id));
         waiting
             .keys()
             .filter(|agent_id| !delivering.contains(*agent_id))
@@ -777,11 +790,26 @@ pub(crate) fn settle(core: &Arc<Core>) {
 
 /// Drops every message waiting for the agent, pasted or held, unread. Answers how many there were.
 pub(crate) fn drop_waiting(core: &Core, agent_id: &str) -> usize {
+    let has_any = {
+        let state = core.harness().mailbox.state.locked();
+        state.pasted.contains_key(agent_id)
+            || state.waiting.contains_key(agent_id)
+            || state.capped.contains_key(agent_id)
+            || state.missed_pastes.contains_key(agent_id)
+            || state.offered.contains_key(agent_id)
+            || state.offered_last.contains_key(agent_id)
+    };
+    if !has_any {
+        return 0;
+    }
     let dropped = core.harness().mailbox.change(|state| {
         state.missed_pastes.remove(agent_id);
         state.offered.remove(agent_id);
         state.offered_last.remove(agent_id);
         let pasted = state.pasted.remove(agent_id).map(|pasted| pasted.texts);
+        if pasted.is_some() {
+            state.delivering.remove(agent_id);
+        }
         (pasted.into_iter().flatten())
             .chain(state.waiting.remove(agent_id).into_iter().flatten())
             .chain(state.capped.remove(agent_id).into_iter().flatten())
