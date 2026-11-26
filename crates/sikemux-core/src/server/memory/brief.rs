@@ -153,7 +153,6 @@ pub(crate) fn after_compaction(core: &Core, agent_id: &str) -> Option<String> {
         }
         let goal_rules: Vec<String> = person_rules
             .into_iter()
-            .filter(|rule| rule.learned.agent.is_none())
             .take(MAX_RULES)
             .map(|rule| format!("- #{} {}", rule.id, crate::text::one_line(&rule.text)))
             .collect();

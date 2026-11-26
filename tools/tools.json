@@ -2276,11 +2276,9 @@
           "type": "boolean"
         },
         "pinned": {
-          "description": "Keep this decision pinned in Tier 1 briefs regardless of recency",
           "type": "boolean"
         },
         "supersedes": {
-          "description": "Earlier decision id this decision replaces and retires from active briefs",
           "type": "integer",
           "minimum": 1
         }
@@ -2360,11 +2358,9 @@
           "type": "boolean"
         },
         "pinned": {
-          "description": "Always include in Tier 1 briefs regardless of query or recency",
           "type": "boolean"
         },
         "supersedes": {
-          "description": "Earlier rule or knowledge id this entry replaces",
           "type": "integer",
           "minimum": 1
         }
@@ -2447,11 +2443,9 @@
           "type": "boolean"
         },
         "pinned": {
-          "description": "Pin or unpin this entry in Tier 1 briefs",
           "type": "boolean"
         },
         "supersedes": {
-          "description": "Mark an earlier entry id as superseded by this one",
           "type": "integer",
           "minimum": 1
         }
@@ -2464,33 +2458,28 @@
       "name": "memory_list",
       "row": {"verb": "list", "kind": "read", "icon": "book", "target": ["what Sikemux keeps"]},
       "method": "memory.list",
-      "description": "List or search what is kept (rules, knowledge, decisions, goal rules).",
+      "description": "List what is kept.",
       "properties": {
         "kind": {
           "type": "string",
           "enum": ["rules", "knowledge", "decisions", "goal"]
         },
         "query": {
-          "description": "Full-text BM25 search across rules, knowledge, and decisions",
           "type": "string",
           "maxLength": 200
         },
         "scope": {
-          "description": "Filter rules and knowledge by store scope",
           "type": "string",
           "enum": ["all", "project", "personal", "org"]
         },
         "pinned": {
-          "description": "Return only pinned entries",
           "type": "boolean"
         },
         "about": {
-          "description": "Filter knowledge by path or service tag",
           "type": "string",
           "maxLength": 200
         },
         "includeSuperseded": {
-          "description": "Include entries superseded by newer ones",
           "type": "boolean"
         },
         "limit": {
