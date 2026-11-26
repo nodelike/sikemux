@@ -614,7 +614,8 @@ fn read(
     }
     if exact {
         let sent = (api_lands.is_none()).then(|| push::sent(&ship.what, cwd));
-        let parts = [sends, sent, work::of(cwd), plain.clone()];
+        let to = (api_lands.is_none()).then(|| push::destination(&ship.what, cwd));
+        let parts = [sends, sent, work::of(cwd), to];
         sends = Some(parts.into_iter().flatten().collect());
     } else if let Some(repository) = &plain {
         sends = Some(format!("{} to {repository}", sends.unwrap_or_default()));

@@ -1,5 +1,5 @@
 //! Where a `git push` lands, read as git resolves it: its remote, its refspecs or what
-//! `push.default` and `@{push}` make of none, and whether each source and destination is a
+//! `push.default` and the branch's config make of none, and whether each source and destination is a
 //! branch or a tag. Whatever this can't prove stays off the project's own branch, a release
 //! branch and every tag counts as reaching them.
 
@@ -298,10 +298,9 @@ fn is_own_branch(branch: &str, cwd: &Path) -> bool {
         && default_branch("origin", cwd).is_none_or(|default| default == branch)
 }
 
-/// The commits the push `what`, run from `cwd`, sends as the checkout has them now, or every
-/// branch and tag where it doesn't name them.
+/// The commits the push `what`, run by git in `cwd`, sends as the checkout has them now, or
+/// every branch and tag where it doesn't name them.
 pub fn sent(what: &str, cwd: &Path) -> String {
-    let cwd = &run_in(what, cwd);
     let git = || Git::quick(cwd);
     let commit = |name: &str| {
         git()
@@ -422,7 +421,6 @@ fn reaches(what: &str, cwd: &Path) -> Result<(Vec<Reach>, bool), Reach> {
         Some((remote, refspecs)) => ((*remote).to_owned(), refspecs.to_vec()),
         None => match push_remote(cwd) {
             Some(remote) => (remote, Vec::new()),
-            None if first_push(cwd).is_some() => ("origin".to_owned(), Vec::new()),
             None => return unknown(),
         },
     };
@@ -443,7 +441,7 @@ fn reaches(what: &str, cwd: &Path) -> Result<(Vec<Reach>, bool), Reach> {
             } else if default == "nothing" {
                 vec![Reach::Branches]
             } else {
-                match pushed_to(cwd).or_else(|| first_push(cwd)) {
+                match pushed_to(cwd) {
                     Some(branch) => vec![branch_reach(&branch, &remote, cwd)],
                     None => return unknown(),
                 }
@@ -599,39 +597,47 @@ pub fn api_reach(lands: &Lands, root: &Path) -> Reach {
     }
 }
 
-/// The remote a push with none named goes to, from `@{push}`.
+/// The remote a push with none named goes to, as git picks it from its config.
 fn push_remote(cwd: &Path) -> Option<String> {
-    let full = Git::quick(cwd)
-        .trimmed(&["rev-parse", "--symbolic-full-name", "@{push}"])
-        .ok()?;
-    let rest = full.strip_prefix("refs/remotes/")?;
-    rest.split_once('/').map(|(remote, _)| remote.to_owned())
+    let branch = current_branch(cwd)?;
+    (config(&format!("branch.{branch}.pushRemote"), cwd))
+        .or_else(|| config("remote.pushDefault", cwd))
+        .or_else(|| fetched_from(&branch, cwd))
+        .or_else(|| Some("origin".to_owned()))
 }
 
-/// The branch a push with no refspec updates, from `@{push}`.
+/// The branch a push with no refspec updates, as `push.default` picks it. None where git would
+/// refuse the push or send it outside the remote's branches.
 fn pushed_to(cwd: &Path) -> Option<String> {
-    let full = Git::quick(cwd)
-        .trimmed(&["rev-parse", "--symbolic-full-name", "@{push}"])
-        .ok()?;
-    let rest = full.strip_prefix("refs/remotes/")?;
-    rest.split_once('/').map(|(_, branch)| branch.to_owned())
+    let branch = current_branch(cwd)?;
+    let merged = || {
+        let merge = config(&format!("branch.{branch}.merge"), cwd)?;
+        merge.strip_prefix("refs/heads/").map(str::to_owned)
+    };
+    let own_remote = || {
+        let fetched = fetched_from(&branch, cwd).unwrap_or_else(|| "origin".to_owned());
+        push_remote(cwd).is_some_and(|remote| remote == fetched)
+    };
+    match config("push.default", cwd).as_deref().unwrap_or("simple") {
+        "current" => Some(branch),
+        "upstream" | "tracking" => merged().filter(|_| own_remote()),
+        "simple" if own_remote() => match merged() {
+            Some(merged) => (merged == branch).then_some(branch),
+            None => config_on("push.autoSetupRemote", cwd).then_some(branch),
+        },
+        "simple" => Some(branch),
+        _ => None,
+    }
 }
 
-/// The checkout's branch where git's config has its first push make one of its name on
-/// `origin`, the project's only remote.
-fn first_push(cwd: &Path) -> Option<String> {
-    let git = || Git::quick(cwd);
-    let makes = config_on("push.autoSetupRemote", cwd)
-        || config("push.default", cwd).is_some_and(|said| said == "current");
-    let branch = git().trimmed(&["symbolic-ref", "--short", "HEAD"]).ok()?;
-    let set = ["merge", "remote", "pushRemote"]
-        .iter()
-        .any(|key| config(&format!("branch.{branch}.{key}"), cwd).is_some());
-    let only_origin = git()
-        .trimmed(&["remote"])
-        .is_ok_and(|said| said == "origin")
-        && config("remote.pushDefault", cwd).is_none();
-    (makes && !set && only_origin).then_some(branch)
+fn current_branch(cwd: &Path) -> Option<String> {
+    Git::quick(cwd)
+        .trimmed(&["symbolic-ref", "--short", "HEAD"])
+        .ok()
+}
+
+fn fetched_from(branch: &str, cwd: &Path) -> Option<String> {
+    config(&format!("branch.{branch}.remote"), cwd)
 }
 
 /// The deploy a push to `remote` is, when the remote isn't on the host the project's own
@@ -822,6 +828,12 @@ pub fn named_refs(what: &str) -> usize {
 
 /// The options and refspecs of the push `what`, after its remote.
 fn refspecs(what: &str) -> Option<(Vec<&str>, Vec<&str>)> {
+    let (options, positional) = push_words(what)?;
+    Some((options, positional.into_iter().skip(1).collect()))
+}
+
+/// The options of the push `what`, and the words it names: its remote, then its refspecs.
+fn push_words(what: &str) -> Option<(Vec<&str>, Vec<&str>)> {
     let mut words = what.split_whitespace().skip_while(|word| *word != "push");
     words.next()?;
     let (mut options, mut positional) = (Vec::new(), Vec::new());
@@ -834,7 +846,24 @@ fn refspecs(what: &str) -> Option<(Vec<&str>, Vec<&str>)> {
             word => positional.push(word),
         }
     }
-    Some((options, positional.into_iter().skip(1).collect()))
+    Some((options, positional))
+}
+
+/// The repositories the push `what`, run by git in `cwd`, sends to as git has its remote now.
+pub fn destination(what: &str, cwd: &Path) -> String {
+    let named =
+        push_words(what).and_then(|(_, named)| named.first().map(|remote| (*remote).to_owned()));
+    let Some(remote) = named.or_else(|| push_remote(cwd)) else {
+        return String::new();
+    };
+    match Git::quick(cwd).trimmed(&["remote", "get-url", "--push", "--all", &remote]) {
+        Ok(urls) => urls
+            .lines()
+            .map(repository_at)
+            .collect::<Vec<_>>()
+            .join(" "),
+        Err(_) => repository_at(&remote),
+    }
 }
 
 /// The refs the push `what` deletes, as the person names them, when deleting is all it does.
