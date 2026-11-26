@@ -22,7 +22,6 @@ pub(super) mod general;
 pub(crate) use agents::account_dialog;
 pub(crate) use general::sent as session_sent;
 pub(super) mod keybindings;
-pub(super) mod mods;
 pub(super) mod outside;
 pub(super) mod settled;
 pub mod theme_editor;
@@ -123,10 +122,10 @@ pub fn prepare(bench: &Workbench, page: Page, window: &Window, cx: &mut Context<
         .into(),
         Page::Appearance => [missing(pages.appearance.is_some(), appearance::make)].into(),
         Page::Agents => [missing(pages.settled.is_some(), settled::make), agents].into(),
-        Page::Connectors => [
-            connectors,
-            missing(pages.cli.is_some(), |bench, _, cx| cli::read(bench, cx)),
-        ]
+        Page::Connectors => [connectors].into(),
+        Page::Developer => [missing(pages.cli.is_some(), |bench, _, cx| {
+            cli::read(bench, cx)
+        })]
         .into(),
         Page::Usage => [missing(pages.activity.is_some(), activity::make)].into(),
         Page::Skills | Page::Models | Page::ThisMac => [agents].into(),
@@ -174,11 +173,10 @@ pub fn render(
         Page::Skills | Page::Models | Page::ThisMac => {
             agents::render(bench, pages, page, &lit, this, cx)
         }
-        Page::Connectors => {
-            let mut sections = connectors::render(bench, pages, &lit, this, cx);
+        Page::Connectors => connectors::render(bench, pages, &lit, this, cx),
+        Page::Developer => {
+            let mut sections = cli::render(bench, pages, &lit, this, cx);
             sections.extend(outside::render(bench, &lit, this, cx));
-            sections.extend(cli::render(bench, pages, &lit, this, cx));
-            sections.extend(mods::render(bench, &lit, this, cx));
             sections
         }
         Page::Usage => activity::render(bench, pages, &lit, this, cx),
@@ -186,17 +184,15 @@ pub fn render(
     }
 }
 
-/// A connector's settings, or an org key being added, over whichever page is open.
+/// A vault editor or org key dialog over whichever page is open.
 pub fn dialogs(
     bench: &Workbench,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
 ) -> Vec<AnyElement> {
-    let connector = connectors::dialog(bench, this, cx);
     let vault_dialog = vault::dialog(bench, this, cx);
-    connector
+    vault_dialog
         .into_iter()
-        .chain(vault_dialog)
         .chain(agents::dialogs(bench, this, cx))
         .collect()
 }

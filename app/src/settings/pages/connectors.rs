@@ -1,64 +1,178 @@
-//! The connectors built in: the services agents reach for the person, each with whether it is
-//! signed in and as whom, its switch and its sign-in, and the few settings its tools read that
-//! only the person changes.
+//! External service connectors: search and category filters on top, Connected rows with
+//! inline Configure and ⋯ menu, Available rows with Connect, and a quiet Connector sync footer.
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, AppContext, ClickEvent, Context, Div, Entity, FontWeight,
+    div, px, Anchor, AnyElement, App, AppContext, ClickEvent, Context, Div, Entity, FontWeight,
     InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
     Styled, Subscription, Task, Window,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sikemux_calls::call;
-use sikemux_calls::plugins::Disabled;
-use sikemux_calls::plugins::PluginCall;
-use sikemux_calls::plugins::StreamCall;
+use sikemux_calls::plugins::{Disabled, PluginCall, StreamCall};
 use sikemux_view::plugins::Listed;
 
-use crate::connector_sign_in::{ask, mark, on, AWS};
+use crate::connector_sign_in::{ask, mark, on, stand, Stand, AWS};
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::settings::index::Page::Connectors;
 use crate::settings::index::{section, Entry};
 use crate::settings::rows;
-use crate::theme::{self, Tokens, SPACE_0, SPACE_2, SPACE_3, SPACE_4, SPACE_5, TEXT_SM, TEXT_XS};
+use crate::theme::{
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS,
+    TEXT_3XS, TEXT_SM, TEXT_XS,
+};
 use crate::toast;
-use crate::ui::{self, dialog, sign_in};
+use crate::ui::{self, sign_in, Clicks, MenuRow, Tone};
 use crate::workbench::Workbench;
 
-/// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[Entry] = &[
-    section(Connectors, "Account vault", "vault recovery key sealed sign-ins hosts"),
-    section(Connectors, "Connectors", "aws bitbucket cloudflare dns zones workers pages database postgres postgresql mysql sqlite sql github gitlab forgejo gitea codeberg jira linear rundeck signoz slack vercel sign in sign out login logout token account enable disable switch off turn on integrations plugins connectors"),
+    section(
+        Connectors,
+        "Connector sync",
+        "account vault sync recovery key sealed sign-ins hosts",
+    ),
+    section(
+        Connectors,
+        "Connectors",
+        "aws bitbucket cloudflare dns zones workers pages database postgres postgresql mysql sqlite sql github gitlab forgejo gitea codeberg google play jira linear rundeck signoz slack vercel sign in sign out connect configure integrations plugins connectors",
+    ),
 ];
 
 const RUNDECK: &str = "sikemux.rundeck";
 const DATABASE: &str = "sikemux.database";
 const GITHUB: &str = "sikemux.github";
 
-/// What the page keeps while it shows: the settings open over it, and what the connectors with
-/// settings of their own last answered.
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Category {
+    #[default]
+    All,
+    Code,
+    Cloud,
+    Issues,
+    Observability,
+    Data,
+}
+
+impl Category {
+    const ALL: [Category; 6] = [
+        Category::All,
+        Category::Code,
+        Category::Cloud,
+        Category::Issues,
+        Category::Observability,
+        Category::Data,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Category::All => t!("All"),
+            Category::Code => t!("Code"),
+            Category::Cloud => t!("Cloud"),
+            Category::Issues => t!("Issues & Chat"),
+            Category::Observability => t!("Observability"),
+            Category::Data => t!("Data"),
+        }
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            Category::All => "all",
+            Category::Code => "code",
+            Category::Cloud => "cloud",
+            Category::Issues => "issues",
+            Category::Observability => "obs",
+            Category::Data => "data",
+        }
+    }
+}
+
+struct Meta {
+    category: Category,
+    summary: &'static str,
+}
+
+fn meta(id: &str) -> Option<Meta> {
+    Some(match id {
+        "sikemux.github" => Meta {
+            category: Category::Code,
+            summary: t!("Repos, pull requests, reviews and Actions runs."),
+        },
+        "sikemux.gitlab" => Meta {
+            category: Category::Code,
+            summary: t!("Merge requests, pipelines and issues."),
+        },
+        "sikemux.bitbucket" => Meta {
+            category: Category::Code,
+            summary: t!("Pull requests and Pipelines on Bitbucket Cloud."),
+        },
+        "sikemux.forgejo" => Meta {
+            category: Category::Code,
+            summary: t!("Self-hosted Forgejo, Gitea and Codeberg."),
+        },
+        "sikemux.aws" => Meta {
+            category: Category::Cloud,
+            summary: t!("Uses your AWS CLI profiles: logs, ECS, S3, Lambda."),
+        },
+        "sikemux.cloudflare" => Meta {
+            category: Category::Cloud,
+            summary: t!("DNS records, zones, Workers and Pages."),
+        },
+        "sikemux.vercel" => Meta {
+            category: Category::Cloud,
+            summary: t!("Deployments, build logs and project env."),
+        },
+        "sikemux.googleplay" => Meta {
+            category: Category::Cloud,
+            summary: t!("Release tracks, testers and review status."),
+        },
+        "sikemux.rundeck" => Meta {
+            category: Category::Cloud,
+            summary: t!("Run jobs and read their output."),
+        },
+        "sikemux.jira" => Meta {
+            category: Category::Issues,
+            summary: t!("Read and update issues, sprints and boards."),
+        },
+        "sikemux.linear" => Meta {
+            category: Category::Issues,
+            summary: t!("Issues, cycles and project updates."),
+        },
+        "sikemux.slack" => Meta {
+            category: Category::Issues,
+            summary: t!("Read channels and threads; post when you approve."),
+        },
+        "sikemux.signoz" => Meta {
+            category: Category::Observability,
+            summary: t!("Traces, logs and alerts from your SigNoz."),
+        },
+        "sikemux.database" => Meta {
+            category: Category::Data,
+            summary: t!("Postgres, MySQL and SQLite, read-only by default."),
+        },
+        _ => return None,
+    })
+}
+
 pub struct Fields {
-    /// The plugins moved since the settings below were read, so they are read again.
     pub(super) stale: bool,
-    /// The connector whose settings are open over the page.
+    search: Entity<InputState>,
+    _typing: Subscription,
+    category: Category,
+    /// The connector currently expanded inline for configuration.
     configuring: Option<String>,
     aws: Option<Aws>,
     rundeck: Option<Lists>,
     databases: Vec<Database>,
     github: Option<GithubApps>,
-    /// The organization to make an App for, empty for the person's own account.
     organization: Option<Entity<InputState>>,
-    /// GitHub's page for making an App is open, which dropping stops.
     making_app: Option<Task<()>>,
     pub(super) vault: super::account_vault::Fields,
 }
 
-/// The GitHub Apps agents act as, as the GitHub connector last said.
 #[derive(Deserialize)]
 struct GithubApps {
     apps: Vec<GithubApp>,
@@ -79,13 +193,10 @@ struct GithubApp {
 #[derive(Default)]
 struct Aws {
     profiles: Vec<String>,
-    /// The profile the sign-in is checked as.
     account: Option<String>,
-    /// The profile every agent starts on, when the person picked one.
     agents: Option<String>,
 }
 
-/// Rundeck's lists, as the person types them.
 struct Lists {
     production: Entity<InputState>,
     branches: Entity<InputState>,
@@ -114,8 +225,23 @@ struct RundeckLists {
 }
 
 pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+    let search = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search connectors")));
+    let typing = super::follow_typing(bench, &search, cx);
     super::change_pages(bench, cx, |pages, _| {
-        pages.connectors = Some(Fields::default())
+        pages.connectors = Some(Fields {
+            stale: false,
+            search,
+            _typing: typing,
+            category: Category::All,
+            configuring: None,
+            aws: None,
+            rundeck: None,
+            databases: Vec::new(),
+            github: None,
+            organization: None,
+            making_app: None,
+            vault: super::account_vault::Fields::default(),
+        });
     });
     read(bench, window, cx);
 }
@@ -136,7 +262,6 @@ pub(super) fn change_vault(
     change_fields(bench, cx, |fields, cx| change(&mut fields.vault, cx));
 }
 
-/// Reads what the connectors with settings of their own say now.
 pub(super) fn read(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     change_fields(bench, cx, |fields, _| fields.stale = false);
     super::account_vault::read(bench, window, cx);
@@ -210,8 +335,6 @@ fn text(value: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// Rundeck's two lists as boxes, each saved once the person leaves it or presses Return, so a
-/// list half typed never gates a run.
 fn rundeck_lists(lists: &RundeckLists, window: &mut Window, cx: &mut Context<Workbench>) -> Lists {
     let mut field = |key: &'static str, words: &[String], placeholder: &'static str| {
         let input = cx.new(|cx| {
@@ -229,11 +352,11 @@ fn rundeck_lists(lists: &RundeckLists, window: &mut Window, cx: &mut Context<Wor
                 .collect();
             let saved = ask::<Value>(bench, RUNDECK, "setLists", json!({ key: words }));
             cx.spawn(async move |bench, cx| {
-                if let Err(error) = saved.await {
-                    let _ = bench.update(cx, |bench, cx| {
-                        bench.notify(toast::error(t!("Rundeck: {error}", error = error)), cx)
-                    });
-                }
+                let note = match saved.await {
+                    Ok(_) => toast::success(t!("Saved Rundeck settings")),
+                    Err(error) => toast::error(t!("Rundeck: {error}", error = error)),
+                };
+                let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
             })
             .detach();
         });
@@ -250,8 +373,7 @@ fn rundeck_lists(lists: &RundeckLists, window: &mut Window, cx: &mut Context<Wor
     }
 }
 
-/// Switches `id` on or off by sending the core every plugin that is off.
-fn switch(bench: &Workbench, id: &str, on: bool) {
+fn switch(bench: &Workbench, id: &str, name: &str, on: bool, cx: &mut Context<Workbench>) {
     let mut off: Vec<String> = bench
         .reads
         .plugins
@@ -263,14 +385,71 @@ fn switch(bench: &Workbench, id: &str, on: bool) {
         off.push(id.to_owned());
     }
     Target::here(&bench.asks).call_typed::<call::PluginSetDisabled>(Disabled { ids: off });
+    let note = if on {
+        toast::success(t!("Agents can use {name}", name = name))
+    } else {
+        toast::info(t!("{name} hidden from agents", name = name))
+    };
+    bench.notify(note, cx);
 }
 
 fn has_sign_in(plugin: &Listed) -> bool {
     plugin.id == AWS || plugin.token_form.is_some() || plugin.browser_sign_in
 }
 
-/// Who the connector is signed in as.
-fn account(plugin: &Listed, fields: &Fields) -> Option<SharedString> {
+fn is_connected(plugin: &Listed, fields: &Fields) -> bool {
+    plugin.signed_in == Some(true)
+        || (plugin.id == DATABASE && !fields.databases.is_empty())
+        || !plugin.enabled
+        || super::account_vault::has_sign_in(&plugin.id, &fields.vault)
+}
+
+fn looks_like_email(text: &str) -> bool {
+    let text = text.trim();
+    let Some((local, domain)) = text.split_once('@') else {
+        return false;
+    };
+    !local.is_empty()
+        && !local.contains(char::is_whitespace)
+        && domain.contains('.')
+        && !domain.contains(char::is_whitespace)
+}
+
+/// Formats a plugin's signed-in scope for display while stripping any email PII.
+fn scope_label(raw: &str) -> Option<String> {
+    let cleaned: Vec<String> = raw
+        .split(',')
+        .filter_map(|part| {
+            let part = part.trim();
+            if part.is_empty() {
+                return None;
+            }
+            if let Some((_, workspace)) = part.split_once(" in ") {
+                let workspace = workspace.trim();
+                if !workspace.is_empty() && !looks_like_email(workspace) {
+                    return Some(workspace.to_owned());
+                }
+            }
+            if let Some((_, host)) = part.split_once(" on ") {
+                let host = host.trim();
+                if !host.is_empty() && !looks_like_email(host) {
+                    return Some(host.to_owned());
+                }
+            }
+            let trimmed = match part.split_once(" (") {
+                Some((head, tail)) => match tail.strip_suffix(')') {
+                    Some(inner) if looks_like_email(inner) => head.trim(),
+                    _ => part,
+                },
+                None => part,
+            };
+            (!trimmed.is_empty() && !looks_like_email(trimmed)).then(|| trimmed.to_owned())
+        })
+        .collect();
+    (!cleaned.is_empty()).then(|| cleaned.join(", "))
+}
+
+fn scope(plugin: &Listed, fields: &Fields) -> Option<SharedString> {
     if !plugin.enabled {
         return None;
     }
@@ -283,59 +462,27 @@ fn account(plugin: &Listed, fields: &Fields) -> Option<SharedString> {
     }
     plugin
         .signed_in_as
-        .clone()
+        .as_deref()
         .filter(|_| plugin.signed_in == Some(true))
+        .and_then(scope_label)
         .map(SharedString::from)
 }
 
-/// What the person should know about the connector, under its name: only what needs them.
-fn trouble(plugin: &Listed, fields: &Fields) -> Option<SharedString> {
-    if !plugin.enabled {
-        return None;
-    }
-    if plugin.id == DATABASE && fields.databases.is_empty() {
-        return Some(t!("No databases saved yet. Agents propose them for you to approve.").into());
-    }
-    (plugin.signed_in == Some(false))
-        .then(|| plugin.problem.clone().map(SharedString::from))
-        .flatten()
+fn matches_category(plugin: &Listed, category: Category) -> bool {
+    category == Category::All || meta(&plugin.id).is_some_and(|m| m.category == category)
 }
 
-/// The connector's name, its account beside it, and anything wrong under it.
-fn summary(plugin: &Listed, fields: &Fields, cx: &App) -> (AnyElement, Option<AnyElement>) {
-    let t = Tokens::get(cx);
-    let name = div()
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .min_w_0()
-        .when(!plugin.enabled, |name| name.text_color(t.text_tertiary))
-        .child(div().flex_none().child(plugin.name.clone()))
-        .children(account(plugin, fields).map(|account| {
-            div()
-                .min_w_0()
-                .truncate()
-                .px(SPACE_2)
-                .py(px(1.))
-                .rounded_full()
-                .bg(t.surface_hover)
-                .text_size(crate::theme::ui_text(TEXT_XS))
-                .text_color(t.text_secondary)
-                .child(account)
-        }))
-        .into_any_element();
-    let trouble = trouble(plugin, fields).map(|line| {
-        let wrong = plugin.problem.is_some() && plugin.id != DATABASE;
-        div()
-            .text_size(crate::theme::ui_text(TEXT_XS))
-            .text_color(if wrong { t.danger } else { t.text_tertiary })
-            .child(line)
-            .into_any_element()
-    });
-    (name, trouble)
+fn matches_query(plugin: &Listed, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    let meta = meta(&plugin.id);
+    let summary = meta.as_ref().map_or("", |m| m.summary);
+    let category = meta.as_ref().map_or("", |m| m.category.label());
+    let haystack = format!("{} {} {} {}", plugin.name, plugin.id, summary, category).to_lowercase();
+    query.split_whitespace().all(|word| haystack.contains(word))
 }
 
-/// The connector's mark on a small tile.
 fn tile(plugin: &Listed, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     div()
@@ -345,11 +492,105 @@ fn tile(plugin: &Listed, cx: &App) -> AnyElement {
         .items_center()
         .justify_center()
         .rounded(theme::radius_2())
-        .bg(t.surface_hover)
+        .bg(t.surface_raised)
         .border(crate::theme::border())
-        .border_color(t.line_soft)
-        .when(!plugin.enabled, |tile| tile.opacity(0.5))
-        .child(ui::picture(mark(&plugin.id), 16., t.text_secondary))
+        .border_color(t.border)
+        .when(!plugin.enabled, |tile| tile.opacity(0.55))
+        .child(ui::picture(mark(&plugin.id), 16., t.text_primary))
+        .into_any_element()
+}
+
+fn chip(text: SharedString, mono: bool, warn: bool, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    div()
+        .max_w(px(200.))
+        .truncate()
+        .px(SPACE_1H)
+        .py(px(1.))
+        .rounded(theme::radius_1())
+        .border(crate::theme::border())
+        .border_color(if warn { t.warn.opacity(0.35) } else { t.border })
+        .bg(if warn {
+            t.warn.opacity(0.08)
+        } else {
+            t.surface_raised
+        })
+        .when(mono, |chip| chip.font_family(theme::mono_font()))
+        .text_size(theme::ui_text(TEXT_2XS))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(if warn { t.warn } else { t.text_secondary })
+        .child(text)
+}
+
+fn local_pill(plugin_id: &str, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    div()
+        .id(SharedString::from(format!(
+            "connector-local-pill-{plugin_id}"
+        )))
+        .flex_none()
+        .px(px(5.))
+        .py(px(1.))
+        .rounded(theme::radius_1())
+        .border(crate::theme::border())
+        .border_color(t.border)
+        .text_size(theme::ui_text(TEXT_3XS))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(t.text_tertiary)
+        .tooltip(ui::tooltip(t!("Kept on this host only")))
+        .child(t!("THIS HOST"))
+        .into_any_element()
+}
+
+fn toolbar(plugins: &[&Listed], fields: &Fields, this: &Entity<Workbench>, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    let pills = Category::ALL.into_iter().map(|cat| {
+        let count = plugins
+            .iter()
+            .filter(|plugin| matches_category(plugin, cat))
+            .count();
+        let active = fields.category == cat;
+        let picking = this.clone();
+        div()
+            .id(SharedString::from(format!("connector-cat-{}", cat.id())))
+            .flex()
+            .items_center()
+            .gap(SPACE_1)
+            .h(px(26.))
+            .px(SPACE_2H)
+            .rounded(theme::radius_2())
+            .cursor_pointer()
+            .text_size(theme::ui_text(TEXT_XS))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(if active {
+                t.text_primary
+            } else {
+                t.text_secondary
+            })
+            .when(active, |pill| pill.bg(t.surface_chosen))
+            .when(!active, |pill| {
+                pill.hover(|style| style.bg(t.surface_hover).text_color(t.text_primary))
+            })
+            .clicks(move |_, _, cx| {
+                picking.update(cx, |bench, cx| {
+                    change_fields(bench, cx, |fields, _| fields.category = cat);
+                })
+            })
+            .child(cat.label())
+            .child(
+                div()
+                    .text_size(theme::ui_text(TEXT_2XS))
+                    .font_weight(FontWeight::NORMAL)
+                    .text_color(t.text_tertiary)
+                    .child(count.to_string()),
+            )
+    });
+    div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_2H)
+        .child(ui::Field::new(&fields.search).icon(Icon::Search))
+        .child(div().flex().flex_wrap().gap(SPACE_1).children(pills))
         .into_any_element()
 }
 
@@ -364,116 +605,536 @@ pub fn render(
     let Some(fields) = &pages.connectors else {
         return Vec::new();
     };
-    let body = match plugins.is_empty() {
-        true => rows::note(t!("No connectors in this build."), cx),
-        false => div()
-            .children(plugins.all().flat_map(|plugin| {
-                let (name, trouble) = summary(plugin, fields, cx);
-                let row = rows::row_parts(
-                    Some(tile(plugin, cx)),
-                    name,
-                    trouble,
-                    controls(plugin, fields, this),
-                    cx,
-                )
-                .into_any_element();
-                std::iter::once(row).chain(super::account_vault::asking(
-                    &plugin.id,
-                    &fields.vault,
-                    this,
-                    cx,
-                ))
-            }))
-            .into_any_element(),
-    };
-    let vault = super::account_vault::section(&fields.vault, lit("Account vault"), this, cx);
-    let connectors = rows::section(n!("Connectors"), None, None, lit("Connectors"), body, cx);
-    vault.into_iter().chain([connectors]).collect()
+    let all: Vec<&Listed> = plugins.all().collect();
+    if all.is_empty() {
+        return vec![rows::section(
+            n!("Connectors"),
+            None,
+            None,
+            lit("Connectors"),
+            rows::note(t!("No connectors in this build."), cx),
+            cx,
+        )];
+    }
+
+    let query = fields.search.read(cx).value().trim().to_lowercase();
+    let visible: Vec<&Listed> = all
+        .iter()
+        .copied()
+        .filter(|plugin| matches_category(plugin, fields.category) && matches_query(plugin, &query))
+        .collect();
+    let (connected, available): (Vec<&Listed>, Vec<&Listed>) = visible
+        .into_iter()
+        .partition(|plugin| is_connected(plugin, fields));
+
+    let mut sections: Vec<AnyElement> = Vec::new();
+
+    if let Some(banner) =
+        super::account_vault::top_banner(&fields.vault, lit("Connector sync"), this, cx)
+    {
+        sections.push(banner);
+    }
+
+    sections.push(toolbar(&all, fields, this, cx));
+
+    if !connected.is_empty() {
+        let count = SharedString::from(connected.len().to_string());
+        let body = div()
+            .flex()
+            .flex_col()
+            .children(
+                connected
+                    .into_iter()
+                    .map(|plugin| connected_row(bench, plugin, fields, this, cx)),
+            )
+            .into_any_element();
+        sections.push(rows::section(
+            n!("Connected"),
+            Some(count),
+            None,
+            lit("Connectors"),
+            body,
+            cx,
+        ));
+    }
+
+    if !available.is_empty() {
+        let count = SharedString::from(available.len().to_string());
+        let body = div()
+            .flex()
+            .flex_col()
+            .children(
+                available
+                    .into_iter()
+                    .map(|plugin| available_row(bench, plugin, this, cx)),
+            )
+            .into_any_element();
+        sections.push(rows::section(
+            n!("Available"),
+            Some(count),
+            None,
+            false,
+            body,
+            cx,
+        ));
+    }
+
+    if sections.len() == 1
+        || (all
+            .iter()
+            .all(|p| !matches_category(p, fields.category) || !matches_query(p, &query)))
+    {
+        let msg: SharedString = if query.is_empty() {
+            t!("No connectors in this category.").into()
+        } else {
+            t!(
+                "No connector matches “{query}”.",
+                query = fields.search.read(cx).value().trim()
+            )
+            .into()
+        };
+        sections.push(
+            div()
+                .py(px(28.))
+                .text_center()
+                .text_size(theme::ui_text(TEXT_SM))
+                .text_color(Tokens::get(cx).text_tertiary)
+                .child(msg)
+                .into_any_element(),
+        );
+    }
+
+    if let Some(footer) =
+        super::account_vault::footer(&fields.vault, lit("Connector sync"), this, cx)
+    {
+        sections.push(footer);
+    }
+
+    sections
 }
 
-/// The connector has settings of its own to open, read since the page opened.
-fn has_settings(plugin: &Listed, fields: &Fields) -> bool {
-    plugin.enabled
-        && match plugin.id.as_str() {
-            AWS => fields.aws.is_some(),
-            RUNDECK => fields.rundeck.is_some(),
-            DATABASE => !fields.databases.is_empty(),
-            GITHUB => fields.github.is_some(),
-            _ => false,
-        }
-}
-
-/// The connector's settings button, where its sign-ins are kept, Sign in or Sign out, and its
-/// switch.
-fn controls(plugin: &Listed, fields: &Fields, this: &Entity<Workbench>) -> AnyElement {
+fn connected_row(
+    _bench: &Workbench,
+    plugin: &Listed,
+    fields: &Fields,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
     let id = plugin.id.clone();
-    let configure = has_settings(plugin, fields).then(|| {
-        let this = this.clone();
-        let id = id.clone();
-        ui::IconButton::new(
-            SharedString::from(format!("connector-settings-{id}")),
-            Icon::Settings,
-            t!("Settings"),
-        )
-        .on_click(move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
-            let id = id.clone();
-            this.update(cx, |bench, cx| {
-                change_fields(bench, cx, |fields, _| fields.configuring = Some(id));
-            })
+    let open = fields.configuring.as_deref() == Some(id.as_str());
+    let locked = super::account_vault::is_locked(&id, &fields.vault);
+    let kept_local = super::account_vault::is_kept_local(&id, &fields.vault);
+    let dot_tone = if locked || (plugin.enabled && plugin.problem.is_some()) {
+        Tone::Pending
+    } else if !plugin.enabled {
+        Tone::Idle
+    } else {
+        Tone::Ok
+    };
+
+    let lead = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2H)
+        .child(ui::dot(dot_tone, cx))
+        .child(tile(plugin, cx))
+        .into_any_element();
+
+    let name = div()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(if plugin.enabled {
+            t.text_primary
+        } else {
+            t.text_tertiary
         })
-    });
-    let signed_in = plugin.signed_in == Some(true);
-    let button = (plugin.enabled && has_sign_in(plugin)).then(|| {
-        let (label, signing_out) = match signed_in && plugin.sign_out {
-            true => (t!("Sign out"), true),
-            false if signed_in => (t!("Sign in again"), false),
-            false => (t!("Sign in"), false),
-        };
-        let (glyph, variant) = match (signing_out, plugin.problem.is_some() && !signed_in) {
-            (true, _) => (Icon::LogOut, ui::Variant::Ghost),
-            (false, true) => (Icon::LogIn, ui::Variant::Primary),
-            (false, false) => (Icon::LogIn, ui::Variant::Outline),
-        };
+        .child(plugin.name.clone())
+        .into_any_element();
+
+    let trouble = (plugin.enabled && plugin.signed_in == Some(false))
+        .then(|| plugin.problem.clone())
+        .flatten()
+        .map(|problem| rows::about_line(problem.into(), t.danger));
+
+    let scope_chip = if locked {
+        Some(chip(t!("Locked on this host").into(), false, true, cx).into_any_element())
+    } else if !plugin.enabled {
+        Some(chip(t!("Off for agents").into(), false, false, cx).into_any_element())
+    } else {
+        scope(plugin, fields).map(|text| chip(text, plugin.id == AWS, false, cx).into_any_element())
+    };
+
+    let configure_btn = {
         let this = this.clone();
         let id = id.clone();
+        ui::Button::new(
+            SharedString::from(format!("connector-configure-{id}")),
+            if open { t!("Done") } else { t!("Configure") },
+            ui::Variant::Ghost,
+        )
+        .pressed(open)
+        .on_click(move |_, window, cx| {
+            let id = id.clone();
+            this.update(cx, |bench, cx| toggle_configure(bench, &id, window, cx))
+        })
+    };
+
+    let more_menu = {
+        let this = this.clone();
+        let plugin_id = id.clone();
+        let plugin_name = plugin.name.clone();
+        let can_sign_out = plugin.sign_out;
+        let can_sign_in = has_sign_in(plugin);
+        let enabled = plugin.enabled;
+        let local_state = super::account_vault::local_toggle_state(&id, &fields.vault);
+        let trigger = ui::IconButton::new(
+            SharedString::from(format!("connector-more-{id}")),
+            Icon::More,
+            t!("More"),
+        );
+        ui::menu_button(
+            SharedString::from(format!("connector-menu-{id}")),
+            Anchor::BottomRight,
+            trigger,
+            move |mut popup, _, cx| {
+                let (cfg_this, cfg_id) = (this.clone(), plugin_id.clone());
+                popup = popup.item(
+                    MenuRow::new(if open {
+                        t!("Hide settings")
+                    } else {
+                        t!("Configure…")
+                    })
+                    .icon(Icon::Settings)
+                    .item(cx)
+                    .on_click(move |_, window, cx| {
+                        let id = cfg_id.clone();
+                        cfg_this.update(cx, |bench, cx| toggle_configure(bench, &id, window, cx));
+                    }),
+                );
+                if enabled && can_sign_in {
+                    let (check_this, check_id, check_name) =
+                        (this.clone(), plugin_id.clone(), plugin_name.clone());
+                    popup = popup.item(
+                        MenuRow::new(t!("Re-check sign-in"))
+                            .icon(Icon::Refresh)
+                            .item(cx)
+                            .on_click(move |_, window, cx| {
+                                let id = check_id.clone();
+                                let name = check_name.clone();
+                                check_this
+                                    .update(cx, |bench, cx| recheck(bench, &id, &name, window, cx));
+                            }),
+                    );
+                }
+                if let Some(is_local) = local_state {
+                    let (local_this, local_id) = (this.clone(), plugin_id.clone());
+                    popup = popup.item(
+                        MenuRow::new(t!("Keep on this host only"))
+                            .icon(Icon::Pin)
+                            .chosen(is_local)
+                            .item(cx)
+                            .on_click(move |_, _, cx| {
+                                let id = local_id.clone();
+                                local_this.update(cx, |bench, cx| {
+                                    super::account_vault::toggle_keep_local(
+                                        bench, &id, !is_local, cx,
+                                    )
+                                });
+                            }),
+                    );
+                }
+                if can_sign_out {
+                    let (out_this, out_id, out_name) =
+                        (this.clone(), plugin_id.clone(), plugin_name.clone());
+                    popup = popup.separator().item(
+                        MenuRow::new(t!("Sign out"))
+                            .icon(Icon::LogOut)
+                            .danger(true)
+                            .item(cx)
+                            .on_click(move |_, _, cx| {
+                                let id = out_id.clone();
+                                let name = out_name.clone();
+                                out_this.update(cx, |bench, cx| {
+                                    if !enabled {
+                                        switch(bench, &id, &name, true, cx);
+                                    }
+                                    sign_out(bench, &id, cx);
+                                });
+                            }),
+                    );
+                } else if can_sign_in {
+                    let (in_this, in_id) = (this.clone(), plugin_id.clone());
+                    popup = popup.separator().item(
+                        MenuRow::new(t!("Sign in again"))
+                            .icon(Icon::LogIn)
+                            .item(cx)
+                            .on_click(move |_, window, cx| {
+                                let id = in_id.clone();
+                                in_this.update(cx, |bench, cx| {
+                                    crate::connector_sign_in::open(bench, &id, window, cx)
+                                });
+                            }),
+                    );
+                }
+                popup
+            },
+        )
+    };
+
+    let controls = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .children(scope_chip)
+        .when(kept_local && !locked, |row| row.child(local_pill(&id, cx)))
+        .child(configure_btn)
+        .child(more_menu);
+
+    let row = rows::row_parts(Some(lead), name, trouble, controls, cx);
+    let asking = super::account_vault::asking(&id, &fields.vault, this, cx);
+    let inline = open.then(|| inline_config(plugin, fields, this, cx));
+
+    div()
+        .flex()
+        .flex_col()
+        .child(row)
+        .children(asking)
+        .children(inline)
+        .into_any_element()
+}
+
+fn available_row(
+    bench: &Workbench,
+    plugin: &Listed,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    let id = plugin.id.clone();
+    let lead = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2H)
+        .child(div().w(px(7.)).flex_none())
+        .child(tile(plugin, cx))
+        .into_any_element();
+
+    let desc = match &plugin.problem {
+        Some(problem) if plugin.signed_in == Some(false) => {
+            Some(rows::about_line(problem.clone().into(), t.danger))
+        }
+        _ => meta(&id)
+            .map(|m| m.summary)
+            .map(|summary| rows::about_line(summary.into(), t.text_tertiary)),
+    };
+
+    let busy = matches!(stand(bench, &id), Some(Stand::Busy));
+    let action: AnyElement = if has_sign_in(plugin) {
+        let this = this.clone();
+        let id_btn = id.clone();
+        let variant = if plugin.problem.is_some() && plugin.signed_in == Some(false) {
+            ui::Variant::Primary
+        } else {
+            ui::Variant::Outline
+        };
+        let label = if busy {
+            t!("Signing in…")
+        } else {
+            t!("Connect")
+        };
         ui::Button::new(
             SharedString::from(format!("connector-sign-{id}")),
             label,
             variant,
         )
-        .icon(glyph)
+        .when(busy, |button| {
+            button.lead(ui::working(12., t.text_secondary))
+        })
+        .disabled(busy)
         .on_click(move |_, window, cx| {
-            this.update(cx, |bench, cx| match signing_out {
-                true => sign_out(bench, &id, cx),
-                false => crate::connector_sign_in::open(bench, &id, window, cx),
+            let id = id_btn.clone();
+            this.update(cx, |bench, cx| {
+                crate::connector_sign_in::open(bench, &id, window, cx)
             })
         })
+        .into_any_element()
+    } else {
+        div()
+            .text_size(theme::ui_text(TEXT_XS))
+            .text_color(t.text_tertiary)
+            .child(t!("Proposed by agents"))
+            .into_any_element()
+    };
+
+    let name = div()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(t.text_primary)
+        .child(plugin.name.clone());
+
+    rows::row_parts(Some(lead), name, desc, action, cx).into_any_element()
+}
+
+fn toggle_configure(
+    bench: &mut Workbench,
+    id: &str,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    let opening = change_fields(bench, cx, |fields, _| {
+        if fields.configuring.as_deref() == Some(id) {
+            fields.configuring = None;
+            false
+        } else {
+            fields.configuring = Some(id.to_owned());
+            true
+        }
     });
-    let toggle = {
+    if opening == Some(true) {
+        read(bench, window, cx);
+    }
+}
+
+fn recheck(
+    bench: &mut Workbench,
+    id: &str,
+    name: &str,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    let checked = ask::<Value>(bench, id, "status", Value::Null);
+    let name = name.to_owned();
+    cx.spawn_in(window, async move |bench, cx| {
+        let answer = checked.await;
+        let _ = bench.update_in(cx, |bench, window, cx| {
+            let note = match answer {
+                Ok(_) => toast::success(t!("{name} re-checked · all good", name = name)),
+                Err(error) => toast::error(format!("{name}: {error}")),
+            };
+            bench.notify(note, cx);
+            read(bench, window, cx);
+        });
+    })
+    .detach();
+}
+
+/// Inline settings panel expanded beneath a Connected row.
+fn inline_config(
+    plugin: &Listed,
+    fields: &Fields,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    let mut items: Vec<AnyElement> = Vec::new();
+
+    // 1. Agents can use <X> toggle (moved here off the main row).
+    {
         let this = this.clone();
-        Switch::new(SharedString::from(format!("plugin-on-{id}")))
+        let id = plugin.id.clone();
+        let name = plugin.name.clone();
+        let toggle = Switch::new(SharedString::from(format!("plugin-on-{id}")))
             .checked(plugin.enabled)
             .on_change(move |on: &bool, _: &mut Window, cx: &mut App| {
                 let on = *on;
-                this.update(cx, |bench, _| switch(bench, &id, on))
-            })
-    };
+                this.update(cx, |bench, cx| switch(bench, &id, &name, on, cx))
+            });
+        items.push(inline_row(
+            t!("Agents can use {name}", name = plugin.name),
+            Some(t!("Off keeps you signed in but hides its tools from agents.").into()),
+            toggle,
+            cx,
+        ));
+    }
+
+    // 2. Connector-specific settings (GitHub, AWS, Database, Rundeck).
+    if plugin.enabled {
+        items.extend(connector_settings(plugin, fields, this, cx));
+    }
+
+    // 3. Keep on this host only toggle (when connector sync is open for this plugin).
+    if let Some(is_local) = super::account_vault::local_toggle_state(&plugin.id, &fields.vault) {
+        let this = this.clone();
+        let id = plugin.id.clone();
+        let toggle = Switch::new(SharedString::from(format!("connector-local-{id}")))
+            .checked(is_local)
+            .on_change(move |on: &bool, _: &mut Window, cx: &mut App| {
+                let on = *on;
+                this.update(cx, |bench, cx| {
+                    super::account_vault::toggle_keep_local(bench, &id, on, cx)
+                })
+            });
+        items.push(inline_row(
+            t!("Keep on this host only"),
+            Some(t!("Don’t sync this sign-in to your other hosts.").into()),
+            toggle,
+            cx,
+        ));
+    }
+
+    // 4. Reconnect option if auth failed or connector doesn't support sign-out.
+    if plugin.enabled
+        && has_sign_in(plugin)
+        && (!plugin.sign_out || plugin.signed_in == Some(false))
+    {
+        let this = this.clone();
+        let id = plugin.id.clone();
+        items.push(inline_row(
+            t!("Connection"),
+            Some(t!("Sign in again or switch account.").into()),
+            ui::Button::new(
+                SharedString::from(format!("connector-reauth-{id}")),
+                t!("Sign in again"),
+                ui::Variant::Outline,
+            )
+            .icon(Icon::LogIn)
+            .on_click(move |_, window, cx| {
+                let id = id.clone();
+                this.update(cx, |bench, cx| {
+                    crate::connector_sign_in::open(bench, &id, window, cx)
+                })
+            }),
+            cx,
+        ));
+    }
+
+    let count = items.len();
     div()
+        .pl(px(56.))
+        .pr(SPACE_4)
+        .py(SPACE_1)
+        .bg(t.surface_hover.opacity(0.35))
+        .border_b(crate::theme::border())
+        .border_color(t.line_soft)
         .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .children(configure)
-        .children(super::account_vault::choices(
-            &plugin.id,
-            &fields.vault,
-            this,
-        ))
-        .children(button)
-        .child(toggle)
+        .flex_col()
+        .children(items.into_iter().enumerate().map(|(at, item)| {
+            div()
+                .py(SPACE_2H)
+                .when(at + 1 < count, |row| {
+                    row.border_b(crate::theme::border())
+                        .border_color(t.line_soft)
+                })
+                .child(item)
+        }))
         .into_any_element()
 }
 
-/// One setting in a connector's settings: its name and what it does, then its control.
+fn inline_row(
+    label: impl Into<SharedString>,
+    about: Option<SharedString>,
+    control: impl IntoElement,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_3)
+        .child(heading(label.into(), about, t).flex_1().min_w_0())
+        .child(div().flex_none().child(control))
+        .into_any_element()
+}
+
 fn setting(
     label: impl Into<SharedString>,
     about: Option<SharedString>,
@@ -510,8 +1171,7 @@ fn heading(label: SharedString, about: Option<SharedString>, t: &Tokens) -> Div 
         }))
 }
 
-/// The settings a connector's tools read.
-fn settings(
+fn connector_settings(
     plugin: &Listed,
     fields: &Fields,
     this: &Entity<Workbench>,
@@ -546,9 +1206,6 @@ fn settings(
     }
 }
 
-/// The agents' own GitHub Apps: a way to make one for the person or an organization, then a row
-/// for each, with where it is installed and the ways to install it on more repositories or
-/// forget it.
 fn github_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyElement> {
     let Some(github) = &fields.github else {
         return Vec::new();
@@ -658,7 +1315,7 @@ fn github_app(app: &GithubApp, this: &Entity<Workbench>, cx: &App) -> AnyElement
                     t!("Forget"),
                     ui::Variant::Ghost,
                 )
-                .tooltip(t!("Sikemux forgets this App on every computer that has it. It stays on GitHub until you delete it there."))
+                .tooltip(t!("Sikemux forgets this App on every host that has it. It stays on GitHub until you delete it there."))
                 .on_click(forget),
             ),
         cx,
@@ -678,8 +1335,6 @@ fn read_github(bench: &Workbench, cx: &mut Context<Workbench>) {
     .detach();
 }
 
-/// Opens GitHub's page for making an App for the person or `organization`, then its page for
-/// picking repositories.
 fn make_app(bench: &mut Workbench, organization: Option<String>, cx: &mut Context<Workbench>) {
     let call = PluginCall {
         plugin: GITHUB.to_owned(),
@@ -709,8 +1364,11 @@ fn make_app(bench: &mut Workbench, organization: Option<String>, cx: &mut Contex
         }
         let _ = bench.update(cx, |bench, cx| {
             change_fields(bench, cx, |fields, _| fields.making_app = None);
-            if let Some(failed) = failed {
-                bench.notify(toast::error(t!("GitHub: {error}", error = failed)), cx);
+            match failed {
+                Some(failed) => {
+                    bench.notify(toast::error(t!("GitHub: {error}", error = failed)), cx);
+                }
+                None => bench.notify(toast::success(t!("GitHub App created")), cx),
             }
             read_github(bench, cx);
         });
@@ -727,8 +1385,9 @@ fn forget_app(bench: &mut Workbench, id: String, cx: &mut Context<Workbench>) {
     cx.spawn(async move |bench, cx| {
         let forgot = forgot.await;
         let _ = bench.update(cx, |bench, cx| {
-            if let Err(error) = forgot {
-                bench.notify(toast::error(t!("GitHub: {error}", error = error)), cx);
+            match forgot {
+                Ok(_) => bench.notify(toast::success(t!("Forgot GitHub App")), cx),
+                Err(error) => bench.notify(toast::error(t!("GitHub: {error}", error = error)), cx),
             }
             read_github(bench, cx);
         });
@@ -768,8 +1427,11 @@ fn aws_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyE
                 cx.spawn_in(window, async move |bench, cx| {
                     let said = saved.await;
                     let _ = bench.update_in(cx, |bench, window, cx| {
-                        if let Err(error) = said {
-                            bench.notify(toast::error(t!("AWS: {error}", error = error)), cx);
+                        match said {
+                            Ok(_) => bench.notify(toast::success(t!("Updated AWS profile")), cx),
+                            Err(error) => {
+                                bench.notify(toast::error(t!("AWS: {error}", error = error)), cx)
+                            }
                         }
                         read(bench, window, cx);
                     });
@@ -781,7 +1443,7 @@ fn aws_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyE
     let account = aws.account.clone().unwrap_or_default();
     let agents = aws.agents.clone().unwrap_or_default();
     vec![
-        setting(
+        inline_row(
             t!("Signed in with"),
             Some(t!("The profile whose sign-in this page checks.").into()),
             ui::select(
@@ -798,7 +1460,7 @@ fn aws_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyE
             ),
             cx,
         ),
-        setting(
+        inline_row(
             t!("Profile agents start on"),
             Some(t!("Set as AWS_PROFILE for every agent, unless your own shell sets one.").into()),
             ui::select(
@@ -818,8 +1480,6 @@ fn aws_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyE
     ]
 }
 
-/// A saved database, with whether agents may change its data, whether it is production, and the
-/// way to remove it.
 fn database_row(database: &Database, this: &Entity<Workbench>, cx: &App) -> AnyElement {
     let name = database.name.clone();
     let remove = {
@@ -832,7 +1492,7 @@ fn database_row(database: &Database, this: &Entity<Workbench>, cx: &App) -> AnyE
         .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
             let params = json!({ "database": name });
             this.update(cx, |bench, cx| {
-                change_database(bench, "remove", params, window, cx)
+                change_database(bench, "remove", params, t!("Removed database"), window, cx)
             })
         })
     };
@@ -879,7 +1539,6 @@ fn database_row(database: &Database, this: &Entity<Workbench>, cx: &App) -> AnyE
         .into_any_element()
 }
 
-/// One of a saved database's switches, labelled, which `method` sets.
 fn database_switch(
     name: &str,
     label: &'static str,
@@ -894,7 +1553,14 @@ fn database_switch(
         .on_change(move |on: &bool, window: &mut Window, cx: &mut App| {
             let params = json!({ "database": database, "on": *on });
             this.update(cx, |bench, cx| {
-                change_database(bench, method, params, window, cx)
+                change_database(
+                    bench,
+                    method,
+                    params,
+                    t!("Updated database setting"),
+                    window,
+                    cx,
+                )
             })
         });
     let t = Tokens::get(cx);
@@ -902,7 +1568,7 @@ fn database_switch(
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .text_size(crate::theme::ui_text(crate::theme::TEXT_XS))
+        .text_size(theme::ui_text(TEXT_XS))
         .text_color(t.text_tertiary)
         .child(label)
         .child(switch)
@@ -913,6 +1579,7 @@ fn change_database(
     bench: &mut Workbench,
     method: &'static str,
     params: Value,
+    done: &'static str,
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
@@ -920,8 +1587,11 @@ fn change_database(
     cx.spawn_in(window, async move |bench, cx| {
         let said = changed.await;
         let _ = bench.update_in(cx, |bench, window, cx| {
-            if let Err(error) = said {
-                bench.notify(toast::error(t!("Database: {error}", error = error)), cx);
+            match said {
+                Ok(_) => bench.notify(toast::success(done), cx),
+                Err(error) => {
+                    bench.notify(toast::error(t!("Database: {error}", error = error)), cx)
+                }
             }
             read(bench, window, cx);
         });
@@ -934,76 +1604,20 @@ fn sign_out(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>) {
     let name = (bench.reads.plugins.all())
         .find(|plugin| plugin.id == id)
         .map_or_else(|| id.to_owned(), |plugin| plugin.name.clone());
+    let id = id.to_owned();
     cx.spawn(async move |bench, cx| {
-        if let Err(error) = signed_out.await {
-            let _ = bench.update(cx, |bench, cx| {
-                bench.notify(toast::error(format!("{name}: {error}")), cx)
+        let result = signed_out.await;
+        let _ = bench.update(cx, |bench, cx| {
+            change_fields(bench, cx, |fields, _| {
+                if fields.configuring.as_deref() == Some(id.as_str()) {
+                    fields.configuring = None;
+                }
             });
-        }
+            match result {
+                Ok(_) => bench.notify(toast::success(t!("Signed out of {name}", name = name)), cx),
+                Err(error) => bench.notify(toast::error(format!("{name}: {error}")), cx),
+            }
+        });
     })
     .detach();
-}
-
-fn close_settings(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    change_fields(bench, cx, |fields, _| fields.configuring = None);
-}
-
-pub fn dialog(
-    bench: &Workbench,
-    this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
-) -> Option<AnyElement> {
-    let (plugin, items) = {
-        let fields = super::state(bench, cx)?.connectors.as_ref()?;
-        let id = fields.configuring.as_deref()?;
-        let plugin = bench.reads.plugins.all().find(|plugin| plugin.id == id)?;
-        if !has_settings(plugin, fields) {
-            return None;
-        }
-        (plugin, settings(plugin, fields, this, cx))
-    };
-    let t = Tokens::get(cx).clone();
-    let count = items.len();
-    let body = div()
-        .id("connector-settings")
-        .max_h(px(480.))
-        .overflow_y_scroll()
-        .pl(px(dialog::GLYPH_INSET))
-        .pr(SPACE_5)
-        .pb(SPACE_2)
-        .flex()
-        .flex_col()
-        .children(items.into_iter().enumerate().map(|(at, item)| {
-            div()
-                .py(SPACE_3)
-                .when(at + 1 < count, |item| {
-                    item.border_b(crate::theme::border())
-                        .border_color(t.line_soft)
-                })
-                .child(item)
-        }))
-        .into_any_element();
-    let close: dialog::Answer = {
-        let this = this.clone();
-        std::rc::Rc::new(move |_, cx| this.update(cx, close_settings))
-    };
-    let foot = dialog::hinted_foot(dialog::escape(t!("close"), cx), cx).child(dialog::button(
-        "connector-settings-done",
-        t!("Done").into(),
-        Some(t.accent),
-        close.clone(),
-        cx,
-    ));
-    Some(
-        dialog::marked_sheet(
-            mark(&plugin.id),
-            t!("{name} settings", name = plugin.name).into(),
-            body,
-            foot,
-            close.clone(),
-            close,
-            cx,
-        )
-        .into_any_element(),
-    )
 }

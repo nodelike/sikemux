@@ -269,7 +269,26 @@ fn took_sign_in(
     cx: &mut Context<Workbench>,
 ) {
     match signed {
-        Ok(()) => close(bench, cx),
+        Ok(()) => {
+            let name = bench.connector_sign_in.as_ref().and_then(|signing| {
+                bench
+                    .reads
+                    .plugins
+                    .all()
+                    .find(|plugin| plugin.id == signing.plugin)
+                    .map(|plugin| plugin.name.clone())
+            });
+            close(bench, cx);
+            if let Some(name) = name {
+                bench.notify(
+                    crate::toast::success(t!(
+                        "{name} connected · agents can use it now",
+                        name = name
+                    )),
+                    cx,
+                );
+            }
+        }
         Err(refused) => change(bench, cx, |signing| {
             signing.busy = false;
             signing.browser = None;

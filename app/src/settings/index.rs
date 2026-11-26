@@ -22,6 +22,7 @@ pub enum Page {
     Models,
     Connectors,
     ThisMac,
+    Developer,
     Usage,
     About,
 }
@@ -33,7 +34,7 @@ use Page::*;
 pub const GROUPS: [(&str, &[Page]); 3] = [
     (n!("App"), &[General, Appearance, Keyboard]),
     (n!("Agents"), &[Agents, Skills, Models]),
-    (n!("Reach"), &[Connectors, ThisMac]),
+    (n!("Reach"), &[Connectors, ThisMac, Developer]),
 ];
 
 /// The pages below the groups, at the foot of the list, right beside Account.
@@ -95,13 +96,18 @@ impl Page {
             ),
             Connectors => (
                 n!("Connectors"),
-                n!("The services, apps and panels your agents reach"),
+                n!("Services your agents can work in, using your sign-in"),
                 Icon::Plug,
             ),
             ThisMac => (
                 n!("This Mac"),
                 n!("The notch, dictation and simulators"),
                 Icon::Laptop,
+            ),
+            Developer => (
+                n!("Developer"),
+                n!("Reach Sikemux from your shell and from other apps"),
+                Icon::Code,
             ),
             Usage => (
                 n!("Usage"),
@@ -215,7 +221,6 @@ fn entries() -> impl Iterator<Item = &'static Entry> {
         pages::agents::providers::MODELS,
         pages::agents::device::ENTRIES,
         pages::connectors::ENTRIES,
-        pages::mods::ENTRIES,
         pages::actions::ENTRIES,
         pages::cli::ENTRIES,
         pages::outside::ENTRIES,
