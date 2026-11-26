@@ -299,7 +299,7 @@ fn level_select(
     this: &Entity<Workbench>,
     cx: &App,
 ) -> AnyElement {
-    let shown = match confirmed {
+    let shown = match confirmed || place.said_by.is_some() {
         true => place.level,
         false => Level::Mine,
     };
