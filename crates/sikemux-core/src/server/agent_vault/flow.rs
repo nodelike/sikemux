@@ -160,13 +160,23 @@ pub(crate) async fn submit_request(
             subtitle: None,
         };
         let mut store = core.agent_vault().store.locked();
-        let saved = store.upsert(upsert, "person").map_err(CoreError::from)?;
-        if params.approve_domain {
-            if let Some(ref domain) = open.view.domain {
-                let _ = store.approve_domain(&saved.id, domain);
+        if params.ephemeral {
+            let approved = params
+                .approve_domain
+                .then_some(open.view.domain.as_deref())
+                .flatten();
+            store
+                .upsert_ephemeral(upsert, approved, ONE_TIME_GRANT_TTL_MS)
+                .map_err(CoreError::from)?
+        } else {
+            let saved = store.upsert(upsert, "person").map_err(CoreError::from)?;
+            if params.approve_domain {
+                if let Some(ref domain) = open.view.domain {
+                    let _ = store.approve_domain(&saved.id, domain);
+                }
             }
+            saved
         }
-        saved
     };
 
     let resolution = RequestResolution::Submitted {
@@ -494,6 +504,7 @@ pub(crate) async fn resolve_for_browser(
             }
             result.map_err(CoreError::from)?
         };
+        core.changed(What::Read(Topic::Vault));
         return Ok(VaultResolvedBrowser::File {
             staged_path: staged.0.to_string_lossy().into_owned(),
             display_name: staged.1,
@@ -591,6 +602,7 @@ pub(crate) async fn resolve_for_browser(
             VaultAuditStatus::Filled,
         );
     }
+    core.changed(What::Read(Topic::Vault));
 
     Ok(VaultResolvedBrowser::Text {
         value: final_value,

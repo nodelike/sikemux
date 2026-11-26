@@ -11,7 +11,7 @@ use sikemux_calls::vault::{
     VaultAuditStatus, VaultDeleteParams, VaultEntryDetail, VaultEntrySummary, VaultGetParams,
     VaultListParams, VaultPendingApproval, VaultPendingRequest, VaultRequestCancelParams,
     VaultRequestSubmitParams, VaultRequestsParams, VaultResolveBrowserParams, VaultResolvedBrowser,
-    VaultUpsertParams,
+    VaultStageDocumentParams, VaultStagedDocument, VaultUpsertParams,
 };
 use sikemux_process::sync::Locked;
 
@@ -166,4 +166,20 @@ pub(crate) async fn resolve_for_browser(
     params: VaultResolveBrowserParams,
 ) -> CoreResult<VaultResolvedBrowser> {
     flow::resolve_for_browser(core, params).await
+}
+
+pub(crate) fn stage_document(
+    core: &Core,
+    params: VaultStageDocumentParams,
+) -> CoreResult<VaultStagedDocument> {
+    let (path, filename) = core
+        .agent_vault()
+        .store
+        .locked()
+        .stage_document_file(&params.id)
+        .map_err(CoreError::from)?;
+    Ok(VaultStagedDocument {
+        path: path.to_string_lossy().into_owned(),
+        filename,
+    })
 }

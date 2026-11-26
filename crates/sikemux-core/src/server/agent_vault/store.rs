@@ -76,6 +76,8 @@ pub(crate) struct VaultStore {
     root: Option<PathBuf>,
     key: Option<Key>,
     entries: BTreeMap<String, StoredEntry>,
+    ephemeral_entries: BTreeMap<String, (StoredEntry, u64)>,
+    ephemeral_docs: BTreeMap<String, Vec<u8>>,
     in_memory_docs: BTreeMap<String, Vec<u8>>,
     audit: Vec<VaultAuditEntry>,
     loaded: bool,
@@ -87,9 +89,25 @@ impl VaultStore {
             root: data_dir.map(|dir| dir.join(VAULT_DIR)),
             key,
             entries: BTreeMap::new(),
+            ephemeral_entries: BTreeMap::new(),
+            ephemeral_docs: BTreeMap::new(),
             in_memory_docs: BTreeMap::new(),
             audit: Vec::new(),
             loaded: false,
+        }
+    }
+
+    fn prune_ephemeral(&mut self) {
+        let now = epoch_ms();
+        let expired: Vec<String> = self
+            .ephemeral_entries
+            .iter()
+            .filter(|(_, (_, exp))| *exp <= now)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in expired {
+            self.ephemeral_entries.remove(&id);
+            self.ephemeral_docs.remove(&id);
         }
     }
 
@@ -214,12 +232,28 @@ impl VaultStore {
 
     pub(crate) fn stage_document_file(&mut self, id: &str) -> Result<(PathBuf, String), String> {
         self.ensure_loaded()?;
-        let doc = self
-            .entries
-            .get(id)
-            .and_then(|entry| entry.document.clone())
-            .ok_or_else(|| format!("vault entry {id} does not hold a document"))?;
-        let bytes = self.read_document_bytes(id)?;
+        self.prune_ephemeral();
+        let (doc, bytes) = if let Some(entry) = self.entries.get(id) {
+            let doc = entry
+                .document
+                .clone()
+                .ok_or_else(|| format!("vault entry {id} does not hold a document"))?;
+            let bytes = self.read_document_bytes(id)?;
+            (doc, bytes)
+        } else if let Some((entry, _)) = self.ephemeral_entries.get(id) {
+            let doc = entry
+                .document
+                .clone()
+                .ok_or_else(|| format!("vault entry {id} does not hold a document"))?;
+            let bytes = self
+                .ephemeral_docs
+                .get(id)
+                .cloned()
+                .ok_or_else(|| "ephemeral document payload not found".to_owned())?;
+            (doc, bytes)
+        } else {
+            return Err(format!("vault entry {id} does not hold a document"));
+        };
         let safe_name = sanitize_filename(&doc.filename);
         let stage_base = self
             .root
@@ -303,7 +337,81 @@ impl VaultStore {
 
     pub(crate) fn entry(&mut self, id: &str) -> Result<Option<StoredEntry>, String> {
         self.ensure_loaded()?;
-        Ok(self.entries.get(id).cloned())
+        self.prune_ephemeral();
+        Ok(self
+            .entries
+            .get(id)
+            .or_else(|| self.ephemeral_entries.get(id).map(|(entry, _)| entry))
+            .cloned())
+    }
+
+    pub(crate) fn upsert_ephemeral(
+        &mut self,
+        params: VaultUpsertParams,
+        approved_domain: Option<&str>,
+        ttl_ms: u64,
+    ) -> Result<VaultEntrySummary, String> {
+        self.ensure_loaded()?;
+        self.prune_ephemeral();
+        let title = params.title.trim();
+        if title.is_empty() {
+            return Err("vault entry title is required".to_owned());
+        }
+        if let VaultSource::OnePassword { ref reference } = params.source {
+            parse_op_ref(reference)?;
+        }
+        let now = epoch_ms();
+        let id = format!("vlt_once_{}", uuid::Uuid::new_v4().simple());
+        let fields = build_fields(params.category, params.fields, None)?;
+        let document = match params.document {
+            Some(doc_input) => {
+                let (bytes, doc_summary) = read_document_input(doc_input)?;
+                self.ephemeral_docs.insert(id.clone(), bytes);
+                Some(doc_summary)
+            }
+            None => None,
+        };
+        if params.category == VaultCategory::Documents && document.is_none() {
+            return Err("a Documents vault entry requires a document attachment".to_owned());
+        }
+        let domains = normalize_domains(params.domains);
+        let approved_domains = approved_domain
+            .map(normalize_domain)
+            .filter(|d| !d.is_empty())
+            .into_iter()
+            .collect();
+        let delivery_mode = params.delivery_mode.unwrap_or(match params.category {
+            VaultCategory::Documents => VaultDeliveryMode::PrivateTempFile,
+            _ => VaultDeliveryMode::BlindFill,
+        });
+        let subtitle = params
+            .subtitle
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                default_subtitle(params.category, &fields, document.as_ref(), &params.source)
+            });
+        let entry = StoredEntry {
+            id: id.clone(),
+            title: title.to_owned(),
+            category: params.category,
+            scope: params.scope,
+            source: params.source,
+            delivery_mode,
+            domains,
+            approved_domains,
+            require_approval: params.category == VaultCategory::Payments,
+            fields,
+            document,
+            subtitle,
+            created_at: now,
+            updated_at: now,
+            last_used_at: None,
+        };
+        let summary = entry.summary();
+        self.ephemeral_entries
+            .insert(id, (entry, now.saturating_add(ttl_ms)));
+        Ok(summary)
     }
 
     pub(crate) fn get(&mut self, id: &str, reveal: bool) -> Result<VaultEntryDetail, String> {

@@ -511,6 +511,7 @@ async fn vault_list_and_vault_request_never_leak_plaintext() {
             ],
             document: None,
             approve_domain: true,
+            ephemeral: false,
         },
     )
     .await

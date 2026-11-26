@@ -541,6 +541,21 @@ pub struct VaultRequestSubmitParams {
     pub document: Option<VaultDocumentInput>,
     #[serde(default)]
     pub approve_domain: bool,
+    #[serde(default)]
+    pub ephemeral: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultStageDocumentParams {
+    pub id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultStagedDocument {
+    pub path: String,
+    pub filename: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

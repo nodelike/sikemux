@@ -507,6 +507,7 @@ calls! { core, client, method, params;
     "vaultApprovals" = VaultApprovals: Owner => super::agent_vault::approvals(&core, params.unwrap_or_default()),
     "vaultApprovalAnswer" = VaultApprovalAnswer: Owner, counted => super::agent_vault::answer_approval(&core, &client.peer, params).await?,
     "vaultResolveBrowser" = VaultResolveBrowser: NoDevice => super::agent_vault::resolve_for_browser(&core, params).await?,
+    "vaultStageDocument" = VaultStageDocument: Owner => super::agent_vault::stage_document(&core, params)?,
     "drafts" = Drafts: Watch => core.drafts().get(params.unwrap_or_default().keys.as_deref()),
     "setDraft" = SetDraft: Owner => super::drafts::set(&core, params)?,
     "diagramLayout" = DiagramLayout: Owner => super::diagrams::layout(&core, params),

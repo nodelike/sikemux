@@ -250,6 +250,7 @@ crate::calls! {
     "vaultApprovals" VaultApprovals (Option<crate::vault::VaultApprovalsParams>) -> Vec<crate::vault::VaultPendingApproval>;
     "vaultApprovalAnswer" VaultApprovalAnswer (crate::vault::VaultApprovalAnswerParams) -> ();
     "vaultResolveBrowser" VaultResolveBrowser (crate::vault::VaultResolveBrowserParams) -> crate::vault::VaultResolvedBrowser;
+    "vaultStageDocument" VaultStageDocument (crate::vault::VaultStageDocumentParams) -> crate::vault::VaultStagedDocument;
     "setPreference" SetPreference (sikemux_view::prefs::PreferenceChange) -> sikemux_view::prefs::Preferences;
     "newTerminal" NewTerminal (crate::spare::NewTerminal) -> String;
     "showTerminals" ShowTerminals (crate::params::NoParams) -> ();
