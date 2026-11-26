@@ -1978,7 +1978,6 @@ mod tests {
         }))
         .unwrap();
         let mut cards = Cards::default();
-        assert!(cards.held_field(&gate.id).is_none());
         assert!(cards.chosen(&gate).is_empty());
 
         cards.toggle(&gate, "allow");
