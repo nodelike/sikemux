@@ -74,8 +74,8 @@ pub struct Reply {
 
 /// Hears the pointer come onto a part, or leave it.
 pub type OnPartHover = Rc<dyn Fn(usize, bool, &mut Window, &mut App)>;
-/// Hears the pointer come onto the hovered part's button, or leave it.
-pub type OnButtonHover = Rc<dyn Fn(bool, &mut Window, &mut App)>;
+/// Hears the pointer come onto a part's reply button, or leave it.
+pub type OnButtonHover = Rc<dyn Fn(usize, bool, &mut Window, &mut App)>;
 /// Draws a part's button from its place, its words as markdown, and whether it is chosen.
 pub type PartButton = Rc<dyn Fn(usize, String, bool, &mut Window, &mut App) -> AnyElement>;
 /// Styled runs over a code block's text, in bytes from its start.
@@ -1044,8 +1044,10 @@ impl Draw<'_> {
         let line = self.on.style.text_size * self.on.style.line_height;
         let on_hover = reply.on_hover.clone();
         let on_point = reply.on_point.clone();
+        let part_id = self.id("part");
+        let reply_id = self.id("reply");
         div()
-            .id(self.id("part"))
+            .id(part_id)
             .relative()
             .mr(-reply.gutter)
             .pr(reply.gutter)
@@ -1053,17 +1055,23 @@ impl Draw<'_> {
             .child(drawn)
             .children(button.map(|button| {
                 div()
-                    .id(self.id("reply"))
-                    .on_hover(move |over, window, cx| on_point(*over, window, cx))
                     .absolute()
                     .top_0()
                     .right_0()
-                    .min_w(reply.gutter)
                     .h(line)
                     .flex()
                     .items_center()
                     .justify_end()
-                    .child(button)
+                    .child(
+                        div()
+                            .id(reply_id)
+                            .block_mouse_except_scroll()
+                            .on_hover(move |over, window, cx| on_point(place, *over, window, cx))
+                            .min_w(reply.gutter)
+                            .flex()
+                            .justify_end()
+                            .child(button),
+                    )
             }))
             .into_any_element()
     }

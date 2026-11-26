@@ -726,8 +726,8 @@ struct Reading {
     briefs: HashMap<u64, Result<sikemux_view::chat::RotationBrief, String>>,
     /// The paragraph or list item the pointer is over, by its text and its place in the text.
     quoting: Option<(SharedString, usize)>,
-    /// The pointer is on that part's reply button.
-    quoting_button: bool,
+    /// The reply button the pointer is over, by its text and its place in the text.
+    quoting_button: Option<(SharedString, usize)>,
 }
 
 impl Reading {

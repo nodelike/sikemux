@@ -1687,9 +1687,11 @@ fn with_reply(
             Some(places)
         })
         .unwrap_or_else(|| Rc::from([]));
-    let hovered = (looks.reading.quoting.as_ref())
+    let hovered = (looks.reading.quoting_button.as_ref())
+        .or(looks.reading.quoting.as_ref())
         .filter(|(over, _)| over == text)
         .map(|(_, place)| *place);
+    let pointed = (looks.reading.quoting_button.as_ref()).is_some_and(|(over, _)| over == text);
     let on_hover = {
         let (reader, text) = (looks.reader.clone(), text.clone());
         Rc::new(
@@ -1697,11 +1699,15 @@ fn with_reply(
                 reader.update(cx, |reading, cx| {
                     let here = Some((text.clone(), place));
                     if over {
+                        if reading.quoting == here {
+                            return;
+                        }
                         reading.quoting = here;
-                        reading.quoting_button = false;
+                        if reading.quoting_button != reading.quoting {
+                            reading.quoting_button = None;
+                        }
                     } else if reading.quoting == here {
                         reading.quoting = None;
-                        reading.quoting_button = false;
                     } else {
                         return;
                     }
@@ -1711,15 +1717,25 @@ fn with_reply(
         )
     };
     let on_point = {
-        let reader = looks.reader.clone();
-        Rc::new(move |over: bool, _: &mut Window, cx: &mut App| {
-            reader.update(cx, |reading, cx| {
-                if reading.quoting_button != over {
-                    reading.quoting_button = over;
+        let (reader, text) = (looks.reader.clone(), text.clone());
+        Rc::new(
+            move |place: usize, over: bool, _: &mut Window, cx: &mut App| {
+                reader.update(cx, |reading, cx| {
+                    let here = Some((text.clone(), place));
+                    if over {
+                        if reading.quoting_button == here {
+                            return;
+                        }
+                        reading.quoting_button = here;
+                    } else if reading.quoting_button == here {
+                        reading.quoting_button = None;
+                    } else {
+                        return;
+                    }
                     cx.notify();
-                }
-            })
-        })
+                })
+            },
+        )
     };
     let button = {
         let (bench, agent, reader, text) = (
@@ -1762,7 +1778,6 @@ fn with_reply(
                 });
                 match ground {
                     Some(ground) => div()
-                        .occlude()
                         .rounded(theme::radius_2())
                         .bg(ground)
                         .child(button)
@@ -1775,7 +1790,7 @@ fn with_reply(
     Rc::new(Style {
         reply: Some(gpui_transcript::Reply {
             hovered,
-            pointed: hovered.is_some() && looks.reading.quoting_button,
+            pointed,
             chosen,
             gutter,
             on_hover,
