@@ -77,6 +77,10 @@ jobs:
     # Also when the wait above timed out, so a slow CI run costs time, never the release. A nightly
     # from main has only CI's verdict: a red one ends it, and the next push gets its own build.
     if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.result == 'success' && needs.pushed-checks.outputs.passed != 'true' }}
+    permissions:
+      actions: write
+      contents: read
+      checks: read
     uses: ./.github/workflows/ci.yml
 
   plan:
