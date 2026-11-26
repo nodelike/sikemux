@@ -17,6 +17,10 @@ inputs:
     description: A job whose cache to restore, without keeping one of this job's own, since the caches fill the repository's 10 GB
     required: false
     default: ""
+  save-cache:
+    description: Save the cargo cache on main when true; set false for daily or rare jobs that would evict active caches
+    required: false
+    default: "true"
 runs:
   using: composite
   steps:
@@ -57,4 +61,4 @@ runs:
         key: ${{ env.DEPS_OPT_LEVEL && format('deps-opt-level-{0}', env.DEPS_OPT_LEVEL) || '' }}
         shared-key: ${{ inputs.cache-from || github.job }}
         cache-on-failure: true
-        save-if: ${{ github.ref == 'refs/heads/main' && inputs.cache-from == '' }}
+        save-if: ${{ github.ref == 'refs/heads/main' && inputs.cache-from == '' && inputs.save-cache == 'true' }}

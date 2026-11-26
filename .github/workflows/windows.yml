@@ -93,7 +93,6 @@ jobs:
         if: steps.crates.outputs.packages != ''
         uses: ./.github/actions/setup-rust
         with:
-          cache: "true"
           components: clippy
 
       - name: Check
@@ -146,8 +145,6 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-        with:
-          cache: "true"
 
       - name: Build the app
         run: cargo build --locked -p sikemux-app --bin sikemux
@@ -213,8 +210,6 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-        with:
-          cache: "true"
 
       - name: Build the host
         run: |

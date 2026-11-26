@@ -157,6 +157,12 @@ jobs:
           gh workflow run windows-release.yml -R "$GITHUB_REPOSITORY" --ref main \
             -f "version=$VERSION" -f "ref=$RELEASE_SHA" -f "release_run=$GITHUB_RUN_ID"
 
+      - name: Prune superseded Cargo caches before sccache writes
+        if: steps.plan.outputs.channel == 'nightly'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: "[[ -x scripts/prune-rust-caches.sh ]] && scripts/prune-rust-caches.sh || true"
+
       # Every job builds and describes the release from these, so a push's version reaches them all.
       - name: Keep the version and notes
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -251,7 +257,7 @@ jobs:
     needs: plan
     if: *planned
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       contents: read
     # What the core compiles in. The app starts a core rather than running one, and links no plugin.

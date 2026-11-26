@@ -9,7 +9,7 @@ set -euo pipefail
 name="$1" dir="$2"
 shift 2
 run="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-deadline=$((SECONDS + 45 * 60))
+deadline=$((SECONDS + 75 * 60))
 
 mkdir -p "$dir"
 while :; do
@@ -24,7 +24,7 @@ while :; do
       exit 1
     fi
   done
-  ((SECONDS < deadline)) || { echo "::error::$name did not arrive within 45 minutes" >&2; exit 1; }
+  ((SECONDS < deadline)) || { echo "::error::$name did not arrive within 75 minutes" >&2; exit 1; }
   sleep 10
 done
 
