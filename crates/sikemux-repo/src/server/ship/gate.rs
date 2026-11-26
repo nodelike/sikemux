@@ -779,7 +779,7 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
             asked
         ),
         Some(ALWAYS) => format!(
-            "The person said yes on the call \"{}\", and to let changes to {place} run from now on, telling them of each. Run `{action}` again now.",
+            "The person said yes on the call \"{}\", and to let changes to {place} run from now on, telling them of each; a tag, a release or a forced push there still asks. Run `{action}` again now.",
             asked
         ),
         _ if said_yes(option.as_deref()) && once => format!(
