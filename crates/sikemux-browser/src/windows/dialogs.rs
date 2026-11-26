@@ -88,3 +88,13 @@ pub fn answer(tab_id: &str, accept: bool, text: Option<&str>) -> Result<(), Stri
     open.events.dialog(None);
     Ok(())
 }
+
+pub(super) fn forget(tab_id: &str) {
+    if let Some(open) = OPEN.with_borrow_mut(|open| open.remove(tab_id)) {
+        // SAFETY: completes the deferred dialog on the window's thread when its tab closes.
+        unsafe {
+            let _ = open.deferral.Complete();
+        }
+        open.events.dialog(None);
+    }
+}

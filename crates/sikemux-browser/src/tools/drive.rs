@@ -105,6 +105,73 @@ const DRIVE_SDK_JS: &str = r#"
                 if (p.report === undefined) p.report = "outcome";
                 return callOnTab("browser.type", p);
             },
+            select(target, value, opts) {
+                let p;
+                if (typeof target === "object" && target !== null && value === undefined) {
+                    p = { ...target };
+                } else if (typeof target === "number") {
+                    p = { index: target, value, ...(opts || {}) };
+                } else if (typeof target === "string") {
+                    p = { field: target, value, ...(opts || {}) };
+                } else {
+                    p = { ...(target || {}), value, ...(opts || {}) };
+                }
+                if (p.report === undefined) p.report = "outcome";
+                return callOnTab("browser.select", p);
+            },
+            upload(target, files, opts) {
+                const toPaths = (val) => Array.isArray(val) ? val.map(String) : [String(val)];
+                let p;
+                if (files === undefined) {
+                    if (Array.isArray(target) || typeof target === "string") {
+                        p = { paths: toPaths(target) };
+                    } else {
+                        p = { ...(target || {}) };
+                        if (p.files !== undefined && p.paths === undefined) {
+                            p.paths = toPaths(p.files);
+                            delete p.files;
+                        }
+                    }
+                } else if (target == null) {
+                    p = { paths: toPaths(files), ...(opts || {}) };
+                } else if (typeof target === "number") {
+                    p = { index: target, paths: toPaths(files), ...(opts || {}) };
+                } else if (typeof target === "string") {
+                    p = { selector: target, paths: toPaths(files), ...(opts || {}) };
+                } else {
+                    p = { ...target, paths: toPaths(files), ...(opts || {}) };
+                }
+                if (p.report === undefined) p.report = "outcome";
+                return callOnTab("browser.upload", p);
+            },
+            dialog(action, text, opts) {
+                let p;
+                if (typeof action === "object" && action !== null) {
+                    p = { ...action };
+                } else {
+                    const accept =
+                        action === true ||
+                        action === "accept" ||
+                        action === "ok";
+                    const dismiss =
+                        action === false ||
+                        action === "dismiss" ||
+                        action === "cancel";
+                    if (!accept && !dismiss) {
+                        throw new Error('dialog action must be "accept", "dismiss", true, or false');
+                    }
+                    p = { accept };
+                    if (typeof text === "string") p.text = text;
+                    else if (typeof text === "object" && text !== null) Object.assign(p, text);
+                    if (opts && typeof opts === "object") Object.assign(p, opts);
+                }
+                if (p.report === undefined) p.report = "outcome";
+                return callOnTab("browser.dialog", p);
+            },
+            download(url, opts) {
+                const p = typeof url === "string" ? { url, ...(opts || {}) } : { ...(url || {}) };
+                return callOnTab("browser.download", p);
+            },
             press(key, opts) {
                 const p = { key, ...(opts || {}) };
                 if (p.report === undefined) p.report = "outcome";
@@ -181,10 +248,12 @@ const ALLOWED_DRIVE_METHODS: &[&str] = &[
     "browser.find",
     "browser.click",
     "browser.type",
+    "browser.select",
     "browser.press",
     "browser.drag",
     "browser.upload",
     "browser.dialog",
+    "browser.download",
     "browser.viewport",
     "browser.scroll",
     "browser.evaluate",
@@ -212,6 +281,7 @@ struct LiveBackend<'a> {
     project: &'a str,
     check: &'a CheckWrite,
     allowed_sites: Value,
+    upload_from: Value,
     default_tab: Option<String>,
 }
 
@@ -221,8 +291,11 @@ impl<'a> DriveBackend for LiveBackend<'a> {
         method: String,
         mut params: Value,
     ) -> Pin<Box<dyn Future<Output = Result<Value, String>> + 'b>> {
-        if method == "browser.evaluate" && params.get("allowedSites").is_none() {
+        if method == "browser.evaluate" {
             put(&mut params, "allowedSites", self.allowed_sites.clone());
+        }
+        if method == "browser.upload" {
+            put(&mut params, "uploadFrom", self.upload_from.clone());
         }
         if let Some(default_tab) = self.default_tab.as_deref() {
             let opens_new = method == "browser.navigate"
@@ -240,15 +313,23 @@ impl<'a> DriveBackend for LiveBackend<'a> {
                         .mark_acting_tab(self.agent_id, tab_hint.as_deref()),
                 );
             }
-            let outcome = Box::pin(run(
-                self.manager,
-                self.agent_id,
-                self.project,
-                self.check,
-                &method,
-                &params,
-            ))
-            .await;
+            let outcome = match method.as_str() {
+                "browser.select" => {
+                    select_option(self.manager, self.agent_id, self.check, &params).await
+                }
+                "browser.download" => download_asset(self.manager, self.agent_id, &params).await,
+                _ => {
+                    Box::pin(run(
+                        self.manager,
+                        self.agent_id,
+                        self.project,
+                        self.check,
+                        &method,
+                        &params,
+                    ))
+                    .await
+                }
+            };
             if method != "browser.tab.close" {
                 let acted_tab = outcome
                     .as_ref()
@@ -325,6 +406,10 @@ pub(super) async fn run_tool(
             .get("allowedSites")
             .cloned()
             .unwrap_or_else(|| json!([])),
+        upload_from: params
+            .get("uploadFrom")
+            .cloned()
+            .unwrap_or_else(|| json!([project])),
         default_tab: requested_tab(params).map(str::to_owned),
     };
     Ok(run_drive(&backend, script, Duration::from_millis(timeout_ms)).await)
@@ -371,6 +456,28 @@ fn step_summary(method: &str, params: &Value) -> String {
                 "type".into()
             }
         }
+        "browser.select" => {
+            let target = str_of("field")
+                .or_else(|| str_of("selector"))
+                .unwrap_or("select");
+            format!("select in \"{target}\"")
+        }
+        "browser.upload" => {
+            let count = params
+                .get("paths")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            format!("upload {count} file(s)")
+        }
+        "browser.dialog" => {
+            let verb = if params.get("accept").and_then(Value::as_bool) == Some(true) {
+                "accept"
+            } else {
+                "dismiss"
+            };
+            format!("{verb} dialog")
+        }
+        "browser.download" => format!("download {}", str_of("url").unwrap_or("asset")),
         "browser.press" => format!("press {}", str_of("key").unwrap_or("key")),
         "browser.wait" => {
             if let Some(text) = str_of("text") {
@@ -851,6 +958,37 @@ mod tests {
                             .unwrap_or("tab-1");
                         Ok(json!({ "tabId": tab_id, "typed": 5 }))
                     }
+                    "browser.select" => Ok(json!({
+                        "tabId": params.get("tabId").and_then(Value::as_str).unwrap_or("tab-1"),
+                        "selected": params.get("value").cloned().unwrap_or(Value::Null),
+                        "field": params.get("field").cloned().unwrap_or(Value::Null),
+                    })),
+                    "browser.upload" => Ok(json!({
+                        "tabId": params.get("tabId").and_then(Value::as_str).unwrap_or("tab-1"),
+                        "uploaded": params.get("paths").cloned().unwrap_or_else(|| json!([])),
+                        "selector": params.get("selector").cloned().unwrap_or(Value::Null),
+                    })),
+                    "browser.dialog" => {
+                        if self.hold_on_text.as_deref() == Some("dialog") {
+                            return Err(
+                                "Waits for the person's yes: `POST https://prod.test/confirm` changes prod.test, a production place."
+                                    .to_owned(),
+                            );
+                        }
+                        Ok(json!({
+                            "tabId": params.get("tabId").and_then(Value::as_str).unwrap_or("tab-1"),
+                            "accepted": params.get("accept").cloned().unwrap_or(Value::Null),
+                            "text": params.get("text").cloned().unwrap_or(Value::Null),
+                        }))
+                    }
+                    "browser.download" => Ok(json!({
+                        "tabId": params.get("tabId").and_then(Value::as_str).unwrap_or("tab-1"),
+                        "path": "/tmp/desk-downloads/photo.jpg",
+                        "mimeType": "image/jpeg",
+                        "bytes": 4200,
+                        "url": params.get("url").cloned().unwrap_or(Value::Null),
+                        "filename": params.get("filename").cloned().unwrap_or(Value::Null),
+                    })),
                     _ => Ok(json!({ "ok": true })),
                 }
             })
@@ -994,5 +1132,58 @@ mod tests {
             out["error"].as_str().is_some_and(|e| !e.is_empty()),
             "expected non-empty error: {out}"
         );
+    }
+
+    #[tokio::test]
+    async fn browser_drive_tab_exposes_select_upload_dialog_and_download() {
+        let mut backend = MockBackend::new();
+        backend.call_delay = Duration::ZERO;
+        let script = r##"
+            const tab = browser.tab("tab-1");
+            const sel = await tab.select("#state", "Karnataka");
+            const up = await tab.upload('input[type="file"]', ["/tmp/pan.pdf"]);
+            const dlg = await tab.dialog("accept", "confirmed");
+            const dl = await tab.download("https://lh3.googleusercontent.com/abc", { filename: "photo.jpg" });
+            return { sel, up, dlg, dl };
+        "##;
+        let out = run_drive(&backend, script, Duration::from_secs(5)).await;
+        assert_eq!(out["ok"], json!(true), "unexpected output: {out}");
+        assert_eq!(out["result"]["sel"]["selected"], json!("Karnataka"));
+        assert_eq!(out["result"]["sel"]["field"], json!("#state"));
+        assert_eq!(out["result"]["up"]["uploaded"], json!(["/tmp/pan.pdf"]));
+        assert_eq!(
+            out["result"]["up"]["selector"],
+            json!("input[type=\"file\"]")
+        );
+        assert_eq!(out["result"]["dlg"]["accepted"], json!(true));
+        assert_eq!(out["result"]["dlg"]["text"], json!("confirmed"));
+        assert_eq!(
+            out["result"]["dl"]["path"],
+            json!("/tmp/desk-downloads/photo.jpg")
+        );
+        assert_eq!(out["result"]["dl"]["mimeType"], json!("image/jpeg"));
+        assert_eq!(out["result"]["dl"]["bytes"], json!(4200));
+        assert_eq!(out["result"]["dl"]["filename"], json!("photo.jpg"));
+    }
+
+    #[tokio::test]
+    async fn browser_drive_dialog_respects_fail_fast_write_gate() {
+        let mut backend = MockBackend::new();
+        backend.call_delay = Duration::ZERO;
+        backend.hold_on_text = Some("dialog".into());
+        let script = r#"
+            const tab = browser.tab("tab-1");
+            try {
+                await tab.dialog("accept", { optional: true });
+            } catch {}
+            return "unreachable";
+        "#;
+        let out = run_drive(&backend, script, Duration::from_secs(5)).await;
+        assert_eq!(out["ok"], json!(false), "expected held gate: {out}");
+        assert_eq!(out["heldAt"]["method"], json!("browser.dialog"));
+        assert!(out["error"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("Waits for the person"));
     }
 }

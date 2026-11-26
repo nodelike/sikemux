@@ -7,6 +7,15 @@ use url::Url;
 use super::{BrowserDownload, DownloadState};
 
 const KEPT: usize = 20;
+pub(crate) const MAX_DOWNLOAD_BYTES: u64 = 100 * 1024 * 1024;
+pub(crate) const MAX_IN_PAGE_DOWNLOAD_BYTES: u64 = 25 * 1024 * 1024;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DownloadedAsset {
+    pub path: PathBuf,
+    pub mime_type: String,
+    pub bytes: u64,
+}
 
 /// The files an agent's tabs saved lately, oldest first. Each is numbered so an
 /// action can pick out only the ones that began while it ran.
@@ -156,6 +165,73 @@ pub(crate) fn unique_download_path(folder: &Path, name: &str) -> PathBuf {
     }
 }
 
+/// Validates and resolves `raw` against `base` (when relative), allowing only read-only
+/// `http`, `https`, or `blob:http(s):` URLs.
+pub(crate) fn validate_download_url(raw: &str, base: Option<&str>) -> Result<Url, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("url is required".into());
+    }
+    let parsed = match Url::parse(trimmed) {
+        Ok(url) => url,
+        Err(_) => {
+            let base_url = base
+                .and_then(|b| Url::parse(b).ok())
+                .filter(|b| matches!(b.scheme(), "http" | "https"))
+                .ok_or_else(|| "invalid download url".to_owned())?;
+            base_url
+                .join(trimmed)
+                .map_err(|_| "invalid download url".to_owned())?
+        }
+    };
+    let allowed = match parsed.scheme() {
+        "http" | "https" => true,
+        "blob" => {
+            Url::parse(parsed.path()).is_ok_and(|inner| matches!(inner.scheme(), "http" | "https"))
+        }
+        _ => false,
+    };
+    if !allowed {
+        return Err(format!(
+            "download url scheme '{}' is not allowed; only http, https, and blob URLs are supported",
+            parsed.scheme()
+        ));
+    }
+    Ok(parsed)
+}
+
+/// Resolves a sanitized destination file inside canonicalized `dir`, enforcing S-07/S-09
+/// canonical root containment so no filename or traversal can escape `dir`.
+pub(crate) fn contained_download_path(
+    dir: &Path,
+    url: &Url,
+    requested_name: Option<&str>,
+    suggested: &Path,
+) -> Result<PathBuf, String> {
+    let canonical_dir = sikemux_process::files::real_path(dir)
+        .map_err(|error| format!("download folder is not accessible: {error}"))?;
+    let candidate = requested_name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(Path::new)
+        .unwrap_or(suggested);
+    let clean = download_file_name(url, candidate);
+    if clean.contains('\0')
+        || clean.contains('/')
+        || clean.contains('\\')
+        || clean == "."
+        || clean == ".."
+        || clean.starts_with('.')
+    {
+        return Err("invalid download filename".into());
+    }
+    let dest = unique_download_path(&canonical_dir, &clean);
+    if dest.parent() != Some(canonical_dir.as_path()) || !dest.starts_with(&canonical_dir) {
+        return Err("download path escaped the download folder".into());
+    }
+    Ok(dest)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,5 +333,45 @@ mod tests {
         let value = String::from_utf8_lossy(&value[..usize::try_from(read).unwrap()]);
         assert!(value.starts_with("0083;"), "{value}");
         assert!(value.ends_with(";Sikemux;"), "{value}");
+    }
+
+    #[test]
+    fn validate_download_url_allows_http_https_blob_and_rejects_local_or_script_schemes() {
+        assert_eq!(
+            validate_download_url("https://lh3.googleusercontent.com/photo", None)
+                .unwrap()
+                .as_str(),
+            "https://lh3.googleusercontent.com/photo"
+        );
+        assert_eq!(
+            validate_download_url("/api/receipt.pdf", Some("https://portal.gov.in/app/"))
+                .unwrap()
+                .as_str(),
+            "https://portal.gov.in/api/receipt.pdf"
+        );
+        assert!(validate_download_url("blob:https://portal.gov.in/abc-123", None).is_ok());
+        assert!(validate_download_url("file:///etc/passwd", None).is_err());
+        assert!(validate_download_url("javascript:alert(1)", None).is_err());
+        assert!(validate_download_url("data:text/plain,hi", None).is_err());
+        assert!(validate_download_url("blob:file:///etc/passwd", None).is_err());
+        assert!(validate_download_url("", None).is_err());
+    }
+
+    #[test]
+    fn contained_download_path_blocks_traversal_and_stays_in_canonical_root() {
+        let folder = tempfile::tempdir().unwrap();
+        let canonical = sikemux_process::files::real_path(folder.path()).unwrap();
+        let url = Url::parse("https://example.com/files/doc.pdf").unwrap();
+
+        let dest =
+            contained_download_path(folder.path(), &url, Some("../../etc/passwd"), Path::new(""))
+                .unwrap();
+        assert_eq!(dest.parent(), Some(canonical.as_path()));
+        assert_eq!(dest.file_name().unwrap(), "passwd");
+
+        let hidden =
+            contained_download_path(folder.path(), &url, Some(".secret"), Path::new("")).unwrap();
+        assert_eq!(hidden.parent(), Some(canonical.as_path()));
+        assert_eq!(hidden.file_name().unwrap(), "secret");
     }
 }

@@ -218,7 +218,7 @@
       "name": "browser_type",
       "row": {"verb": "type", "kind": "edit", "icon": "text", "target": ["into {field}", "into {selector}", "into element {index}", "into the focused field"]},
       "method": "browser.type",
-      "description": "Type into a field or at the caret.",
+      "description": "Type into a field or pick a <select> option.",
       "properties": {
         "tabId": {
           "type": "string",

@@ -395,14 +395,23 @@ click instead, and `expectLabel` fails a click that would land elsewhere.
 
 `browser_type` with an `index`, `selector` or `field` replaces the value;
 without one it adds at the caret, unless `replace: true`. Check the returned
-`value` and any `warning`. On a `<select>` it picks the matching option.
+`value` and any `warning`. It dispatches `input` and `change` (with native value
+setter fallback for special inputs) so AngularJS, React and ASP.NET forms pick up
+changes. On a `<select>` it picks the matching option by value or visible label.
 
 `browser_drive` runs a sandboxed async JS script on the host with a `browser`
 SDK (`browser.tabs()`, `browser.open(url, { background? })`, `browser.tab(id?)`)
-and `Tab` handles (`goto`, `click`, `hover`, `type`, `press`, `scroll`, `wait`,
-`state`, `find`, `eval`, `screenshot`, `console`, `network`, `viewport`,
-`close`). Use it for multi-step flows, branching, loops, and parallel multi-tab
-work with `Promise.all([...])` — returning only the structured JSON you need.
+and `Tab` handles (`goto`, `click`, `hover`, `type`, `select`, `press`, `scroll`,
+`wait`, `state`, `find`, `eval`, `upload`, `dialog`, `download`, `screenshot`,
+`console`, `network`, `viewport`, `close`). Use it for multi-step flows,
+branching, loops, and parallel multi-tab work with `Promise.all([...])` —
+returning only the structured JSON you need. `tab.select(target, value)` picks a
+`<select>` option by value or visible label (or an array for `<select multiple>`)
+with framework-safe events. `tab.upload(target, files)` uploads files through
+`browser_upload`, `tab.dialog(action, text?)` answers `"accept"` or `"dismiss"`
+through `browser_dialog`, and `tab.download(url, { filename? })` fetches an
+authenticated read-only `GET` asset using the tab's signed-in session into
+Sikemux's downloads folder and returns `{ path, mimeType, bytes }`.
 Every call routes through Sikemux's gated primitives (real OS input and
 production write gates). Pass `{ optional: true }` or use `try/catch` for
 optional steps; a held production write aborts immediately and returns
@@ -421,8 +430,8 @@ target it uses the page's only file input, and it fails when no file input took
 the files.
 
 An open alert, confirm or prompt shows under `dialog` and freezes the page:
-other browser tools refuse until `browser_dialog` answers it. The person may
-answer it first.
+non-dialog browser tools fail immediately with `blocked by <type> dialog` until
+`browser_dialog` or `tab.dialog` answers it. The person may answer it first.
 
 A page that hangs or crashes is reported on the next call: close the tab with
 `browser_close_tab` and open a new one.
@@ -474,9 +483,9 @@ Every state carries `visible`; when it is false, do not tell the person the
 page is on their screen.
 
 Downloads go to a folder of Sikemux's own, not `~/Downloads`, and results list
-them under `downloads` with their `path`. Click the page's own download link
-and move the file from that path; never read its bytes through
-`browser_evaluate`.
+them under `downloads` with their `path`. Click the page's own download link or
+use `tab.download(url, { filename? })` inside `browser_drive` for authenticated
+images and PDFs; never base64-chunk files through `browser_evaluate`.
 
 ## browser-evidence: Screenshots, drawings and recordings
 

@@ -51,6 +51,10 @@ harness = false
 name = "page_pinch"
 harness = false
 
+[[test]]
+name = "eval_navigation"
+harness = false
+
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = { version = "0.18", features = ["v3_24"] }
 raw-window-handle = "0.6"

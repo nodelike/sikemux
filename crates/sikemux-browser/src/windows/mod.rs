@@ -155,15 +155,19 @@ impl Drop for Held {
 /// A tab's page: its WebView2 and the clip window it sits in.
 #[derive(Clone)]
 pub struct Page {
+    pub(crate) tab_id: String,
     pub(crate) controller: ICoreWebView2Controller,
     pub(crate) webview: ICoreWebView2,
     clip: Clip,
     /// The page's helper world, and the document it was made for.
     pub(crate) helper: Arc<Mutex<Option<(String, i64)>>>,
+    pub(crate) pending_evals: Arc<page::PendingEvals>,
 }
 
 impl Page {
     fn close(&self) {
+        dialogs::forget(&self.tab_id);
+        self.pending_evals.abort("the tab went away");
         // SAFETY: on the window's thread, with the page's own live objects.
         unsafe {
             let _ = self.controller.Close();
@@ -593,10 +597,12 @@ fn set_up(
     // SAFETY: on the window's thread, with the controller just made.
     let webview = unsafe { controller.CoreWebView2() }.map_err(|error| error.message())?;
     let page = Page {
+        tab_id: opening.tab_id.clone(),
         controller,
         webview,
         clip,
         helper: Arc::default(),
+        pending_evals: Arc::default(),
     };
     // SAFETY: on the window's thread, with the page's live objects.
     unsafe {
@@ -653,6 +659,8 @@ fn listen(
     // SAFETY: registers handlers on the live webview, on the window's thread; each runs there.
     unsafe {
         let starting = events.clone();
+        let nav_evals = page.pending_evals.clone();
+        let nav_helper = page.helper.clone();
         webview
             .add_NavigationStarting(
                 &NavigationStartingEventHandler::create(Box::new(move |webview, args| {
@@ -665,6 +673,8 @@ fn listen(
                     if !starting.may_load(&url) {
                         return args.SetCancel(true);
                     }
+                    *nav_helper.locked() = None;
+                    nav_evals.abort(crate::native::EVAL_NAVIGATED);
                     let mut navigation = 0;
                     args.NavigationId(&mut navigation)?;
                     starting.document(DocumentEvent::Started {
@@ -785,6 +795,7 @@ fn listen(
             )
             .map_err(|error| error.message())?;
         let failing = events.clone();
+        let crash_evals = page.pending_evals.clone();
         webview
             .add_ProcessFailed(
                 &ProcessFailedEventHandler::create(Box::new(move |_, args| {
@@ -796,6 +807,7 @@ fn listen(
                         } else if kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
                             || kind == COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED
                         {
+                            crash_evals.abort("the tab's page crashed while the script ran");
                             failing.health(Some(TabStall::Crashed));
                         }
                     }

@@ -171,6 +171,8 @@ pub struct BrowserManager {
     pub(crate) desk_answers: tokio::sync::Notify,
     /// Rung whenever any tab starts or finishes a navigation or closes.
     pub(crate) load_changed: tokio::sync::Notify,
+    /// Rung whenever any tab opens or closes a JS alert/confirm/prompt dialog.
+    pub(crate) dialog_changed: tokio::sync::Notify,
     /// Whether the window's frames are seen, so a desk it brings out gets placed.
     window_draws: AtomicBool,
     pub(crate) host: Arc<dyn Host>,
@@ -201,6 +203,7 @@ impl BrowserManager {
             relieving: AtomicBool::default(),
             desk_answers: tokio::sync::Notify::new(),
             load_changed: tokio::sync::Notify::new(),
+            dialog_changed: tokio::sync::Notify::new(),
             window_draws: AtomicBool::default(),
             host,
             me: me.clone(),
@@ -735,6 +738,18 @@ impl BrowserManager {
 
     pub fn dialog(&self, tab_id: &str) -> Option<PageDialog> {
         self.tabs.locked().get(tab_id)?.dialog.clone()
+    }
+
+    pub(crate) async fn wait_for_dialog(&self, tab_id: &str) -> PageDialog {
+        loop {
+            let notified = self.dialog_changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if let Some(dialog) = self.dialog(tab_id) {
+                return dialog;
+            }
+            notified.await;
+        }
     }
 
     /// Keeps the form write the person was put until the tab's dialog is answered.

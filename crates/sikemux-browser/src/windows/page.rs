@@ -4,7 +4,7 @@
 //! Scripts and pictures go through the page's DevTools methods, which await a script's promise,
 //! run it in a world of its own and picture any part of the page.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use base64::Engine;
 use serde_json::{json, Value};
@@ -119,6 +119,31 @@ fn chord_of(key: u32) -> Option<BrowserShortcut> {
     })
 }
 
+type EvalDone = Box<dyn FnOnce(Result<String, String>) + Send>;
+type EvalSlot = Arc<Mutex<Option<EvalDone>>>;
+
+#[derive(Default)]
+pub(crate) struct PendingEvals(Mutex<Vec<EvalSlot>>);
+
+impl PendingEvals {
+    fn register(&self, done: EvalDone) -> EvalSlot {
+        let slot = Arc::new(Mutex::new(Some(done)));
+        let mut list = self.0.locked();
+        list.retain(|entry| entry.locked().is_some());
+        list.push(Arc::clone(&slot));
+        slot
+    }
+
+    pub(crate) fn abort(&self, reason: &str) {
+        let entries = std::mem::take(&mut *self.0.locked());
+        for slot in entries {
+            if let Some(done) = slot.locked().take() {
+                done(Err(reason.to_owned()));
+            }
+        }
+    }
+}
+
 /// Runs `body` as the body of an async function in the page, awaiting any promise it
 /// returns. The body must return a string.
 pub fn call_async(
@@ -127,6 +152,12 @@ pub fn call_async(
     world: World,
     done: Box<dyn FnOnce(Result<String, String>) + Send>,
 ) {
+    let slot = page.pending_evals.register(done);
+    let done: EvalDone = Box::new(move |result| {
+        if let Some(finish) = slot.locked().take() {
+            finish(result);
+        }
+    });
     let expression = format!("(async () => {{\n{body}\n}})()");
     match world {
         World::Page => evaluate(page, expression, None, done),

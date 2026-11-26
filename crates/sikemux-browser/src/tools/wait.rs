@@ -53,9 +53,16 @@ pub(super) async fn wait_for(
     tab_id: &str,
     condition: &Value,
     limit: Duration,
-) -> Value {
+) -> Result<Value, String> {
     let started = Instant::now();
-    let given_up = |failing: Vec<Value>| json!({ "met": false, "waitedMs": started.elapsed().as_millis() as u64, "failing": failing });
+    let given_up = |failing: Vec<Value>| {
+        Ok(
+            json!({ "met": false, "waitedMs": started.elapsed().as_millis() as u64, "failing": failing }),
+        )
+    };
+    if let Some(dialog) = manager.dialog(tab_id) {
+        return Err(native::dialog_blocked_error(&dialog));
+    }
     let network = condition.get("networkIdle").is_some();
     let script = condition.get("script").and_then(Value::as_str);
     let stable = condition.get("stable").and_then(Value::as_str);
@@ -90,6 +97,9 @@ pub(super) async fn wait_for(
     let mut text_since = Instant::now();
 
     loop {
+        if let Some(dialog) = manager.dialog(tab_id) {
+            return Err(native::dialog_blocked_error(&dialog));
+        }
         if needs_loaded
             && manager
                 .page(agent_id, tab_id)
@@ -100,10 +110,14 @@ pub(super) async fn wait_for(
                 return given_up(vec![json!("the page is still loading")]);
             }
             let _ = manager.wait_until_loaded(agent_id, tab_id, left).await;
+            if let Some(dialog) = manager.dialog(tab_id) {
+                return Err(native::dialog_blocked_error(&dialog));
+            }
         }
 
         let (_, view) = match target_tab(manager, agent_id, Some(tab_id)) {
             Ok(tab) => tab,
+            Err(error) if manager.dialog(tab_id).is_some() => return Err(error),
             Err(error) => return given_up(vec![json!(error)]),
         };
 
@@ -112,11 +126,18 @@ pub(super) async fn wait_for(
         if has_dom_conditions(condition) && stable.is_none() {
             let left = limit.saturating_sub(started.elapsed());
             if !left.is_zero() {
-                if let Ok(Some(watched)) = watch_once(&view, condition, left).await {
+                let watch = tokio::select! {
+                    biased;
+                    dialog = manager.wait_for_dialog(tab_id) => {
+                        return Err(native::dialog_blocked_error(&dialog));
+                    }
+                    watched = watch_once(&view, condition, left) => watched,
+                };
+                if let Ok(Some(watched)) = watch {
                     if watched.get("met").and_then(Value::as_bool) == Some(false)
                         && started.elapsed() >= limit
                     {
-                        return watched;
+                        return Ok(watched);
                     }
                 }
             }
@@ -130,6 +151,9 @@ pub(super) async fn wait_for(
                 .unwrap_or_default(),
             Err(error) => vec![json!(error)],
         };
+        if let Some(dialog) = manager.dialog(tab_id) {
+            return Err(native::dialog_blocked_error(&dialog));
+        }
         if needs_loaded
             && manager
                 .page(agent_id, tab_id)
@@ -140,6 +164,9 @@ pub(super) async fn wait_for(
         if let Some(script) = script {
             let left = limit.saturating_sub(started.elapsed());
             match script_holds(
+                manager,
+                agent_id,
+                tab_id,
                 &view,
                 script,
                 left.clamp(CONDITION_POLL, SCRIPT_CHECK_LIMIT),
@@ -148,6 +175,7 @@ pub(super) async fn wait_for(
             {
                 Ok(None) => {}
                 Ok(Some(why)) => failing.push(json!(why)),
+                Err(error) if manager.dialog(tab_id).is_some() => return Err(error),
                 Err(error) => return given_up(vec![json!(error)]),
             }
         }
@@ -192,12 +220,18 @@ pub(super) async fn wait_for(
         }
         let waited = started.elapsed().as_millis() as u64;
         if failing.is_empty() {
-            return json!({ "met": true, "waitedMs": waited });
+            return Ok(json!({ "met": true, "waitedMs": waited }));
         }
         if started.elapsed() >= limit {
-            return json!({ "met": false, "waitedMs": waited, "failing": failing });
+            return Ok(json!({ "met": false, "waitedMs": waited, "failing": failing }));
         }
-        tokio::time::sleep(CONDITION_POLL).await;
+        tokio::select! {
+            biased;
+            dialog = manager.wait_for_dialog(tab_id) => {
+                return Err(native::dialog_blocked_error(&dialog));
+            }
+            () = tokio::time::sleep(CONDITION_POLL) => {}
+        }
     }
 }
 
@@ -211,9 +245,16 @@ async fn wait_dom_event_driven(
     limit: Duration,
     needs_loaded: bool,
     started: Instant,
-) -> Value {
-    let given_up = |failing: Vec<Value>| json!({ "met": false, "waitedMs": started.elapsed().as_millis() as u64, "failing": failing });
+) -> Result<Value, String> {
+    let given_up = |failing: Vec<Value>| {
+        Ok(
+            json!({ "met": false, "waitedMs": started.elapsed().as_millis() as u64, "failing": failing }),
+        )
+    };
     loop {
+        if let Some(dialog) = manager.dialog(tab_id) {
+            return Err(native::dialog_blocked_error(&dialog));
+        }
         if needs_loaded
             && manager
                 .page(agent_id, tab_id)
@@ -224,13 +265,24 @@ async fn wait_dom_event_driven(
                 return given_up(vec![json!("the page is still loading")]);
             }
             let _ = manager.wait_until_loaded(agent_id, tab_id, left).await;
+            if let Some(dialog) = manager.dialog(tab_id) {
+                return Err(native::dialog_blocked_error(&dialog));
+            }
         }
         let (_, view) = match target_tab(manager, agent_id, Some(tab_id)) {
             Ok(tab) => tab,
+            Err(error) if manager.dialog(tab_id).is_some() => return Err(error),
             Err(error) => return given_up(vec![json!(error)]),
         };
         let left = limit.saturating_sub(started.elapsed());
-        match watch_once(&view, condition, left).await {
+        let watched = tokio::select! {
+            biased;
+            dialog = manager.wait_for_dialog(tab_id) => {
+                return Err(native::dialog_blocked_error(&dialog));
+            }
+            result = watch_once(&view, condition, left) => result,
+        };
+        match watched {
             Ok(Some(mut answer)) => {
                 let met = answer.get("met").and_then(Value::as_bool) == Some(true);
                 if met
@@ -249,9 +301,12 @@ async fn wait_dom_event_driven(
                     "waitedMs",
                     json!(started.elapsed().as_millis() as u64),
                 );
-                return answer;
+                return Ok(answer);
             }
             Ok(None) => {
+                if let Some(dialog) = manager.dialog(tab_id) {
+                    return Err(native::dialog_blocked_error(&dialog));
+                }
                 let failing = match ask_page(&view, "check", std::slice::from_ref(condition)).await
                 {
                     Ok(answer) => answer
@@ -264,6 +319,9 @@ async fn wait_dom_event_driven(
                 return given_up(failing);
             }
             Err(error) => {
+                if let Some(dialog) = manager.dialog(tab_id) {
+                    return Err(native::dialog_blocked_error(&dialog));
+                }
                 if started.elapsed() >= limit {
                     return given_up(vec![json!(error)]);
                 }
@@ -275,7 +333,13 @@ async fn wait_dom_event_driven(
                 {
                     let _ = manager.wait_until_loaded(agent_id, tab_id, left).await;
                 } else {
-                    tokio::time::sleep(Duration::from_millis(50).min(left)).await;
+                    tokio::select! {
+                        biased;
+                        dialog = manager.wait_for_dialog(tab_id) => {
+                            return Err(native::dialog_blocked_error(&dialog));
+                        }
+                        () = tokio::time::sleep(Duration::from_millis(50).min(left)) => {}
+                    }
                 }
             }
         }
@@ -310,10 +374,27 @@ async fn ask_page(view: &Tab, function: &str, args: &[Value]) -> Result<Value, S
 
 /// Whether the agent's script returns something truthy now, or what it returned
 /// instead. An error that running it again cannot cure ends the wait.
-async fn script_holds(view: &Tab, script: &str, limit: Duration) -> Result<Option<String>, String> {
-    let answer = match run_agent_script(view, script, limit, Some(&[])).await {
+async fn script_holds(
+    manager: &BrowserManager,
+    agent_id: &str,
+    tab_id: &str,
+    view: &Tab,
+    script: &str,
+    limit: Duration,
+) -> Result<Option<String>, String> {
+    let answer = match run_agent_script(
+        view,
+        script,
+        limit,
+        Some(&[]),
+        Some((manager, agent_id, tab_id)),
+    )
+    .await
+    {
         Ok(answer) => answer,
-        Err(error) if error.contains("SyntaxError") => return Err(error),
+        Err(error) if error.contains("SyntaxError") || manager.dialog(tab_id).is_some() => {
+            return Err(error);
+        }
         Err(error) => return Ok(Some(format!("the script failed: {error}"))),
     };
     let result = answer.get("result").unwrap_or(&Value::Null);
@@ -365,7 +446,7 @@ pub(super) async fn arrived(
             let limit = Duration::from_millis(asked.min(MAX_CONDITION_WAIT_MS)).min(
                 Duration::from_millis(MAX_CONDITION_WAIT_MS).saturating_sub(started.elapsed()),
             );
-            let mut waited = wait_for(manager, agent_id, tab_id, &condition, limit).await;
+            let mut waited = wait_for(manager, agent_id, tab_id, &condition, limit).await?;
             if limit < Duration::from_millis(asked)
                 && waited.get("met").and_then(Value::as_bool) == Some(false)
             {

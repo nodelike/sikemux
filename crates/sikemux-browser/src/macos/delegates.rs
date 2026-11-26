@@ -59,6 +59,7 @@ define_class!(
 
         #[unsafe(method(webView:didStartProvisionalNavigation:))]
         unsafe fn started(&self, webview: &WKWebView, navigation: Option<&WKNavigation>) {
+            scripts::abort_for_navigation(view_key(webview));
             let events = &self.ivars().events;
             events.health(None);
             events.document(DocumentEvent::Started {
@@ -105,6 +106,7 @@ define_class!(
 
         #[unsafe(method(webView:didCommitNavigation:))]
         unsafe fn committed(&self, webview: &WKWebView, _navigation: Option<&WKNavigation>) {
+            scripts::abort_for_navigation(view_key(webview));
             self.ivars().events.loaded(page_load(webview, true));
         }
 
@@ -144,7 +146,8 @@ define_class!(
         }
 
         #[unsafe(method(webViewWebContentProcessDidTerminate:))]
-        unsafe fn crashed(&self, _webview: &WKWebView) {
+        unsafe fn crashed(&self, webview: &WKWebView) {
+            scripts::abort_for_crash(view_key(webview));
             self.ivars().events.health(Some(TabStall::Crashed));
         }
 

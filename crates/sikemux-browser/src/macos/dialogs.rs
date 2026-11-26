@@ -268,6 +268,7 @@ pub(super) fn present_sheet(
             tab.tab_id.clone(),
             OpenDialog {
                 alert: alert.clone(),
+                window: window.clone(),
                 field: field.clone(),
             },
         );
@@ -318,18 +319,22 @@ impl<F: Fn(bool, String)> Drop for AnswerOnce<F> {
 /// Ends the tab's open dialog as if the person pressed OK or Cancel, typing
 /// `text` into a prompt first.
 pub fn answer_dialog(tab_id: &str, accept: bool, text: Option<&str>) -> Result<(), String> {
-    let (alert, field) = OPEN_DIALOGS
+    let (alert, window, field) = OPEN_DIALOGS
         .with(|open| {
-            open.borrow()
-                .get(tab_id)
-                .map(|dialog| (dialog.alert.clone(), dialog.field.clone()))
+            open.borrow().get(tab_id).map(|dialog| {
+                (
+                    dialog.alert.clone(),
+                    dialog.window.clone(),
+                    dialog.field.clone(),
+                )
+            })
         })
         .ok_or("this tab has no open dialog")?;
     if let (Some(field), Some(text)) = (field, text) {
         field.setStringValue(&NSString::from_str(text));
     }
     let sheet = alert.window();
-    let parent = sheet.sheetParent().ok_or("the dialog is not showing")?;
+    let parent = sheet.sheetParent().unwrap_or(window);
     parent.endSheet_returnCode(
         &sheet,
         if accept {

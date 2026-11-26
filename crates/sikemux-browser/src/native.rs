@@ -30,8 +30,23 @@ use crate::input;
 pub use input::Mouse;
 
 pub(crate) const EVAL_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const DOWNLOAD_ASSET_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const EVAL_NAVIGATED: &str = "the page navigated while the script ran";
 /// How long a page may take to answer before WebKit is asked whether it hangs.
 const SLOW_ANSWER: Duration = Duration::from_secs(1);
+
+pub(crate) fn is_navigated_error(error: &str) -> bool {
+    error == EVAL_NAVIGATED
+        || error.contains("no longer reachable")
+        || error.contains("Execution context was destroyed")
+}
+
+pub(crate) fn dialog_blocked_error(dialog: &crate::PageDialog) -> String {
+    format!(
+        "blocked by {} dialog: \"{}\" — handle with browser_dialog or tab.dialog",
+        dialog.kind, dialog.message
+    )
+}
 
 #[cfg(target_os = "macos")]
 type PageView = objc2_web_kit::WKWebView;
@@ -159,6 +174,68 @@ pub(crate) async fn wait_helper(
         Ok(answer) => Ok(Some(answer)),
         Err(None) => Ok(None),
         Err(Some(error)) => Err(error),
+    }
+}
+
+pub(crate) async fn download_asset(
+    view: &Tab,
+    url: &str,
+    dir: std::path::PathBuf,
+    filename: Option<String>,
+    max_bytes: u64,
+) -> Option<Result<crate::downloads::DownloadedAsset, String>> {
+    #[cfg(target_os = "macos")]
+    {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let url = url.to_owned();
+        view.run(move |webview| {
+            crate::macos::download_asset(
+                webview,
+                &url,
+                dir,
+                filename,
+                max_bytes,
+                Box::new(move |result| {
+                    let _ = sender.send(result);
+                }),
+            );
+        });
+        Some(
+            match tokio::time::timeout(DOWNLOAD_ASSET_TIMEOUT, receiver).await {
+                Ok(Ok(result)) => result,
+                Ok(Err(_)) => Err("download was abandoned".into()),
+                Err(_) => Err("download timed out after 30 s".into()),
+            },
+        )
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let url = url.to_owned();
+        view.run(move |webview| {
+            crate::linux::page::download_asset(
+                webview,
+                &url,
+                dir,
+                filename,
+                max_bytes,
+                Box::new(move |result| {
+                    let _ = sender.send(result);
+                }),
+            );
+        });
+        Some(
+            match tokio::time::timeout(DOWNLOAD_ASSET_TIMEOUT, receiver).await {
+                Ok(Ok(result)) => result,
+                Ok(Err(_)) => Err("download was abandoned".into()),
+                Err(_) => Err("download timed out after 30 s".into()),
+            },
+        )
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = (view, url, dir, filename, max_bytes);
+        None
     }
 }
 

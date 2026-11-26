@@ -44,6 +44,7 @@ use sikemux_process::sync::Locked;
 mod activation;
 mod delegates;
 mod dialogs;
+mod download;
 mod frame;
 mod scripts;
 mod shortcuts;
@@ -53,6 +54,7 @@ mod store;
 pub use activation::*;
 use delegates::*;
 pub use dialogs::*;
+pub(crate) use download::download_asset;
 pub use frame::*;
 pub use scripts::{call_async, evaluate};
 pub use shortcuts::*;
@@ -232,6 +234,7 @@ pub(crate) fn set_background_activity(active: bool) {
 /// A page dialog showing as a sheet, kept so the agent can answer it too.
 struct OpenDialog {
     alert: Retained<NSAlert>,
+    window: Retained<objc2_app_kit::NSWindow>,
     field: Option<Retained<NSTextField>>,
 }
 

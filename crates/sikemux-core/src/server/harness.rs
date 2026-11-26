@@ -695,8 +695,22 @@ async fn dispatch(
             })
             .await
             .map_err(|error| error.to_string())?;
+            let upload_from = (request.method == "browser.drive").then(|| {
+                let agent = (request.agent_id.as_deref())
+                    .and_then(|agent_id| core.workspaces().agent(agent_id));
+                match &agent {
+                    Some(agent) if agent.permission_mode == PermissionMode::Bypass => Value::Null,
+                    Some(agent) => {
+                        json!([agent.project, agent.cwd, core.config().attachment_dir])
+                    }
+                    None => json!([request.project]),
+                }
+            });
             if let Value::Object(params) = &mut request.params {
                 params.insert("allowedSites".to_owned(), json!(sites));
+                if let Some(from) = upload_from {
+                    params.insert("uploadFrom".to_owned(), from);
+                }
             }
             forward(core, request).await
         }

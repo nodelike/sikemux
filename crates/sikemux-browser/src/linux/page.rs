@@ -1,18 +1,21 @@
 //! The WebKitGTK side of a tab's page: its scripts, its pictures, its history and what it
 //! tells the app. Everything here runs on the GTK thread that owns the page.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::os::raw::{c_uint, c_ulong};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use gtk::glib::translate::ToGlibPtr;
 use gtk::prelude::*;
 use gtk::{cairo, gdk, gdk_pixbuf, glib};
 use javascriptcore::ValueExt;
+use sikemux_process::sync::Locked;
 use webkit2gtk::{
-    SettingsExt, SnapshotOptions, SnapshotRegion, UserContentInjectedFrames, UserContentManagerExt,
-    UserScript, UserScriptInjectionTime, WebView, WebViewExt,
+    DownloadExt, LoadEvent, SettingsExt, SnapshotOptions, SnapshotRegion, URIResponseExt,
+    UserContentInjectedFrames, UserContentManagerExt, UserScript, UserScriptInjectionTime, WebView,
+    WebViewExt,
 };
 
 use crate::{BrowserShortcut, TabEvents, TabStall};
@@ -28,9 +31,36 @@ static SHORTCUT: OnceLock<Shortcut> = OnceLock::new();
 /// A page holds the keyboard, which only the GTK thread knows the window of.
 static PAGE_HAS_KEYBOARD: AtomicBool = AtomicBool::new(false);
 
+type EvalDone = Box<dyn FnOnce(Result<String, String>) + Send>;
+type DownloadDone = Box<dyn FnOnce(Result<crate::downloads::DownloadedAsset, String>) + Send>;
+type DownloadSlot = Arc<Mutex<Option<DownloadDone>>>;
+
+struct PendingEval {
+    cancellable: gtk::gio::Cancellable,
+    done: Arc<Mutex<Option<EvalDone>>>,
+}
+
 thread_local! {
     /// The X11 window of the page holding the keyboard.
     static HOLDING: Cell<Option<c_ulong>> = const { Cell::new(None) };
+    static PENDING_EVALS: RefCell<HashMap<usize, Vec<PendingEval>>> = RefCell::new(HashMap::new());
+}
+
+fn view_key(webview: &WebView) -> usize {
+    webview.as_ptr() as usize
+}
+
+fn abort_evals(view: usize, reason: &str) {
+    let entries = PENDING_EVALS.with(|pending| pending.borrow_mut().remove(&view));
+    let Some(entries) = entries else {
+        return;
+    };
+    for entry in entries {
+        gtk::gio::prelude::CancellableExt::cancel(&entry.cancellable);
+        if let Some(done) = entry.done.locked().take() {
+            done(Err(reason.to_owned()));
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -53,7 +83,21 @@ pub(crate) fn attach(webview: &WebView, agent_id: &str, tab_id: &str, events: Ar
         manager.add_script(&script);
     }
     let crashed = events.clone();
-    webview.connect_web_process_terminated(move |_, _| crashed.health(Some(TabStall::Crashed)));
+    webview.connect_web_process_terminated(move |view, _| {
+        abort_evals(
+            view_key(view),
+            "the tab's page crashed while the script ran",
+        );
+        crashed.health(Some(TabStall::Crashed));
+    });
+    webview.connect_load_changed(|view, event| {
+        if matches!(event, LoadEvent::Started | LoadEvent::Committed) {
+            abort_evals(view_key(view), crate::native::EVAL_NAVIGATED);
+        }
+    });
+    webview.connect_destroy(|view| {
+        abort_evals(view_key(view), "the tab went away");
+    });
     crate::linux::dialogs::attach(webview, tab_id, events.clone());
     let hung = events;
     webview.connect_is_web_process_responsive_notify(move |view| {
@@ -223,13 +267,28 @@ pub fn call_async(
         World::Page => None,
         World::Helper => Some(HELPER_WORLD),
     };
+    let cancellable = gtk::gio::Cancellable::new();
+    let slot = Arc::new(Mutex::new(Some(done)));
+    let key = view_key(webview);
+    PENDING_EVALS.with(|pending| {
+        let mut pending = pending.borrow_mut();
+        let entries = pending.entry(key).or_default();
+        entries.retain(|existing| existing.done.locked().is_some());
+        entries.push(PendingEval {
+            cancellable: cancellable.clone(),
+            done: Arc::clone(&slot),
+        });
+    });
     webview.call_async_javascript_function(
         body,
         None,
         world,
         None,
-        None::<&gtk::gio::Cancellable>,
+        Some(&cancellable),
         move |answer| {
+            let Some(done) = slot.locked().take() else {
+                return;
+            };
             done(match answer {
                 Ok(value) if value.is_string() => Ok(value.to_str().into()),
                 Ok(_) => Err("the script returned nothing readable".into()),
@@ -380,4 +439,137 @@ pub fn introduce_as(webview: &WebView, agent: &str) {
     if let Some(settings) = WebViewExt::settings(webview) {
         settings.set_user_agent(Some(agent));
     }
+}
+
+fn finish_download(slot: &DownloadSlot, result: Result<crate::downloads::DownloadedAsset, String>) {
+    if let Some(cb) = slot.locked().take() {
+        cb(result);
+    }
+}
+
+pub(crate) fn download_asset(
+    webview: &WebView,
+    url: &str,
+    dir: std::path::PathBuf,
+    filename: Option<String>,
+    max_bytes: u64,
+    done: DownloadDone,
+) {
+    let Ok(parsed) = url::Url::parse(url) else {
+        done(Err("invalid download url".into()));
+        return;
+    };
+    let Some(download) = webview.download_uri(url) else {
+        done(Err("WebKitGTK could not start the download".into()));
+        return;
+    };
+    let done: DownloadSlot = Arc::new(Mutex::new(Some(done)));
+    let state: Arc<Mutex<(Option<std::path::PathBuf>, String)>> =
+        Arc::new(Mutex::new((None, "application/octet-stream".into())));
+
+    let done_dest = Arc::clone(&done);
+    let state_dest = Arc::clone(&state);
+    download.connect_decide_destination(move |dl, suggested| {
+        if let Some(response) = dl.response() {
+            let status = response.status_code();
+            if status >= 400 {
+                dl.cancel();
+                finish_download(
+                    &done_dest,
+                    Err(format!("download failed with HTTP {status}")),
+                );
+                return true;
+            }
+            if response.content_length() > max_bytes {
+                dl.cancel();
+                finish_download(
+                    &done_dest,
+                    Err(format!("download exceeds {max_bytes} byte size limit")),
+                );
+                return true;
+            }
+            if let Some(mime) = response.mime_type().filter(|m| !m.is_empty()) {
+                state_dest.locked().1 = mime.into();
+            }
+        }
+        match crate::downloads::contained_download_path(
+            &dir,
+            &parsed,
+            filename.as_deref(),
+            std::path::Path::new(suggested),
+        ) {
+            Ok(dest) => {
+                state_dest.locked().0 = Some(dest.clone());
+                dl.set_destination(&dest.to_string_lossy());
+                true
+            }
+            Err(error) => {
+                dl.cancel();
+                finish_download(&done_dest, Err(error));
+                true
+            }
+        }
+    });
+
+    let done_data = Arc::clone(&done);
+    download.connect_received_data(move |dl, _| {
+        if dl.received_data_length() > max_bytes {
+            dl.cancel();
+            finish_download(
+                &done_data,
+                Err(format!("download exceeds {max_bytes} byte size limit")),
+            );
+        }
+    });
+
+    let done_fail = Arc::clone(&done);
+    let state_fail = Arc::clone(&state);
+    download.connect_failed(move |_, error| {
+        if let Some(dest) = state_fail.locked().0.as_deref() {
+            let _ = std::fs::remove_file(dest);
+        }
+        finish_download(
+            &done_fail,
+            Err(format!("download failed: {}", error.message())),
+        );
+    });
+
+    let done_ok = Arc::clone(&done);
+    let state_ok = Arc::clone(&state);
+    download.connect_finished(move |_| {
+        let (dest, mime_type) = state_ok.locked().clone();
+        let Some(dest) = dest else {
+            finish_download(
+                &done_ok,
+                Err("download finished without a destination file".into()),
+            );
+            return;
+        };
+        let bytes = match std::fs::metadata(&dest) {
+            Ok(meta) => meta.len(),
+            Err(error) => {
+                finish_download(
+                    &done_ok,
+                    Err(format!("could not read downloaded file: {error}")),
+                );
+                return;
+            }
+        };
+        if bytes > max_bytes {
+            let _ = std::fs::remove_file(&dest);
+            finish_download(
+                &done_ok,
+                Err(format!("download exceeds {max_bytes} byte size limit")),
+            );
+            return;
+        }
+        finish_download(
+            &done_ok,
+            Ok(crate::downloads::DownloadedAsset {
+                path: dest,
+                mime_type,
+                bytes,
+            }),
+        );
+    });
 }

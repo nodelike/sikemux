@@ -40,8 +40,8 @@ thread_local! {
     static HELPER_WORLD: RefCell<Option<Retained<WKContentWorld>>> = const { RefCell::new(None) };
 }
 
-/// What to do with a script's value as JSON, or with nothing when it had none to send.
-type Answered = Box<dyn FnOnce(Option<String>)>;
+/// What to do with a script's value as JSON, or why the script was aborted before answering.
+type Answered = Box<dyn FnOnce(Result<Option<String>, String>)>;
 
 struct Waiting {
     view: usize,
@@ -80,7 +80,7 @@ define_class!(
                 .map(|json| json.to_string());
             let waiting = WAITING.with(|waiting| waiting.borrow_mut().remove(&id.to_string()));
             if let Some(waiting) = waiting {
-                (waiting.answered)(json);
+                (waiting.answered)(Ok(json));
             }
         }
     }
@@ -197,6 +197,33 @@ pub(super) fn forget(view: usize) {
     WAITING.with(|waiting| waiting.borrow_mut().retain(|_, entry| entry.view != view));
 }
 
+/// Settles pending scripts for `view` immediately when a navigation tears down or replaces its
+/// JS context, instead of waiting for the caller's timeout.
+pub(super) fn abort_for_navigation(view: usize) {
+    abort_view(view, crate::native::EVAL_NAVIGATED);
+}
+
+pub(super) fn abort_for_crash(view: usize) {
+    abort_view(view, "the tab's page crashed while the script ran");
+}
+
+fn abort_view(view: usize, reason: &str) {
+    let cancelled: Vec<Waiting> = WAITING.with(|waiting| {
+        let mut waiting = waiting.borrow_mut();
+        let ids: Vec<String> = waiting
+            .iter()
+            .filter(|(_, entry)| entry.view == view)
+            .map(|(id, _)| id.clone())
+            .collect();
+        ids.into_iter()
+            .filter_map(|id| waiting.remove(&id))
+            .collect()
+    });
+    for entry in cancelled {
+        (entry.answered)(Err(reason.to_owned()));
+    }
+}
+
 /// Runs the expression `script` in the page's own world and hands back its value as
 /// JSON, or nothing when it has none or throws.
 pub fn evaluate(webview: &WKWebView, script: &str, done: Box<dyn FnOnce(String) + Send>) {
@@ -206,7 +233,9 @@ pub fn evaluate(webview: &WKWebView, script: &str, done: Box<dyn FnOnce(String) 
              {post}(\"{id}\", value); }})();"
         )
     };
-    let answered = Box::new(move |json: Option<String>| done(json.unwrap_or_default()));
+    let answered = Box::new(move |result: Result<Option<String>, String>| {
+        done(result.ok().flatten().unwrap_or_default());
+    });
     start(webview, World::Page, source, answered);
 }
 
@@ -229,7 +258,11 @@ pub fn call_async(
              {post}(\"{id}\", answer); }})();"
         )
     };
-    let answered = Box::new(move |json: Option<String>| {
+    let answered = Box::new(move |result: Result<Option<String>, String>| {
+        let json = match result {
+            Ok(json) => json,
+            Err(error) => return done(Err(error)),
+        };
         let answer = json
             .and_then(|json| serde_json::from_str::<String>(&json).ok())
             .unwrap_or_default();
@@ -240,4 +273,46 @@ pub fn call_async(
         });
     });
     start(webview, world, source, answered);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn navigation_immediately_settles_pending_evals_for_that_view_only() {
+        let navigated_result = Arc::new(Mutex::new(None));
+        let other_result = Arc::new(Mutex::new(None));
+        let nav_slot = Arc::clone(&navigated_result);
+        let other_slot = Arc::clone(&other_result);
+
+        WAITING.with(|waiting| {
+            let mut waiting = waiting.borrow_mut();
+            waiting.insert(
+                "eval-nav".into(),
+                Waiting {
+                    view: 101,
+                    answered: Box::new(move |res| *nav_slot.lock().unwrap() = Some(res)),
+                },
+            );
+            waiting.insert(
+                "eval-other".into(),
+                Waiting {
+                    view: 202,
+                    answered: Box::new(move |res| *other_slot.lock().unwrap() = Some(res)),
+                },
+            );
+        });
+
+        abort_for_navigation(101);
+
+        assert_eq!(
+            *navigated_result.lock().unwrap(),
+            Some(Err(crate::native::EVAL_NAVIGATED.to_owned()))
+        );
+        assert_eq!(*other_result.lock().unwrap(), None);
+
+        forget(202);
+    }
 }

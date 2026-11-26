@@ -305,6 +305,9 @@ async fn run(
                     .map_err(|error| error.to_string())?
             } else {
                 let tab_id = target_id.unwrap_or_default();
+                if let Some(dialog) = manager.dialog(&tab_id) {
+                    return Err(native::dialog_blocked_error(&dialog));
+                }
                 let current = manager
                     .page(agent_id, &tab_id)
                     .map(|page| page.url)
@@ -336,7 +339,7 @@ async fn run(
                 .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
                 .await;
             if let Ok((_, view)) = manager.tab_view(agent_id, Some(&tab_id)) {
-                call_page_settle(&view).await;
+                call_page_settle_tab(manager, &tab_id, &view).await;
             }
             if manager.viewport(agent_id, &tab_id).is_some() {
                 let _ = manager.settle_viewport(agent_id, &tab_id).await;
@@ -367,7 +370,7 @@ async fn run(
                 let (_, view) = target_tab(manager, agent_id, req_tab)?;
                 return call(&view, "extract", &[json!(selector), part]).await;
             }
-            let (tab_id, _) = resolve_tab(manager, agent_id, req_tab)?;
+            let (tab_id, _) = target_tab(manager, agent_id, req_tab)?;
             let full_text = params.get("fullText").and_then(Value::as_bool) == Some(true);
             let mut result =
                 read_state(manager, agent_id, &tab_id, "full", full_text, part, true).await?;
@@ -412,7 +415,7 @@ async fn run(
                         native::mouse(&view, Mouse::Down, x, y, count).await?;
                         native::mouse(&view, Mouse::Up, x, y, count).await?;
                     }
-                    call_page_settle(&view).await;
+                    call_page_settle_tab(manager, &tab_id, &view).await;
                     Ok::<(), String>(())
                 })
                 .await?;
@@ -578,8 +581,16 @@ async fn run(
             let prepared =
                 call_when_shown(&view, "focus", &[at.clone(), json!(value), json!(replace)])
                     .await?;
-            if prepared.get("selected").is_some() {
-                return Ok(prepared);
+            if prepared.get("isSelect") == Some(&json!(true)) {
+                let mut select_params = json!({
+                    "tabId": tab_id,
+                    "index": prepared.get("index").cloned().unwrap_or(Value::Null),
+                    "value": value,
+                });
+                if let Some(report) = params.get("report") {
+                    put(&mut select_params, "report", report.clone());
+                }
+                return select_option(manager, agent_id, check, &select_params).await;
             }
             let mut form_write = None;
             if submit {
@@ -598,6 +609,45 @@ async fn run(
             } else if replacing {
                 native::key(&view, "Backspace").await?;
             }
+            if let Some(dialog) = manager.dialog(&tab_id) {
+                return Ok(json!({
+                    "tabId": tab_id,
+                    "typed": value.chars().count(),
+                    "into": prepared.get("into").cloned().unwrap_or(Value::Null),
+                    "replaced": replacing,
+                    "submitted": false,
+                    "dialog": dialog,
+                    "note": native::dialog_blocked_error(&dialog),
+                }));
+            }
+            let mut committed = Value::Null;
+            if submit {
+                let sent = form_write.as_deref();
+                holding_page_writes(manager, agent_id, &tab_id, &view, check, sent, async {
+                    committed = call(
+                        &view,
+                        "commitField",
+                        &[at.clone(), json!(value), json!(replacing)],
+                    )
+                    .await?;
+                    native::key(&view, "Enter").await?;
+                    call_page_settle_tab(manager, &tab_id, &view).await;
+                    Ok::<(), String>(())
+                })
+                .await?;
+            } else {
+                holding_page_writes(manager, agent_id, &tab_id, &view, check, None, async {
+                    committed = call(
+                        &view,
+                        "commitField",
+                        &[at.clone(), json!(value), json!(replacing)],
+                    )
+                    .await?;
+                    call_page_settle_tab(manager, &tab_id, &view).await;
+                    Ok::<(), String>(())
+                })
+                .await?;
+            }
             let mut typed = merge(
                 json!({
                     "tabId": tab_id,
@@ -606,22 +656,23 @@ async fn run(
                     "replaced": replacing,
                     "submitted": submit,
                 }),
-                call(&view, "valueOf", &[at]).await?,
+                committed,
             )?;
             if let Some(warning) = typing_missed(&value, &typed) {
                 put(&mut typed, "warning", json!(warning));
             }
             if submit {
-                let sent = form_write.as_deref();
-                holding_page_writes(manager, agent_id, &tab_id, &view, check, sent, async {
-                    native::key(&view, "Enter").await?;
-                    call_page_settle(&view).await;
-                    Ok::<(), String>(())
-                })
-                .await?;
                 return merge(
                     typed,
                     report(manager, agent_id, &tab_id, params, false).await?,
+                );
+            }
+            if let Some(dialog) = manager.dialog(&tab_id) {
+                put(&mut typed, "dialog", json!(dialog));
+                put(
+                    &mut typed,
+                    "note",
+                    json!(native::dialog_blocked_error(&dialog)),
                 );
             }
             Ok(typed)
@@ -637,7 +688,7 @@ async fn run(
             let sent = form_write.as_deref();
             holding_page_writes(manager, agent_id, &tab_id, &view, check, sent, async {
                 native::key(&view, &key).await?;
-                call_page_settle(&view).await;
+                call_page_settle_tab(manager, &tab_id, &view).await;
                 Ok::<(), String>(())
             })
             .await?;
@@ -742,12 +793,18 @@ async fn run(
                 serde_json::from_value(params["allowedSites"].clone()).unwrap_or_default();
             loop {
                 let left = limit.saturating_sub(started.elapsed());
-                let answer = run_agent_script(&view, &script, left, Some(&allowed))
-                    .await
-                    .map_err(|error| match error.starts_with(SCRIPT_RAN_OUT) {
-                        true => format!("{error}; {WAIT_INSTEAD}"),
-                        false => error,
-                    })?;
+                let answer = run_agent_script(
+                    &view,
+                    &script,
+                    left,
+                    Some(&allowed),
+                    Some((manager, agent_id, tab_id.as_str())),
+                )
+                .await
+                .map_err(|error| match error.starts_with(SCRIPT_RAN_OUT) {
+                    true => format!("{error}; {WAIT_INSTEAD}"),
+                    false => error,
+                })?;
                 let write = answer
                     .pointer("/result/sikemuxHeldWrite")
                     .unwrap_or(&Value::Null);
@@ -900,10 +957,19 @@ async fn run(
                     .and_then(Value::as_u64)
                     .unwrap_or(1000)
                     .min(MAX_WAIT_MS);
-                tokio::time::sleep(Duration::from_millis(ms)).await;
+                tokio::select! {
+                    biased;
+                    dialog = manager.wait_for_dialog(&tab_id) => {
+                        return Err(native::dialog_blocked_error(&dialog));
+                    }
+                    () = tokio::time::sleep(Duration::from_millis(ms)) => {}
+                }
                 let _ = manager
                     .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
                     .await;
+                if let Some(dialog) = manager.dialog(&tab_id) {
+                    return Err(native::dialog_blocked_error(&dialog));
+                }
                 let mut result = report(manager, agent_id, &tab_id, params, false).await?;
                 put(&mut result, "note", json!("a fixed wait; a condition such as text, selector, url, networkIdle, script or stable waits only as long as it takes"));
                 return Ok(result);
@@ -920,7 +986,7 @@ async fn run(
                 &condition,
                 Duration::from_millis(limit),
             )
-            .await;
+            .await?;
             if limit < asked && waited.get("met").and_then(Value::as_bool) == Some(false) {
                 put(&mut waited, "cappedAtMs", json!(limit));
             }
@@ -930,7 +996,7 @@ async fn run(
             )
         }
         "browser.viewport" => {
-            let (tab_id, view) = resolve_tab(manager, agent_id, req_tab)?;
+            let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
             let size = |key: &str| {
                 params
                     .get(key)
@@ -1037,7 +1103,8 @@ async fn run(
                         serde_json::from_value(params["allowedSites"].clone()).unwrap_or_default();
                     let ran = loop {
                         let left = PAGE_SCRIPT_LIMIT.saturating_sub(started.elapsed());
-                        let answer = run_agent_script(view, &script, left, Some(&allowed)).await?;
+                        let answer =
+                            run_agent_script(view, &script, left, Some(&allowed), None).await?;
                         let write = answer
                             .pointer("/result/sikemuxHeldWrite")
                             .unwrap_or(&Value::Null);
@@ -1125,6 +1192,182 @@ async fn run(
     }
 }
 
+pub(super) async fn select_option(
+    manager: &BrowserManager,
+    agent_id: &str,
+    check: &CheckWrite,
+    params: &Value,
+) -> Result<Value, String> {
+    let req_tab = requested_tab(params);
+    let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
+    let value = params
+        .get("value")
+        .or_else(|| params.get("option"))
+        .cloned()
+        .filter(|v| !v.is_null())
+        .ok_or("value is required")?;
+    let mut at = serde_json::Map::new();
+    if let Some(index) = params.get("index").and_then(Value::as_u64) {
+        at.insert("index".into(), json!(index));
+    }
+    if let Some(selector) = params.get("selector").and_then(Value::as_str) {
+        at.insert("selector".into(), json!(selector));
+    }
+    if let Some(field) = params.get("field").and_then(Value::as_str) {
+        at.insert("field".into(), json!(field));
+    } else if let Some(text) = params.get("text").and_then(Value::as_str) {
+        at.insert("text".into(), json!(text));
+    }
+    if at.is_empty() {
+        return Err("pass index, selector, or field to identify the <select>".into());
+    }
+    let at = Value::Object(at);
+    let mut picked = Value::Null;
+    holding_page_writes(manager, agent_id, &tab_id, &view, check, None, async {
+        picked = call_when_shown(&view, "select", &[at, value]).await?;
+        call_page_settle_tab(manager, &tab_id, &view).await;
+        Ok::<(), String>(())
+    })
+    .await?;
+    put(&mut picked, "tabId", json!(tab_id));
+    merge(
+        picked,
+        report(manager, agent_id, &tab_id, params, false).await?,
+    )
+}
+
+pub(super) async fn download_asset(
+    manager: &BrowserManager,
+    agent_id: &str,
+    params: &Value,
+) -> Result<Value, String> {
+    let req_tab = requested_tab(params);
+    let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
+    let raw_url = params
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or("url is required")?;
+    let base = manager.page(agent_id, &tab_id).map(|page| page.url);
+    let parsed = crate::downloads::validate_download_url(raw_url, base.as_deref())?;
+    let filename = params
+        .get("filename")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned);
+    let dir = manager
+        .held_downloads_dir()
+        .ok_or("no download folder is available")?;
+
+    let asset = if parsed.scheme() == "blob" {
+        download_via_page_fetch(&view, &parsed, &dir, filename.as_deref()).await?
+    } else if let Some(native_result) = native::download_asset(
+        &view,
+        parsed.as_str(),
+        dir.clone(),
+        filename.clone(),
+        crate::downloads::MAX_DOWNLOAD_BYTES,
+    )
+    .await
+    {
+        native_result?
+    } else {
+        download_via_page_fetch(&view, &parsed, &dir, filename.as_deref()).await?
+    };
+
+    manager.note_download(
+        agent_id,
+        &tab_id,
+        parsed.as_str(),
+        &asset.path,
+        crate::DownloadState::Finished,
+    );
+    Ok(json!({
+        "tabId": tab_id,
+        "path": asset.path.to_string_lossy(),
+        "mimeType": asset.mime_type,
+        "bytes": asset.bytes,
+    }))
+}
+
+async fn download_via_page_fetch(
+    view: &Tab,
+    url: &url::Url,
+    dir: &std::path::Path,
+    filename: Option<&str>,
+) -> Result<crate::downloads::DownloadedAsset, String> {
+    let url_json = serde_json::to_string(url.as_str()).map_err(|error| error.to_string())?;
+    let max_bytes = crate::downloads::MAX_IN_PAGE_DOWNLOAD_BYTES;
+    let body = format!(
+        r#"const res = await fetch({url_json}, {{ method: "GET", credentials: "include" }});
+if (!res.ok) throw new Error("download failed with HTTP " + res.status);
+const lenHeader = Number(res.headers.get("content-length") || "0");
+if (lenHeader > {max_bytes}) throw new Error("download exceeds {max_bytes} byte size limit");
+const buf = await res.arrayBuffer();
+if (buf.byteLength > {max_bytes}) throw new Error("download exceeds {max_bytes} byte size limit");
+const bytes = new Uint8Array(buf);
+let binary = "";
+const chunk = 0x8000;
+for (let i = 0; i < bytes.length; i += chunk) {{
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+}}
+const mime = (res.headers.get("content-type") || "application/octet-stream").split(";")[0].trim() || "application/octet-stream";
+const cd = res.headers.get("content-disposition") || "";
+const match = /filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i.exec(cd);
+return JSON.stringify({{
+    mimeType: mime,
+    suggested: match ? decodeURIComponent(match[1]) : "",
+    dataBase64: btoa(binary),
+}});"#
+    );
+    let raw = native::run_script(view, &body, native::DOWNLOAD_ASSET_TIMEOUT)
+        .await
+        .map_err(|error| {
+            if error.is_empty() {
+                "download timed out after 30 s".to_owned()
+            } else {
+                error
+            }
+        })?;
+    let parsed: Value =
+        serde_json::from_str(&raw).map_err(|_| "download returned an unreadable payload")?;
+    let data_b64 = parsed
+        .get("dataBase64")
+        .and_then(Value::as_str)
+        .ok_or("download returned no data")?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data_b64)
+        .map_err(|_| "could not decode downloaded bytes")?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(format!("download exceeds {max_bytes} byte size limit"));
+    }
+    let suggested = parsed
+        .get("suggested")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let mime_type = parsed
+        .get("mimeType")
+        .and_then(Value::as_str)
+        .filter(|m| !m.is_empty())
+        .unwrap_or("application/octet-stream")
+        .to_owned();
+    let dest = crate::downloads::contained_download_path(
+        dir,
+        url,
+        filename,
+        std::path::Path::new(suggested),
+    )?;
+    std::fs::write(&dest, &bytes)
+        .map_err(|error| format!("could not write {}: {error}", dest.display()))?;
+    #[cfg(target_os = "macos")]
+    crate::downloads::quarantine(&dest);
+    Ok(crate::downloads::DownloadedAsset {
+        path: dest,
+        mime_type,
+        bytes: bytes.len() as u64,
+    })
+}
+
 /// Whether `method` brings the agent's desk on screen: only a call that opens a page, or works
 /// on the tab already there. A call with no tab to work on would show an empty desk.
 fn brings_the_desk_out(method: &str, has_a_tab: bool) -> bool {
@@ -1203,7 +1446,13 @@ async fn run_agent_script(
     script: &str,
     limit: Duration,
     allowed_sites: Option<&[String]>,
+    tab_ctx: Option<(&BrowserManager, &str, &str)>,
 ) -> Result<Value, String> {
+    if let Some((manager, _, tab_id)) = tab_ctx {
+        if let Some(dialog) = manager.dialog(tab_id) {
+            return Err(native::dialog_blocked_error(&dialog));
+        }
+    }
     let body = match native::run_helper(view, &shape_check(script))
         .await?
         .as_str()
@@ -1222,9 +1471,30 @@ async fn run_agent_script(
         )
         .await;
     }
-    let ran = native::run_script(view, &body, limit)
-        .await
-        .map_err(|error| script_failure(&error, limit));
+    let ran = match tab_ctx {
+        Some((manager, _, tab_id)) => {
+            tokio::select! {
+                biased;
+                dialog = manager.wait_for_dialog(tab_id) => {
+                    if allowed_sites.is_some() {
+                        set_native_write_gate(view, None).await;
+                    }
+                    return Err(native::dialog_blocked_error(&dialog));
+                }
+                result = native::run_script(view, &body, limit) => result,
+            }
+        }
+        None => native::run_script(view, &body, limit).await,
+    };
+    if let Err(ref error) = ran {
+        if native::is_navigated_error(error) {
+            if allowed_sites.is_some() {
+                set_native_write_gate(view, None).await;
+            }
+            return Ok(navigated_script_result(tab_ctx));
+        }
+    }
+    let ran = ran.map_err(|error| script_failure(&error, limit));
     if allowed_sites.is_some() {
         set_native_write_gate(view, None).await;
         let held_raw = eval(
@@ -1259,6 +1529,21 @@ async fn run_agent_script(
     Ok(answer)
 }
 
+fn navigated_script_result(tab_ctx: Option<(&BrowserManager, &str, &str)>) -> Value {
+    let mut answer = json!({
+        "result": Value::Null,
+        "navigated": true,
+        "note": "the page navigated while the script ran, so its return value was not captured",
+    });
+    if let Some((manager, agent_id, tab_id)) = tab_ctx {
+        put(&mut answer, "tabId", json!(tab_id));
+        if let Some(page) = manager.page(agent_id, tab_id) {
+            put(&mut answer, "url", json!(page.url));
+        }
+    }
+    answer
+}
+
 fn parse_held_write(raw: &str) -> Value {
     match serde_json::from_str::<Value>(raw) {
         Ok(Value::String(text)) => serde_json::from_str(&text).unwrap_or(Value::Null),
@@ -1275,7 +1560,7 @@ async fn step(
     go: &str,
     params: &Value,
 ) -> Result<Value, String> {
-    let (tab_id, view) = resolve_tab(manager, agent_id, tab_id)?;
+    let (tab_id, view) = target_tab(manager, agent_id, tab_id)?;
     crate::person::leave_be(&tab_id)?;
     let started = Instant::now();
     let before_seq = manager.nav_seq(&tab_id);
@@ -1613,10 +1898,7 @@ pub(crate) fn target_tab(
         return Err(stall.message().into());
     }
     match manager.dialog(&tab_id) {
-        Some(dialog) => Err(format!(
-            "the page is waiting on a {} dialog saying \"{}\"; answer it with browser_dialog",
-            dialog.kind, dialog.message
-        )),
+        Some(dialog) => Err(native::dialog_blocked_error(&dialog)),
         None => Ok((tab_id, view)),
     }
 }
@@ -1765,7 +2047,7 @@ async fn read_state(
             "url": page.url,
             "title": page.title,
             "dialog": dialog,
-            "note": "the page is frozen until this dialog is answered with browser_dialog",
+            "note": native::dialog_blocked_error(&dialog),
         })
     } else if page.url == BLANK_URL {
         json!({ "url": BLANK_URL, "title": "", "elements": "", "text": "" })
@@ -1828,7 +2110,7 @@ fn merge(mut action: Value, state: Value) -> Result<Value, String> {
 /// Gives the page one animation frame + microtask turn (capped at SETTLE_FRAME_MS)
 /// so DOM mutations commit, then waits out any navigation that started.
 async fn settle(manager: &BrowserManager, agent_id: &str, tab_id: &str, view: &Tab) {
-    call_page_settle(view).await;
+    call_page_settle_tab(manager, tab_id, view).await;
     let _ = manager
         .wait_until_loaded(agent_id, tab_id, LOAD_TIMEOUT)
         .await;
@@ -1837,6 +2119,14 @@ async fn settle(manager: &BrowserManager, agent_id: &str, tab_id: &str, view: &T
 async fn call_page_settle(view: &Tab) {
     let expr = format!("String(await window.__sikemux.settle({SETTLE_FRAME_MS}))");
     let _ = wait_page_helper(view, &expr, SETTLE_TIMEOUT).await;
+}
+
+async fn call_page_settle_tab(manager: &BrowserManager, tab_id: &str, view: &Tab) {
+    tokio::select! {
+        biased;
+        _ = manager.wait_for_dialog(tab_id) => {}
+        () = call_page_settle(view) => {}
+    }
 }
 
 /// Call one of the page script's functions and parse what it returns. The
@@ -2104,15 +2394,26 @@ impl BrowserManager {
     pub async fn wait_until_loaded(&self, agent_id: &str, tab_id: &str, timeout: Duration) -> bool {
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
-            let notified = self.load_changed.notified();
-            tokio::pin!(notified);
-            notified.as_mut().enable();
+            let load = self.load_changed.notified();
+            let dialog = self.dialog_changed.notified();
+            tokio::pin!(load);
+            tokio::pin!(dialog);
+            load.as_mut().enable();
+            dialog.as_mut().enable();
+            if self.dialog(tab_id).is_some() {
+                return false;
+            }
             match self.page(agent_id, tab_id) {
                 Some(page) if !page.loading => return true,
                 None => return false,
                 _ => {}
             }
-            if tokio::time::timeout_at(deadline, notified).await.is_err() {
+            let woke = tokio::select! {
+                () = load => true,
+                () = dialog => true,
+                () = tokio::time::sleep_until(deadline) => false,
+            };
+            if !woke {
                 return false;
             }
         }
@@ -2231,6 +2532,38 @@ mod tests {
         }
         assert!(
             answer_of(RECORDS_SCRIPT.trim(), "network", &[json!(5)]).contains("})).network(5) }")
+        );
+    }
+
+    #[test]
+    fn navigated_eval_error_produces_clear_navigated_result_and_dialog_error_matches_contract() {
+        assert!(native::is_navigated_error(native::EVAL_NAVIGATED));
+        assert!(native::is_navigated_error(
+            "Execution context was destroyed."
+        ));
+        assert!(native::is_navigated_error(
+            "the frame is no longer reachable"
+        ));
+        assert!(!native::is_navigated_error(
+            "ReferenceError: x is not defined"
+        ));
+
+        let res = navigated_script_result(None);
+        assert_eq!(res["navigated"], json!(true));
+        assert_eq!(res["result"], Value::Null);
+        assert!(res["note"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("navigated"));
+
+        let dialog = crate::PageDialog {
+            kind: "confirm",
+            message: "Submit GST form?".into(),
+            default_text: None,
+        };
+        assert_eq!(
+            native::dialog_blocked_error(&dialog),
+            "blocked by confirm dialog: \"Submit GST form?\" — handle with browser_dialog or tab.dialog"
         );
     }
 }

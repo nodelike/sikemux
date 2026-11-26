@@ -626,6 +626,58 @@
         selection.addRange(range);
         return compact(element.textContent).length > 0;
     };
+    const setNativeValue = (element, value) => {
+        const proto =
+            element.tagName === "TEXTAREA"
+                ? HTMLTextAreaElement.prototype
+                : element.tagName === "SELECT"
+                  ? HTMLSelectElement.prototype
+                  : HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        if (setter) setter.call(element, value);
+        else element.value = value;
+    };
+    const describeOption = (option) => {
+        const text = compact(option.textContent || option.label || "");
+        return text && text !== option.value ? `"${text}" (${option.value})` : `"${option.value}"`;
+    };
+    const matchOption = (select, wanted) => {
+        const raw = String(wanted ?? "");
+        const trimmed = compact(raw);
+        const lower = trimmed.toLowerCase();
+        const options = [...select.options];
+        const exact =
+            options.find((opt) => opt.value === raw) ||
+            options.find((opt) => compact(opt.textContent) === trimmed || compact(opt.label) === trimmed);
+        if (exact) return exact;
+        const ciMatches = options.filter(
+            (opt) =>
+                opt.value.trim().toLowerCase() === lower ||
+                compact(opt.textContent).toLowerCase() === lower ||
+                compact(opt.label).toLowerCase() === lower,
+        );
+        const ciEnabled = ciMatches.filter((opt) => !opt.disabled);
+        if (ciEnabled.length === 1) return ciEnabled[0];
+        if (ciMatches.length === 1) return ciMatches[0];
+        if (lower) {
+            const partial = options.filter(
+                (opt) =>
+                    !opt.disabled &&
+                    (compact(opt.textContent).toLowerCase().includes(lower) ||
+                        compact(opt.label).toLowerCase().includes(lower) ||
+                        opt.value.toLowerCase().includes(lower)),
+            );
+            if (partial.length === 1) return partial[0];
+            if (partial.length > 1) {
+                throw new Error(
+                    `multiple options match "${raw}": ${partial.slice(0, 10).map(describeOption).join(", ")}`,
+                );
+            }
+        }
+        throw new Error(
+            `no option matching "${raw}"; the options are: ${options.slice(0, 30).map(describeOption).join(", ")}`,
+        );
+    };
 
     // What the agent draws over the page: a pointer that follows its actions,
     // a ripple where it clicks, boxes and captions it places. The layer ignores
@@ -1328,12 +1380,7 @@
             const element = target == null ? focused() : pick(typeof target === "number" ? target : this.resolve(target));
             if (!element || (element === element.ownerDocument.body && !element.isContentEditable)) throw new Error("nothing is focused, so there is nowhere to type; pass the field's index or selector, or click into it first");
             if (element.tagName === "SELECT") {
-                const option = [...element.options].find((option) => option.value === text || compact(option.textContent) === compact(text));
-                if (!option) throw new Error(`no option matching "${text}"; the options are: ${[...element.options].map((option) => compact(option.textContent)).slice(0, 20).join(", ")}`);
-                element.value = option.value;
-                element.dispatchEvent(new Event("input", { bubbles: true }));
-                element.dispatchEvent(new Event("change", { bubbles: true }));
-                return { selected: option.value };
+                return { isSelect: true, index: numberOf(element), label: describe(element) };
             }
             const into = describe(element);
             if (target == null) return { replacing: replace ? selectContents(element) : false, into };
@@ -1344,6 +1391,89 @@
             }
             element.focus({ preventScroll: true });
             return { replacing: selectContents(element), into };
+        },
+        select(target, value) {
+            let element = null;
+            if (typeof target === "number") {
+                element = pick(target);
+            } else if (target && target.field != null && target.selector == null) {
+                let bySelector = [];
+                try {
+                    bySelector = selected(target.field).filter((el) => el.tagName === "SELECT" && shown(el));
+                } catch {}
+                if (bySelector.length === 1) {
+                    element = bySelector[0];
+                } else {
+                    const combos = matching(target.field, "combobox").filter(([, el]) => el.tagName === "SELECT");
+                    if (combos.length === 1) element = combos[0][1];
+                    else element = pick(this.resolve({ text: target.field, ...(target.index != null ? { index: target.index } : {}) }));
+                }
+            } else {
+                element = pick(this.resolve(target));
+            }
+            const index = numberFor(element);
+            if (element.tagName !== "SELECT") {
+                throw new Error(`element [${index}] ("${describe(element)}") is <${element.tagName.toLowerCase()}>, not a <select>`);
+            }
+            if (element.disabled) {
+                throw new Error(`select [${index}] ("${describe(element)}") is disabled`);
+            }
+            element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+            element.focus({ preventScroll: true });
+            const wanted = Array.isArray(value) ? value : [value];
+            if (!wanted.length) throw new Error("pass at least one option value or label");
+            if (!element.multiple && wanted.length > 1) {
+                throw new Error(`select [${index}] ("${describe(element)}") does not allow multiple options`);
+            }
+            const matched = wanted.map((item) => matchOption(element, item));
+            if (element.multiple) {
+                const chosen = new Set(matched);
+                for (const opt of element.options) opt.selected = chosen.has(opt);
+            } else {
+                const option = matched[0];
+                option.selected = true;
+                element.selectedIndex = option.index;
+                setNativeValue(element, option.value);
+            }
+            element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+            element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+            const selectedOptions = [...element.selectedOptions].map((opt) => ({
+                value: opt.value,
+                text: compact(opt.textContent || opt.label || ""),
+            }));
+            const first = selectedOptions[0] || { value: element.value, text: "" };
+            return {
+                index,
+                label: describe(element),
+                value: first.value,
+                text: first.text,
+                selected: element.multiple ? selectedOptions : first.value,
+            };
+        },
+        commitField(target, expectedValue, replace) {
+            const element = target == null ? focused() : pick(typeof target === "number" ? target : this.resolve(target));
+            if (
+                element &&
+                !isFrame(element) &&
+                (element.tagName === "INPUT" || element.tagName === "TEXTAREA") &&
+                !["checkbox", "radio", "button", "submit", "reset", "image", "file", "hidden"].includes(element.type)
+            ) {
+                const special =
+                    element.tagName === "INPUT" &&
+                    ["date", "time", "datetime-local", "month", "week", "color", "range", "number"].includes(element.type);
+                const want = expectedValue == null ? null : String(expectedValue);
+                const missed =
+                    want != null &&
+                    ((special && element.value !== want) ||
+                        (replace && element.value !== want) ||
+                        (want.length > 0 && element.value.length === 0));
+                if (missed && !element.readOnly && !element.disabled) {
+                    setNativeValue(element, want);
+                    element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+                }
+                element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+            }
+            return this.valueOf(target);
         },
         // WebKit only acts on a bare pointer move while its page is active, so
         // when the real move left nothing hovered the page is told by hand.
