@@ -56,13 +56,15 @@ const FLOAT_TOP: f32 = 4.;
 const FLOAT_BOTTOM: f32 = 6.;
 const GROUP_GAP: f32 = 4.;
 const GROUP_HEAD: f32 = 26.;
+const GROUP_MARK: f32 = 18.;
 const ACCOUNT_LINE: f32 = 24.;
 const NAME_LINE: f32 = 20.;
 const NAME_GAP: f32 = 3.;
 const WINDOW_LINE: f32 = 17.;
 const LABEL_WIDTH: f32 = 112.;
-const PERCENT_WIDTH: f32 = 30.;
-const WHEN_WIDTH: f32 = 40.;
+const PERCENT_WIDTH: f32 = 32.;
+const WHEN_WIDTH: f32 = 48.;
+const RESETTING_SPINNER: f32 = 11.;
 const ACCOUNT_TOP: f32 = 4.;
 const ACCOUNT_BOTTOM: f32 = 6.;
 const ACCOUNT_PAD: f32 = 8.;
@@ -76,7 +78,7 @@ const FLOAT_GAP: f32 = 6.;
 const FLOAT_LEAST: f32 = 120.;
 const RAIL_HEAD: f32 = 41.;
 const FLOAT_MARGIN: f32 = 52.;
-const FLOAT_WIDTH: f32 = 300.;
+const FLOAT_WIDTH: f32 = 312.;
 
 /// What the Limits float holds while it is on screen.
 #[derive(Default)]
@@ -376,7 +378,7 @@ pub(crate) fn limits(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<i
             .when(open, |panel| {
                 let float = div()
                     .id("limits-float")
-                    .w(px(FLOAT_WIDTH))
+                    .w(px(scaled(FLOAT_WIDTH, cx)))
                     .pb(px(FLOAT_GAP))
                     .occlude()
                     .on_hover(hovered(view.this.clone(), |reveal| &mut reveal.over_float))
@@ -724,6 +726,10 @@ fn row_height(view: &View) -> f32 {
     }
 }
 
+fn scaled(width: f32, cx: &App) -> f32 {
+    (width * theme::text_scale(cx)).round()
+}
+
 /// A window's short name, such as Week, at the start of its line.
 fn window_label(label: impl Into<SharedString>, cx: &App) -> Div {
     ui::text(label.into(), TEXT_3XS, FontWeight::NORMAL)
@@ -732,32 +738,67 @@ fn window_label(label: impl Into<SharedString>, cx: &App) -> Div {
         .text_color(Tokens::get(cx).text_secondary)
 }
 
-fn percent_cell(window: &UsageWindow, now: u64, cx: &App) -> Div {
+fn percent_cell(window: &UsageWindow, now: u64, width: f32, cx: &App) -> Div {
     let t = Tokens::get(cx);
     let used = window.used_at(now);
-    ui::text(
-        format!("{}%", used.round().min(100.)),
-        TEXT_2XS,
-        FontWeight::NORMAL,
-    )
-    .flex_none()
-    .text_color(match used {
-        used if used < 70. => t.text_primary,
-        used => signal(used, t),
-    })
+    div()
+        .flex_none()
+        .w(px(width))
+        .flex()
+        .justify_end()
+        .overflow_hidden()
+        .child(
+            ui::text(
+                format!("{}%", used.round().min(100.)),
+                TEXT_2XS,
+                FontWeight::NORMAL,
+            )
+            .text_color(match used {
+                used if used < 70. => t.text_primary,
+                used => signal(used, t),
+            }),
+        )
 }
 
 /// When the window is back. Past its reset with reads failing it says how old the reading is,
-/// as "resetting now" would stay true for as long as the reads keep failing.
-fn when_cell(window: &UsageWindow, now: u64, age: Option<&str>, cx: &App) -> Div {
+/// as the spinner would keep turning for as long as the reads keep failing.
+fn when_cell(
+    id: SharedString,
+    window: &UsageWindow,
+    now: u64,
+    age: Option<&str>,
+    width: f32,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    let cell = div()
+        .flex_none()
+        .w(px(width))
+        .flex()
+        .items_center()
+        .justify_end()
+        .overflow_hidden();
     let text = match (reset_at(window), age.filter(|_| window.is_past_reset(now))) {
         (_, Some(age)) => t!("read {age}", age = age),
         (None, _) => String::new(),
+        (Some(reset), None)
+            if window.is_past_reset(now) || (reset - chrono::Utc::now()).num_seconds() <= 0 =>
+        {
+            return cell
+                .id(id)
+                .tooltip(ui::tooltip(t!("Resetting…")))
+                .child(ui::working(RESETTING_SPINNER, t.text_tertiary))
+                .into_any_element();
+        }
         (reset, None) => ui::time::countdown(reset),
     };
-    ui::text(text, TEXT_3XS, FontWeight::NORMAL)
-        .flex_none()
-        .text_color(Tokens::get(cx).text_tertiary)
+    cell.child(
+        ui::text(text, TEXT_3XS, FontWeight::NORMAL)
+            .min_w_0()
+            .truncate()
+            .text_color(t.text_tertiary),
+    )
+    .into_any_element()
 }
 
 fn note(text: String, cx: &App) -> Div {
@@ -845,7 +886,7 @@ fn group_head(view: &View, agent: &Agent, folded: bool, cx: &App) -> Div {
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .child(ui::mark(agent.provider, 12., cx))
+        .child(ui::mark(agent.provider, GROUP_MARK, cx))
         .child(spaced(agent.name.to_uppercase(), TEXT_3XS, cx))
         .children(own_name)
         .children(only.and_then(Shown::tier).map(|tier| tier_pill(tier, cx)))
@@ -951,33 +992,35 @@ fn account_line(
     }
     let windows = shown.windows();
     let age = shown.age(view.now);
+    let label_width = scaled(LABEL_WIDTH, cx);
+    let percent_width = scaled(PERCENT_WIDTH, cx);
+    let when_width = scaled(WHEN_WIDTH, cx);
     let lines = match windows.is_empty() {
         true => line(WINDOW_LINE).child(note(shown.nothing(), cx)),
         false => div()
             .flex()
             .flex_col()
             .font_features(theme::tabular())
-            .children(windows.iter().map(|(label, window)| {
+            .children(windows.iter().enumerate().map(|(index, (label, window))| {
+                let when_id =
+                    SharedString::from(format!("limits-when-{}-{key}-{index}", agent.provider));
                 line(WINDOW_LINE)
-                    .child(window_label(label.clone(), cx).w(px(LABEL_WIDTH)))
+                    .child(window_label(label.clone(), cx).w(px(label_width)))
                     .child(
                         ruler(Some(window.used_at(view.now)), t)
                             .flex_1()
                             .min_w_0()
                             .h(px(8.)),
                     )
-                    .child(
-                        percent_cell(window, view.now, cx)
-                            .w(px(PERCENT_WIDTH))
-                            .flex()
-                            .justify_end(),
-                    )
-                    .child(
-                        when_cell(window, view.now, age.as_deref(), cx)
-                            .min_w(px(WHEN_WIDTH))
-                            .flex()
-                            .justify_end(),
-                    )
+                    .child(percent_cell(window, view.now, percent_width, cx))
+                    .child(when_cell(
+                        when_id,
+                        window,
+                        view.now,
+                        age.as_deref(),
+                        when_width,
+                        cx,
+                    ))
             })),
     };
     let smart = view.smart && agent.accounts.len() > 1 && !by_hand(agent.provider);
