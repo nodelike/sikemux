@@ -182,18 +182,29 @@ fn level_for(
     rewrites: bool,
 ) -> Level {
     let through = plain.filter(|_| routine(place, ship));
-    place.level_for(confirmed, through, ordinary(ship, rewrites))
+    place.level_for(confirmed, through, ordinary(place, ship, rewrites))
 }
 
-/// Whether `ship` is a change that a place the person always allowed on a call lets run: no
-/// tag, no GitHub release, and no push that `rewrites`, doing more than send commits.
-pub fn ordinary(ship: &Ship, rewrites: bool) -> bool {
+/// Whether `ship` is a change that `place` lets run once the person always allowed it on a
+/// call: no tag, no GitHub release, and no push that `rewrites`, doing more than send commits.
+/// A place that takes tags or GitHub releases has none, since every change there is a release,
+/// however it is started.
+pub fn ordinary(place: &Place, ship: &Ship, rewrites: bool) -> bool {
     let release = match ship.target.as_ref().map(Target::bare) {
         Some(Target::Tag { .. }) => true,
         Some(Target::Package { registry }) => registry == GITHUB_RELEASES,
         _ => false,
     };
-    !rewrites && !release
+    !rewrites && !release && !place.recognise.iter().any(releases)
+}
+
+fn releases(fact: &Recognise) -> bool {
+    match fact {
+        Recognise::Tag { .. } => true,
+        Recognise::Package { registry } => registry == GITHUB_RELEASES,
+        Recognise::Read { fact, .. } => releases(fact),
+        _ => false,
+    }
 }
 
 /// Whether `ship`, a plain push or merge, is the change `place` sees again and again, which the

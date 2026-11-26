@@ -170,7 +170,7 @@ pub(super) fn may_stop_asking(
 ) -> bool {
     let kept = core.places().of(project);
     kept.confirmed.is_some()
-        && places::judge::ordinary(ship, rewrites)
+        && places::judge::ordinary(place, ship, rewrites)
         && (kept.places.iter()).any(|known| known.shown.id == place.shown.id)
 }
 
