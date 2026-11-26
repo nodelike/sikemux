@@ -483,7 +483,8 @@ fn read(
         ShipKind::Publish => push::one_tag(&ship.what, cwd),
         _ => None,
     };
-    let exact = ship.kind == ShipKind::Push && plain.is_none();
+    let pushed = ship.kind == ShipKind::Push;
+    let exact = pushed && plain.is_none();
     let sent_from_here = match &merging {
         _ if api_lands.is_some() => false,
         Some(merging) => merging.repo.is_none(),
@@ -618,7 +619,9 @@ fn read(
         let parts = [sends, sent, work::of(cwd), to];
         sends = Some(parts.into_iter().flatten().collect());
     } else if let Some(repository) = &plain {
-        sends = Some(format!("{} to {repository}", sends.unwrap_or_default()));
+        let sent = pushed.then(|| push::sent(&ship.what, cwd));
+        let parts: Vec<String> = [sends, sent].into_iter().flatten().collect();
+        sends = Some(format!("{} to {repository}", parts.join(" ")));
     } else if ship.kind == ShipKind::Deploy && names_its_own(&ship.what) {
         sends = Some(ship.what.clone());
     }
