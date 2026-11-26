@@ -737,7 +737,6 @@ impl Desks {
                     id: tab.id.clone(),
                     title: tab.title.clone(),
                     url: tab.url.clone(),
-                    background: tab.background,
                 });
             let desk = held.entry(agent.clone()).or_default();
             desk.pages.extend(pages);
@@ -1189,6 +1188,9 @@ impl Workbench {
         let place = self.place();
         let (departed, ended) = self.desks.update(cx, |desks, cx| {
             desks.stop_awaiting(|host| hosts.contains(host));
+            for agent in present.difference(&desks.present) {
+                desks.known.entry(agent.clone()).or_default();
+            }
             let departed: Vec<String> = desks.present.difference(&present).cloned().collect();
             let ended: Vec<String> = (desks.working.difference(&working))
                 .filter(|agent| present.contains(*agent))
@@ -1257,18 +1259,20 @@ impl Workbench {
                 .as_ref()
                 .is_some_and(|before| before.iter().any(|id| !now.contains(id)));
             let live = |strip: &sikemux_browser::BrowserSnapshot| {
-                strip
-                    .tabs
-                    .iter()
-                    .any(|tab| !idle_blank(tab) && !tab.background)
+                strip.tabs.iter().any(|tab| !idle_blank(tab))
             };
             let live_changed = (self.desks.read(cx).strips.get(&agent))
                 .is_some_and(|old| live(old))
                 != live(&strip);
+            let agent_in_front = self
+                .tab()
+                .is_some_and(|tab| view_of(&tab.pane, PaneKind::Agent, &agent).is_some());
             let opened = (before.as_ref()).is_some_and(|before| {
                 (strip.tabs.iter())
                     .filter(|tab| !before.contains(&tab.id))
-                    .any(|tab| !tab.background && !files.hushed(&agent, &tab.url))
+                    .any(|tab| {
+                        (!tab.background || !agent_in_front) && !files.hushed(&agent, &tab.url)
+                    })
             });
             let emptied = now.is_empty() && before.is_some_and(|before| !before.is_empty());
             if closed {
@@ -1277,8 +1281,8 @@ impl Workbench {
                     .spawn(async move { sweep.sweep_unused() })
                     .detach();
             }
-            if opened && !self.desk_open_anywhere(&agent) {
-                self.reveal_desk(&agent);
+            if opened {
+                self.ensure_desk_open(&agent, cx);
             }
             self.desks.update(cx, |desks, _| {
                 desks.take_strip(&agent, strip);
@@ -1345,9 +1349,16 @@ impl Workbench {
     /// it out beside the agent there. The engine holds a new tab back until it knows.
     fn desk_in_sight(&self, agent: &str) -> bool {
         self.tab().is_some_and(|tab| {
-            self.desk_in_front(agent)
-                || (!self.desk_open_anywhere(agent)
-                    && view_of(&tab.pane, PaneKind::Agent, agent).is_some())
+            let desk = view_of(&tab.pane, PaneKind::Desk, agent);
+            let hidden_by_zoom = self
+                .panes
+                .zoomed
+                .as_deref()
+                .is_some_and(|zoomed| desk.as_deref() != Some(zoomed));
+            !hidden_by_zoom
+                && (desk.is_some()
+                    || (!self.desk_open_anywhere(agent)
+                        && view_of(&tab.pane, PaneKind::Agent, agent).is_some()))
         })
     }
 
@@ -1358,6 +1369,19 @@ impl Workbench {
 
     pub(crate) fn desk_open_anywhere(&self, agent: &str) -> bool {
         (self.home_of(agent)).is_some_and(|(_, view)| desk_place_in(view, agent).is_some())
+    }
+
+    fn ensure_desk_open(&self, agent: &str, cx: &mut Context<Self>) {
+        if let Some((_, view)) = self.home_of(agent) {
+            if let Some((_, _, desk)) = desk_place_in(view, agent) {
+                if self.panes.shutting(&desk) {
+                    self.panes.slide_view(&desk, true);
+                    self.parts.redraw_stage(cx);
+                }
+                return;
+            }
+        }
+        self.reveal_desk(agent);
     }
 
     fn reveal_desk(&self, agent: &str) {
@@ -1411,9 +1435,7 @@ impl Workbench {
     fn put_out_mod(&mut self, agent: &str, item: DeskItem, front: bool, cx: &mut Context<Self>) {
         self.desks
             .update(cx, |desks, cx| desks.put(agent, item, front, cx));
-        if !self.desk_open_anywhere(agent) {
-            self.reveal_desk(agent);
-        }
+        self.ensure_desk_open(agent, cx);
         self.parts.redraw_stage(cx);
         self.parts.redraw(&self.parts.agents, cx);
     }
@@ -1474,9 +1496,7 @@ impl Workbench {
         self.desks.update(cx, |desks, cx| {
             desks.show_kind(agent, DeskKind::Simulator, cx)
         });
-        if !self.desk_open_anywhere(agent) {
-            self.reveal_desk(agent);
-        }
+        self.ensure_desk_open(agent, cx);
     }
 
     /// Takes the simulator tab off the agent's desk, letting its device go.
@@ -1536,9 +1556,7 @@ impl Workbench {
     fn show_desk_kind(&mut self, agent: &str, kind: DeskKind, cx: &mut Context<Self>) {
         self.desks
             .update(cx, |desks, cx| desks.show_kind(agent, kind, cx));
-        if !self.desk_open_anywhere(agent) {
-            self.reveal_desk(agent);
-        }
+        self.ensure_desk_open(agent, cx);
     }
 
     /// What the desk shows now: its simulator or its calls, else whatever is in front of its
@@ -1572,8 +1590,8 @@ impl Workbench {
     fn put_on_desk(&mut self, agent: &str, item: DeskItem, front: bool, cx: &mut Context<Self>) {
         self.desks
             .update(cx, |desks, cx| desks.put(agent, item, front, cx));
-        if front && !self.desk_open_anywhere(agent) {
-            self.reveal_desk(agent);
+        if front {
+            self.ensure_desk_open(agent, cx);
         }
     }
 
@@ -1737,10 +1755,8 @@ impl Workbench {
     /// person sees what the agent does there.
     fn show_pages(&mut self, agent: &str, cx: &mut Context<Self>) {
         self.desks
-            .update(cx, |desks, cx| desks.show_kind(agent, DeskKind::Pages, cx));
-        if !self.desk_open_anywhere(agent) {
-            self.reveal_desk(agent);
-        }
+            .update(cx, |desks, cx| desks.turn_to_pages(agent, cx));
+        self.ensure_desk_open(agent, cx);
     }
 
     /// The desk view of `agent` in `tab`, by id.
@@ -2008,9 +2024,16 @@ impl Workbench {
             return;
         };
         self.desks
-            .update(cx, |desks, cx| desks.show_kind(&agent, DeskKind::Pages, cx));
-        if let (None, Some(strip)) = (self.desk_of(&tab, &agent), self.strip()) {
-            self.split_desk(&self.target(), &strip, &tab, &view, &agent, false);
+            .update(cx, |desks, cx| desks.turn_to_pages(&agent, cx));
+        match (self.desk_of(&tab, &agent), self.strip()) {
+            (Some(desk), _) if self.panes.shutting(&desk) => {
+                self.panes.slide_view(&desk, true);
+                self.parts.redraw_stage(cx);
+            }
+            (None, Some(strip)) => {
+                self.split_desk(&self.target(), &strip, &tab, &view, &agent, false);
+            }
+            _ => {}
         }
         self.new_page(&agent, cx);
     }
@@ -2093,9 +2116,16 @@ impl Workbench {
             return;
         };
         self.desks
-            .update(cx, |desks, cx| desks.show_kind(&agent, DeskKind::Pages, cx));
-        if let (None, Some(strip)) = (self.desk_of(&tab, &agent), self.strip()) {
-            self.split_desk(&self.target(), &strip, &tab, &view, &agent, false);
+            .update(cx, |desks, cx| desks.turn_to_pages(&agent, cx));
+        match (self.desk_of(&tab, &agent), self.strip()) {
+            (Some(desk), _) if self.panes.shutting(&desk) => {
+                self.panes.slide_view(&desk, true);
+                self.parts.redraw_stage(cx);
+            }
+            (None, Some(strip)) => {
+                self.split_desk(&self.target(), &strip, &tab, &view, &agent, false);
+            }
+            _ => {}
         }
         self.open_first_page(&agent, cx);
         self.desks.update(cx, |desks, cx| {
@@ -2228,9 +2258,7 @@ impl Workbench {
             return Task::ready(Err("this window has no browser".to_owned()));
         };
         self.bring_pages_forward(agent, cx);
-        if !self.desk_open_anywhere(agent) {
-            self.reveal_desk(agent);
-        }
+        self.ensure_desk_open(agent, cx);
         cx.notify();
         let (agent, url) = (agent.to_owned(), url(&engine));
         let shown = runtime().spawn(async move {
@@ -2244,13 +2272,13 @@ impl Workbench {
     }
 
     /// Opens `url` in a new page on `agent`'s desk, leaving the tab in front where it is.
-    pub fn show_on_desk(&mut self, agent: &str, url: &str, cx: &App) -> bool {
+    pub fn show_on_desk(&mut self, agent: &str, url: &str, cx: &mut Context<Self>) -> bool {
         let Some(engine) = self.desks.read(cx).engine.clone() else {
             return false;
         };
-        if !self.desk_open_anywhere(agent) {
-            self.reveal_desk(agent);
-        }
+        self.desks
+            .update(cx, |desks, cx| desks.turn_to_pages(agent, cx));
+        self.ensure_desk_open(agent, cx);
         let (agent, url) = (agent.to_owned(), url.to_owned());
         let profile = self.default_tab_profile_for_agent(&agent);
         runtime().spawn(async move {

@@ -374,22 +374,9 @@ mod tests {
                 id: "tab-1".to_owned(),
                 title: "Udyam Registration".to_owned(),
                 url: "https://udyamregistration.gov.in/UdyamRegistration.aspx".to_owned(),
-                background: false,
             }]),
         );
         assert!(!at_rest(&core, &worker, &turn, &waited));
-
-        super::super::goals::set_desks(
-            &core,
-            client,
-            desks(vec![sikemux_view::goals::DeskPage {
-                id: "tab-2".to_owned(),
-                title: "Background check".to_owned(),
-                url: "https://example.com".to_owned(),
-                background: true,
-            }]),
-        );
-        assert!(at_rest(&core, &worker, &turn, &waited));
 
         super::super::goals::set_desks(&core, client, desks(Vec::new()));
         assert!(at_rest(&core, &worker, &turn, &waited));
@@ -401,7 +388,6 @@ mod tests {
                 id: "tab-3".to_owned(),
                 title: "Udyam Registration".to_owned(),
                 url: "https://udyamregistration.gov.in/UdyamRegistration.aspx".to_owned(),
-                background: false,
             }]),
         );
         assert!(!at_rest(&core, &worker, &turn, &waited));

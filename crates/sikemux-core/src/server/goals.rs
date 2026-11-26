@@ -53,7 +53,7 @@ impl super::part::Part for Goals {
     }
 }
 
-/// Whether `agent_id` has a live non-background browser tab open on its desk.
+/// Whether `agent_id` has a live browser tab open on its desk.
 pub(crate) fn has_live_page(core: &Core, agent_id: &str) -> bool {
     let kept = core.goals().desks.locked();
     let Some((_, desks)) = &*kept else {
@@ -61,7 +61,7 @@ pub(crate) fn has_live_page(core: &Core, agent_id: &str) -> bool {
     };
     desks
         .get(agent_id)
-        .is_some_and(|desk| desk.pages.iter().any(|page| !page.background))
+        .is_some_and(|desk| !desk.pages.is_empty())
 }
 
 /// Takes what the window's desks hold now. They close with the window, so they count only while

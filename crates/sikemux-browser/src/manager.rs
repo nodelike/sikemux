@@ -1391,6 +1391,7 @@ impl BrowserManager {
         if let Some(bounds) = &bounds {
             validate_bounds(bounds)?;
         }
+        let collapsed = bounds.as_ref().is_some_and(viewport::collapsed);
         let bounds = bounds.filter(|area| !viewport::collapsed(area));
         {
             let mut agents = self.agents.locked();
@@ -1403,10 +1404,14 @@ impl BrowserManager {
                 agent.seen = Some((area.width, area.height));
             }
             agent.bounds = bounds;
-            agent.desk_coming = false;
+            if !collapsed {
+                agent.desk_coming = false;
+            }
         }
         self.relayout(agent_id);
-        self.desk_answers.notify_waiters();
+        if !collapsed {
+            self.desk_answers.notify_waiters();
+        }
         Ok(())
     }
 
@@ -2047,7 +2052,7 @@ pub(crate) fn label_safe(agent_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::BrowserHole;
+    use crate::{BrowserHole, BrowserShortcut, ParentView};
 
     fn page(url: &str) -> TabPage {
         TabPage {
@@ -2221,5 +2226,72 @@ mod tests {
             ..good
         })
         .is_err());
+    }
+
+    struct StubHost;
+
+    impl Host for StubHost {
+        fn window(&self) -> Result<ParentView, String> {
+            Err("no window in test".into())
+        }
+        fn state_dir(&self) -> Option<PathBuf> {
+            None
+        }
+        fn cache_dir(&self) -> Option<PathBuf> {
+            None
+        }
+        fn videos_dir(&self) -> Option<PathBuf> {
+            None
+        }
+        fn tabs_changed(&self) {}
+        fn downloaded(&self, _: &BrowserDownload) {}
+        fn acting(&self, _: &str) {}
+        fn shortcut(&self, _: BrowserShortcut) {}
+    }
+
+    #[test]
+    fn collapsed_slide_in_bounds_do_not_clear_desk_coming() {
+        let manager = BrowserManager::new(Arc::new(StubHost));
+        let agent = "agent-slide";
+        manager.announce_acting(agent);
+        assert!(manager.agents.locked().get(agent).unwrap().desk_coming);
+
+        let collapsed = BrowserBounds {
+            x: 0.0,
+            y: 0.0,
+            width: 12.0,
+            height: 600.0,
+            clip_left: 0.0,
+            clip_right: 0.0,
+            holes: Vec::new(),
+            dim: 0.0,
+            opacity: 1.0,
+            bottom_radius: 0.0,
+        };
+        manager.set_bounds(agent, Some(collapsed)).unwrap();
+        assert!(manager.agents.locked().get(agent).unwrap().desk_coming);
+        assert!(manager.agents.locked().get(agent).unwrap().bounds.is_none());
+
+        let visible = BrowserBounds {
+            x: 0.0,
+            y: 0.0,
+            width: 640.0,
+            height: 600.0,
+            clip_left: 0.0,
+            clip_right: 0.0,
+            holes: Vec::new(),
+            dim: 0.0,
+            opacity: 1.0,
+            bottom_radius: 0.0,
+        };
+        manager.set_bounds(agent, Some(visible)).unwrap();
+        assert!(!manager.agents.locked().get(agent).unwrap().desk_coming);
+        assert!(manager.agents.locked().get(agent).unwrap().bounds.is_some());
+
+        manager.set_bounds(agent, None).unwrap();
+        manager.announce_acting(agent);
+        assert!(manager.agents.locked().get(agent).unwrap().desk_coming);
+        manager.set_bounds(agent, None).unwrap();
+        assert!(!manager.agents.locked().get(agent).unwrap().desk_coming);
     }
 }
