@@ -18,7 +18,7 @@
       "name": "browser_navigate",
       "row": {"verb": "open", "kind": "fetch", "icon": "globe", "target": ["{url}", "{go}"]},
       "method": "browser.navigate",
-      "description": "Go to a URL, back, forward or reload; waits for the page.",
+      "description": "Go to a URL, back, forward or reload.",
       "properties": {
         "tabId": {
           "type": "string",
@@ -29,15 +29,14 @@
           "maxLength": 8192
         },
         "newTab": {
-          "description": "Open in a new tab, or your tab already on that site",
+          "description": "Open a new tab or reuse yours on that site",
           "type": "boolean"
         },
         "background": {
-          "description": "Do not switch active tab or open desk",
+          "description": "Keep current active tab",
           "type": "boolean"
         },
         "go": {
-          "description": "Instead of url",
           "enum": [
             "back",
             "forward",
@@ -45,11 +44,9 @@
           ]
         },
         "hard": {
-          "description": "With go reload: skip the cache",
           "type": "boolean"
         },
         "waitFor": {
-          "description": "Wait for this after the load",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -109,7 +106,6 @@
           "maxLength": 128
         },
         "fullText": {
-          "description": "Up to 40 KB of text",
           "type": "boolean"
         },
         "selector": {
@@ -117,19 +113,16 @@
           "maxLength": 512
         },
         "around": {
-          "description": "Text around this phrase",
           "type": "string",
           "minLength": 1,
           "maxLength": 500
         },
         "chars": {
-          "description": "With around: how much, default 2000",
           "type": "integer",
           "minimum": 1,
           "maximum": 40000
         },
         "tail": {
-          "description": "The last this many characters",
           "type": "integer",
           "minimum": 1,
           "maximum": 40000
@@ -148,7 +141,6 @@
           "maxLength": 128
         },
         "query": {
-          "description": "Visible text or accessible name",
           "type": "string",
           "minLength": 1,
           "maxLength": 500
@@ -167,19 +159,17 @@
       "name": "browser_click",
       "row": {"verb": "click", "kind": "edit", "icon": "click", "target": ["“{text}”", "{selector}", "element {index}", "{x}, {y}"], "detail": ["{role}"]},
       "method": "browser.click",
-      "description": "Click an element by number, text, selector or point.",
+      "description": "Click by number, text, selector or point.",
       "properties": {
         "tabId": {
           "type": "string",
           "maxLength": 128
         },
         "index": {
-          "description": "Element number from state or find",
           "type": "integer",
           "minimum": 0
         },
         "text": {
-          "description": "Visible text or name, headings too",
           "type": "string",
           "minLength": 1,
           "maxLength": 500
@@ -228,19 +218,18 @@
       "name": "browser_type",
       "row": {"verb": "type", "kind": "edit", "icon": "text", "target": ["into {field}", "into {selector}", "into element {index}", "into the focused field"]},
       "method": "browser.type",
-      "description": "Type into a field, replacing it or at the caret.",
+      "description": "Type into a field or at the caret.",
       "properties": {
         "tabId": {
           "type": "string",
           "maxLength": 128
         },
         "index": {
-          "description": "Field number; else at the caret",
           "type": "integer",
           "minimum": 0
         },
         "field": {
-          "description": "Instead of index: the field's label, placeholder or name",
+          "description": "Field label, placeholder or name",
           "type": "string",
           "minLength": 1,
           "maxLength": 500
@@ -255,7 +244,6 @@
           "maxLength": 20000
         },
         "replace": {
-          "description": "Select the focused field's text first",
           "type": "boolean"
         },
         "submit": {
@@ -304,7 +292,7 @@
       "name": "browser_drive",
       "row": {"verb": "drive", "kind": "edit", "icon": "steps", "target": ["{script}"]},
       "method": "browser.drive",
-      "description": "Drive one or more tabs with a sandboxed async JS script.",
+      "description": "Drive tabs with async JS (parallel).",
       "properties": {
         "script": {
           "description": "Async JS using browser.tabs/open/tab; return JSON",
@@ -484,7 +472,7 @@
       "name": "browser_scroll",
       "row": {"verb": "scroll", "kind": "read", "icon": "mouse", "target": ["to “{text}”", "to {selector}", "to element {index}", "to the {to}", "{deltaY}px"]},
       "method": "browser.scroll",
-      "description": "Scroll to an element, by deltaY, or to an end.",
+      "description": "Scroll to an element, deltaY or end.",
       "properties": {
         "tabId": {
           "type": "string",
@@ -528,7 +516,7 @@
       "name": "browser_evaluate",
       "row": {"verb": "eval", "kind": "execute", "icon": "code", "target": ["{script}"]},
       "method": "browser.evaluate",
-      "description": "Run a single-tab DOM expression; use browser_drive for flows.",
+      "description": "Eval one tab's DOM; browser_drive for flows.",
       "properties": {
         "tabId": {
           "type": "string",
@@ -749,47 +737,39 @@
           "maxLength": 512
         },
         "url": {
-          "description": "Until the URL contains this",
           "type": "string",
           "minLength": 1,
           "maxLength": 2048
         },
         "urlGone": {
-          "description": "Until the URL no longer contains this",
           "type": "string",
           "minLength": 1,
           "maxLength": 2048
         },
         "networkIdle": {
-          "description": "Until no request for 500 ms",
           "type": "boolean"
         },
         "script": {
-          "description": "A page expression; until it is truthy",
           "type": "string",
           "minLength": 1,
           "maxLength": 20000
         },
         "stable": {
-          "description": "A selector; until its text holds for quietMs",
           "type": "string",
           "minLength": 1,
           "maxLength": 512
         },
         "quietMs": {
-          "description": "With stable; default 1000",
           "type": "integer",
           "minimum": 100,
           "maximum": 60000
         },
         "timeoutMs": {
-          "description": "Default 10000",
           "type": "integer",
           "minimum": 0,
           "maximum": 180000
         },
         "ms": {
-          "description": "Fixed pause; prefer a condition",
           "type": "integer",
           "minimum": 0,
           "maximum": 30000
@@ -811,7 +791,6 @@
       "description": "Close one of your tabs.",
       "properties": {
         "tabId": {
-          "description": "Default the tab in front",
           "type": "string",
           "maxLength": 128
         }
