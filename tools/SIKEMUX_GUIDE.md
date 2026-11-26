@@ -425,9 +425,23 @@ act on the page; other command chords never reach Sikemux.
 `browser_scroll` with a target alone brings it into view.
 
 `browser_upload` takes absolute `paths`: files in the project or a temporary
-folder, or sent to the chat, unless the chat bypasses permissions. With no
-target it uses the page's only file input, and it fails when no file input took
-the files.
+folder, or sent to the chat, unless the chat bypasses permissions. Pass
+`vault:<id>` to blind-upload an encrypted Vault document. With no target it
+uses the page's only file input, and it fails when no file input took the files.
+
+For credentials, payment cards, personal details or encrypted documents, use
+the Vault tools rather than asking for raw secrets in chat:
+- `vault_list` returns entry IDs, titles, categories (`details`, `secrets`,
+  `payments`, `documents`), field keys and domain hints — never raw values.
+- `vault_request` opens a host-rendered card asking the person to enter missing
+  info directly into Vault (`fields` items take `key`, optional `label`, `kind`,
+  `required`, `sensitive`, `placeholder`), returning only the `vault:<id>`
+  reference and field keys.
+- `vault_fill` (or passing `vault:<id>.<field>` to `browser_type` / `tab.fill`
+  / `tab.type`, or `vault:<id>` to `browser_upload` / `tab.upload`) resolves
+  the value inside the host and injects it directly into the page without
+  returning plaintext; payments and first-time domain secrets prompt the person
+  for approval first.
 
 An open alert, confirm or prompt shows under `dialog` and freezes the page:
 non-dialog browser tools fail immediately with `blocked by <type> dialog` until

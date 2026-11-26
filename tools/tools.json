@@ -240,7 +240,6 @@
           "maxLength": 512
         },
         "text": {
-          "description": "Text or vault:<id>.<field> for blind-fill",
           "type": "string",
           "maxLength": 20000
         },
@@ -372,7 +371,7 @@
           "maxLength": 128
         },
         "paths": {
-          "description": "Absolute file paths or vault:<id> for encrypted docs",
+          "description": "Absolute file paths",
           "type": "array",
           "items": {
             "type": "string",
@@ -2736,7 +2735,7 @@
       "name": "vault_list",
       "row": {"verb": "list", "kind": "read", "icon": "search", "target": ["{category} in vault", "vault"]},
       "method": "vault.list",
-      "description": "List Vault entry metadata (never raw secrets).",
+      "description": "List Vault entries.",
       "properties": {
         "category": {
           "type": "string",
@@ -2757,7 +2756,7 @@
       "name": "vault_request",
       "row": {"verb": "ask", "kind": "think", "icon": "message", "target": ["for {title}", "for {category}"]},
       "method": "vault.request",
-      "description": "Ask the person to save missing info into Vault via host card.",
+      "description": "Request Vault info.",
       "properties": {
         "category": {
           "type": "string",
@@ -2769,20 +2768,9 @@
           "maxLength": 120
         },
         "fields": {
-          "description": "Requested fields for the host card",
           "type": "array",
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "key": {"type": "string", "minLength": 1, "maxLength": 128},
-              "label": {"type": "string", "minLength": 1, "maxLength": 120},
-              "kind": {"type": "string", "maxLength": 32},
-              "required": {"type": "boolean"},
-              "sensitive": {"type": "boolean"},
-              "placeholder": {"type": "string", "maxLength": 120}
-            },
-            "required": ["key"]
+            "type": "object"
           },
           "maxItems": 20
         },
@@ -2806,12 +2794,11 @@
       "name": "vault_fill",
       "row": {"verb": "fill", "kind": "edit", "icon": "text", "target": ["into {field}", "into {selector}", "into element {index}", "{ref}"]},
       "method": "vault.fill",
-      "description": "Blind-fill a vault:<id>.<field> or upload vault:<id> into the browser.",
+      "description": "Blind-fill Vault ref.",
       "properties": {
         "ref": {
-          "description": "vault:<id>.<field> or vault:<id> for documents",
           "type": "string",
-          "minLength": 7,
+          "minLength": 1,
           "maxLength": 256
         },
         "tabId": {
@@ -2823,7 +2810,6 @@
           "minimum": 0
         },
         "field": {
-          "description": "Field label, placeholder or name",
           "type": "string",
           "minLength": 1,
           "maxLength": 500
@@ -2838,9 +2824,6 @@
         },
         "submit": {
           "type": "boolean"
-        },
-        "report": {
-          "enum": ["outcome", "changes", "full"]
         }
       },
       "required": ["ref"]

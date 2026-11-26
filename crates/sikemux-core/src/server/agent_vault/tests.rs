@@ -7,11 +7,11 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use serde_json::json;
 use sikemux_calls::vault::{
-    VaultApprovalAnswerParams, VaultApprovalsParams, VaultAuditLogParams, VaultAuditStatus,
-    VaultCategory, VaultDeliveryMode, VaultDocumentInput, VaultFieldInput, VaultFieldKind,
-    VaultGetParams, VaultListParams, VaultRequestCancelParams, VaultRequestSubmitParams,
-    VaultRequestsParams, VaultResolveBrowserParams, VaultResolvedBrowser, VaultScope, VaultSource,
-    VaultUpsertParams,
+    VaultApprovalAnswerParams, VaultApprovalsParams, VaultAuditEntry, VaultAuditLogParams,
+    VaultAuditStatus, VaultCategory, VaultDeliveryMode, VaultDocumentInput, VaultFieldInput,
+    VaultFieldKind, VaultGetParams, VaultListParams, VaultRequestCancelParams,
+    VaultRequestSubmitParams, VaultRequestsParams, VaultResolveBrowserParams, VaultResolvedBrowser,
+    VaultScope, VaultSource, VaultUpsertParams,
 };
 use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::BuildIdentity;
@@ -241,16 +241,30 @@ fn encrypted_round_trip_for_details_secrets_payments_and_documents() {
     );
     let audit_disk =
         std::fs::read_to_string(dir.path().join("agent-vault/audit.json")).expect("audit");
-    for forbidden in [
-        "s3cr3t-p@ssw0rd-999!",
-        "4242 4242 4242 4242",
-        "ABCDE1234F",
-        "842",
-    ] {
+    for forbidden in ["s3cr3t-p@ssw0rd-999!", "4242 4242 4242 4242", "ABCDE1234F"] {
         assert!(
             !audit_disk.contains(forbidden),
             "plaintext '{forbidden}' leaked into audit.json"
         );
+    }
+    let audit_entries: Vec<VaultAuditEntry> =
+        serde_json::from_str(&audit_disk).expect("parse audit.json");
+    for entry in &audit_entries {
+        for text in [
+            Some(entry.entry_title.as_str()),
+            Some(entry.actor.as_str()),
+            entry.domain.as_deref(),
+            Some(entry.tool.as_str()),
+        ]
+        .into_iter()
+        .flatten()
+        .chain(entry.field_keys.iter().map(String::as_str))
+        {
+            assert!(
+                !text.contains("842"),
+                "CVC '842' leaked into audit entry text: {text}"
+            );
+        }
     }
 
     // Reopen with the same key and verify encrypted round-trip.
