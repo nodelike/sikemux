@@ -178,6 +178,7 @@ pub fn new_place(
         recurs: false,
         routine_only: false,
         just_tell: Vec::new(),
+        ordinary_only: false,
     }
 }
 

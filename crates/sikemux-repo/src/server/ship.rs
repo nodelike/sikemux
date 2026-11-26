@@ -748,8 +748,15 @@ fn read(
         sends = Some(ship.what.clone());
     }
     let name = core.names().name_or_id(agent_id);
-    let (project, judged) =
-        places::judge_anywhere(core, &project, &ship, &name, addresses, plain.as_deref());
+    let (project, judged) = places::judge_anywhere(
+        core,
+        &project,
+        &ship,
+        &name,
+        addresses,
+        plain.as_deref(),
+        exact,
+    );
     let held = matches!(judged.goes, Goes::Tells | Goes::Asks);
     if held && merging.as_ref().is_some_and(|merging| merging.later) {
         return Err(

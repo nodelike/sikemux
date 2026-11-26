@@ -159,8 +159,8 @@ pub(super) struct Asking<'a> {
 }
 
 /// Whether an ask about `ship` at `place` may offer to stop asking there: the project keeps the
-/// place, so its level can be set, and the action is neither a tag nor a push that does more
-/// than send commits (`rewrites`), which ask however often they recur.
+/// place, so its level can be set, and the change is an ordinary one, as that offer leaves the
+/// rest waiting for the person's yes.
 pub(super) fn may_stop_asking(
     core: &Core,
     project: &str,
@@ -168,12 +168,9 @@ pub(super) fn may_stop_asking(
     ship: &Ship,
     rewrites: bool,
 ) -> bool {
-    let tag = matches!(
-        ship.target.as_ref().map(Target::bare),
-        Some(Target::Tag { .. })
-    );
     let kept = core.places().of(project).places;
-    !tag && !rewrites && (kept.iter()).any(|kept| kept.shown.id == place.shown.id)
+    places::judge::ordinary(ship, rewrites)
+        && (kept.iter()).any(|known| known.shown.id == place.shown.id)
 }
 
 /// The call that puts a change of `ship` to the production place `place` to the person, which
@@ -274,7 +271,7 @@ pub(super) fn call_for(
                 .filter(|asking| asking.always)
                 .map(|_| CallOption {
                     detail: Some(format!(
-                        "Agents change {} without asking from now on, and you're told each time. Set it back to Mine on the Playbook's Places.",
+                        "Agents change {} without asking from now on, and you're told each time. Tags, releases and forced pushes still wait for you. Set it back to Mine on the Playbook's Places.",
                         place.name()
                     )),
                     ..option(
