@@ -249,8 +249,8 @@ pub fn on_screen(
     focused: bool,
     draws_terminals: bool,
 ) {
+    core.seen().show(client, agent_ids.iter().cloned(), focused);
     (core.workspace_above().agents_shown)(core, &agent_ids, focused, draws_terminals);
-    core.seen().show(client, agent_ids, focused);
     core.changed(super::changed::What::View);
 }
 

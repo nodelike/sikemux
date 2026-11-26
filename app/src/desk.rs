@@ -715,6 +715,7 @@ impl Desks {
                     id: tab.id.clone(),
                     title: tab.title.clone(),
                     url: tab.url.clone(),
+                    background: tab.background,
                 });
             let desk = held.entry(agent.clone()).or_default();
             desk.pages.extend(pages);
@@ -1143,6 +1144,7 @@ impl Workbench {
             .collect();
         let files = self.desks.read(cx).page_files.clone();
         let mut any_changed = false;
+        let mut flush_desks = false;
         for agent in agents {
             let Ok(strip) = engine.snapshot(&agent) else {
                 continue;
@@ -1162,6 +1164,15 @@ impl Workbench {
             let closed = before
                 .as_ref()
                 .is_some_and(|before| before.iter().any(|id| !now.contains(id)));
+            let live = |strip: &sikemux_browser::BrowserSnapshot| {
+                strip
+                    .tabs
+                    .iter()
+                    .any(|tab| !idle_blank(tab) && !tab.background)
+            };
+            let live_changed = (self.desks.read(cx).strips.get(&agent))
+                .is_some_and(|old| live(old))
+                != live(&strip);
             let opened = (before.as_ref()).is_some_and(|before| {
                 (strip.tabs.iter())
                     .filter(|tab| !before.contains(&tab.id))
@@ -1181,6 +1192,9 @@ impl Workbench {
                 desks.take_strip(&agent, strip);
             });
             any_changed = true;
+            if live_changed {
+                flush_desks = true;
+            }
             if emptied {
                 self.shut_empty_desk(&agent, cx);
             }
@@ -1188,6 +1202,9 @@ impl Workbench {
         }
         if any_changed {
             self.desks.update(cx, |_, cx| cx.notify());
+            if flush_desks {
+                self.tell_desks(cx);
+            }
         }
     }
 

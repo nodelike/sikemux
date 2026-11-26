@@ -255,7 +255,7 @@ impl Parts for Core {
 
 /// Walking every part of the core.
 pub(crate) trait PartCore {
-    fn parts(&self) -> [&dyn Part; 41];
+    fn parts(&self) -> [&dyn Part; 42];
 
     /// Every feature's tasks, to end when the core stops.
     fn start_parts(self: &Arc<Self>) -> Vec<JoinHandle<()>>;
@@ -267,7 +267,7 @@ pub(crate) trait PartCore {
 }
 
 impl PartCore for Core {
-    fn parts(&self) -> [&dyn Part; 41] {
+    fn parts(&self) -> [&dyn Part; 42] {
         [
             self.harness(),
             self.outside(),
@@ -297,6 +297,7 @@ impl PartCore for Core {
             self.window(),
             self.chats(),
             self.seen(),
+            self.goals(),
             self.settling(),
             self.open_files(),
             self.mods(),

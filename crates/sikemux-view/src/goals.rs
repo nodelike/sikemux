@@ -169,6 +169,8 @@ pub struct DeskPage {
     pub id: String,
     pub title: String,
     pub url: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub background: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

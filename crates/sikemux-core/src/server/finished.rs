@@ -1,7 +1,7 @@
 //! Closes an agent once its own facts say it is finished: its work is on the project's branch on
 //! its remote, or it changed nothing; its last turn since it opened asked nothing; no agent waits
-//! on it; its lead has read how that turn ended; and the person has not written to it in the
-//! last hour; and, for a chat the person
+//! on it; its lead has read how that turn ended; nobody has it on screen; it holds no live browser
+//! tab on its desk; the person has not written to it in the last hour; and, for a chat the person
 //! started, they have opened its last answer. It runs when one of those facts may have moved,
 //! never as a poll.
 
@@ -60,6 +60,10 @@ impl super::part::Part for Finishing {
             |core| &core.finishing().wake,
             settle,
         )]
+    }
+
+    fn client_gone(&self, core: &Arc<Core>, _client: super::connection::ClientId) {
+        moved(core);
     }
 }
 
@@ -162,7 +166,12 @@ fn at_rest(
     turn: &TurnState,
     waited: &HashSet<String>,
 ) -> bool {
-    if agent.terminal || super::chief::is_chief(core, &agent.id) || waited.contains(&agent.id) {
+    if agent.terminal
+        || super::chief::is_chief(core, &agent.id)
+        || waited.contains(&agent.id)
+        || core.seen().viewed(&agent.id)
+        || super::goals::has_live_page(core, &agent.id)
+    {
         return false;
     }
     // A chat taken up again keeps the turn it closed on, which says nothing of it now.
@@ -315,5 +324,106 @@ mod tests {
             "The DNS is not managed there.",
         );
         assert!(!at_rest(&core, &worker, &turn, &waited));
+    }
+
+    fn finished_worker(id: &str) -> (WorkspaceAgent, TurnState) {
+        let worker: WorkspaceAgent = serde_json::from_value(json!({
+            "id": id,
+            "provider": "claude",
+            "project": "shop",
+            "cwd": "/shop",
+            "title": "Open Udyam registration",
+            "lead": "agent-chief",
+            "permissionMode": "bypass",
+            "createdAt": 1_795_454_491_472_u64,
+        }))
+        .unwrap();
+        let turn: TurnState = serde_json::from_value(json!({
+            "state": "done",
+            "since": 1_795_454_507_240_u64,
+            "done": { "changes": "none", "checks": "notChecked" },
+        }))
+        .unwrap();
+        (worker, turn)
+    }
+
+    #[test]
+    fn a_worker_with_a_live_browser_tab_stays_open_until_the_tab_closes() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let (worker, turn) = finished_worker("agent-gabi");
+        let waited = HashSet::new();
+        assert!(at_rest(&core, &worker, &turn, &waited));
+
+        let client = 1;
+        let desks = |pages: Vec<sikemux_view::goals::DeskPage>| sikemux_view::goals::DesksParams {
+            desks: [(
+                worker.id.clone(),
+                sikemux_view::goals::AgentDesk {
+                    pages,
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+
+        super::super::goals::set_desks(
+            &core,
+            client,
+            desks(vec![sikemux_view::goals::DeskPage {
+                id: "tab-1".to_owned(),
+                title: "Udyam Registration".to_owned(),
+                url: "https://udyamregistration.gov.in/UdyamRegistration.aspx".to_owned(),
+                background: false,
+            }]),
+        );
+        assert!(!at_rest(&core, &worker, &turn, &waited));
+
+        super::super::goals::set_desks(
+            &core,
+            client,
+            desks(vec![sikemux_view::goals::DeskPage {
+                id: "tab-2".to_owned(),
+                title: "Background check".to_owned(),
+                url: "https://example.com".to_owned(),
+                background: true,
+            }]),
+        );
+        assert!(at_rest(&core, &worker, &turn, &waited));
+
+        super::super::goals::set_desks(&core, client, desks(Vec::new()));
+        assert!(at_rest(&core, &worker, &turn, &waited));
+
+        super::super::goals::set_desks(
+            &core,
+            client,
+            desks(vec![sikemux_view::goals::DeskPage {
+                id: "tab-3".to_owned(),
+                title: "Udyam Registration".to_owned(),
+                url: "https://udyamregistration.gov.in/UdyamRegistration.aspx".to_owned(),
+                background: false,
+            }]),
+        );
+        assert!(!at_rest(&core, &worker, &turn, &waited));
+        use crate::server::part::Part;
+        core.goals().client_gone(&core, client);
+        assert!(at_rest(&core, &worker, &turn, &waited));
+    }
+
+    #[test]
+    fn an_agent_currently_on_screen_stays_open_until_the_person_switches_away() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let (worker, turn) = finished_worker("agent-gabi");
+        let waited = HashSet::new();
+        assert!(at_rest(&core, &worker, &turn, &waited));
+
+        core.seen().show(1, [worker.id.clone()], true);
+        assert!(!at_rest(&core, &worker, &turn, &waited));
+
+        core.seen().show(1, [worker.id.clone()], false);
+        assert!(!at_rest(&core, &worker, &turn, &waited));
+
+        core.seen().show(1, ["agent-chief".to_owned()], true);
+        assert!(at_rest(&core, &worker, &turn, &waited));
     }
 }

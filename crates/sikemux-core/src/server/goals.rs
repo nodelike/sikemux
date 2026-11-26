@@ -41,6 +41,29 @@ pub(crate) struct Goals {
     seen: Mutex<u64>,
 }
 
+impl super::part::Part for Goals {
+    fn client_gone(&self, core: &std::sync::Arc<Core>, client: ClientId) {
+        let mut kept = self.desks.locked();
+        if matches!(&*kept, Some((held_by, _)) if *held_by == client) {
+            *kept = None;
+            drop(kept);
+            super::finished::moved(core);
+            core.changed(What::Read(Topic::Goals));
+        }
+    }
+}
+
+/// Whether `agent_id` has a live non-background browser tab open on its desk.
+pub(crate) fn has_live_page(core: &Core, agent_id: &str) -> bool {
+    let kept = core.goals().desks.locked();
+    let Some((_, desks)) = &*kept else {
+        return false;
+    };
+    desks
+        .get(agent_id)
+        .is_some_and(|desk| desk.pages.iter().any(|page| !page.background))
+}
+
 /// Takes what the window's desks hold now. They close with the window, so they count only while
 /// `client` stays connected.
 pub(super) fn set_desks(core: &Core, client: ClientId, params: DesksParams) {
@@ -60,6 +83,7 @@ pub(super) fn set_desks(core: &Core, client: ClientId, params: DesksParams) {
     *kept = Some((client, desks.clone()));
     drop(kept);
     super::now::asks::desks_moved(core, &before, &desks);
+    super::finished::moved(core);
     core.changed(What::Read(Topic::Goals));
 }
 
