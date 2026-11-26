@@ -758,18 +758,36 @@ impl Reading {
 
 /// What the transcript draws after its last row.
 struct Footer {
-    calls: AnyView,
+    calls: Entity<crate::calls::InChat>,
     activity: AnyView,
+    _calls: Subscription,
+}
+
+impl Footer {
+    fn new(calls: Entity<crate::calls::InChat>, activity: AnyView, cx: &mut Context<Self>) -> Self {
+        let _calls = cx.observe(&calls, |_, _, cx| cx.notify());
+        Self {
+            calls,
+            activity,
+            _calls,
+        }
+    }
 }
 
 impl Render for Footer {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (settled, open) = {
+            let calls = self.calls.read(cx);
+            (calls.settled(cx), calls.open(self.calls.downgrade(), cx))
+        };
         div()
             .w_full()
             .flex()
             .flex_col()
-            .child(self.calls.clone())
+            .pb(px(status::END_SPACE))
+            .children(settled)
             .child(self.activity.clone())
+            .children(open)
     }
 }
 
@@ -827,7 +845,7 @@ pub struct Chat {
     activity_line: Entity<status::Activity>,
     /// What a screen reader hears of the turn as it runs.
     announcer: Entity<announce::Announcer>,
-    /// The calls the agent asks, over the activity line.
+    /// The calls the agent asks: settled notices above the activity line, open calls below it.
     calls: Entity<crate::calls::InChat>,
     /// The core of the host the agent runs on, which every ask of the chat goes to.
     pub target: Target,
@@ -1024,10 +1042,7 @@ impl Chat {
             }
         });
         let activity_line = cx.new(|_| status::Activity::new(provider, target.clone()));
-        let footer = cx.new(|_| Footer {
-            calls: calls.clone().into(),
-            activity: activity_line.clone().into(),
-        });
+        let footer = cx.new(|cx| Footer::new(calls.clone(), activity_line.clone().into(), cx));
         transcript.update(cx, |transcript, cx| {
             transcript.set_footer(footer.into(), cx)
         });

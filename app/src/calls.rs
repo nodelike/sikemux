@@ -27,7 +27,7 @@ use crate::core::Target;
 use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::picture::Picture;
-use crate::theme::{self, radius_2, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2};
+use crate::theme::{self, radius_2, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3};
 use crate::ui::{self, selectable, Button, Variant};
 use crate::workbench::Workbench;
 
@@ -1565,7 +1565,8 @@ fn notice(call: &PersonCall, t: &Tokens) -> Option<AnyElement> {
     )
 }
 
-/// The calls an agent asks, at the end of its chat, over the line saying how it stands.
+/// The calls an agent asks, at the end of its chat: settled notices above the activity line,
+/// and open calls below it.
 pub struct InChat {
     bench: WeakEntity<Workbench>,
     agent: String,
@@ -1602,6 +1603,75 @@ impl InChat {
             cx.notify();
         }
     }
+
+    pub(crate) fn settled(&self, cx: &App) -> Option<AnyElement> {
+        let t = Tokens::get(cx);
+        let notices: Vec<AnyElement> = (self.calls.settled.iter())
+            .filter_map(|call| notice(call, t))
+            .collect();
+        if notices.is_empty() {
+            return None;
+        }
+        Some(
+            div()
+                .w_full()
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .w_full()
+                        .max_w(crate::chat::column::rows(cx))
+                        .px(px(22.))
+                        .pt(SPACE_2)
+                        .pb(SPACE_1)
+                        .flex()
+                        .flex_col()
+                        .gap(SPACE_2)
+                        .children(notices),
+                )
+                .into_any_element(),
+        )
+    }
+
+    pub(crate) fn open(&self, this: WeakEntity<Self>, cx: &App) -> Option<AnyElement> {
+        if self.calls.open.is_empty() {
+            return None;
+        }
+        let through = Through {
+            target: &self.target,
+            cards: &self.cards,
+            bench: &self.bench,
+        };
+        let toggle = move |cx: &mut App| {
+            this.update(cx, |chat, cx| {
+                chat.unfolded = !chat.unfolded;
+                cx.notify();
+            })
+            .ok();
+        };
+        let row = match self.calls.open.as_slice() {
+            [call] => page::chat_row(call, &self.agent, through, page::RowFrame::Own, cx),
+            open => page::chat_fold(open, self.unfolded, toggle, &self.agent, through, cx),
+        };
+        Some(
+            div()
+                .w_full()
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .w_full()
+                        .max_w(crate::chat::column::rows(cx))
+                        .px(px(22.))
+                        .pt(SPACE_3)
+                        .flex()
+                        .flex_col()
+                        .gap(SPACE_2)
+                        .child(row),
+                )
+                .into_any_element(),
+        )
+    }
 }
 
 /// Of an agent's open calls, the one its chat answers: the one chosen while it is among them,
@@ -1613,60 +1683,6 @@ fn answered_in_chat<'a>(
     (open.clone())
         .find(|call| Some(call.id.as_str()) == opened)
         .or_else(|| open.min_by_key(|call| call.raised_at))
-}
-
-impl Render for InChat {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.calls.open.is_empty() && self.calls.settled.is_empty() {
-            return div().into_any_element();
-        }
-        let t = Tokens::get(cx).clone();
-        let notices = (self.calls.settled.iter()).filter_map(|call| notice(call, &t));
-        let through = Through {
-            target: &self.target,
-            cards: &self.cards,
-            bench: &self.bench,
-        };
-        let this = cx.entity().downgrade();
-        let toggle = move |cx: &mut App| {
-            this.update(cx, |chat, cx| {
-                chat.unfolded = !chat.unfolded;
-                cx.notify();
-            })
-            .ok();
-        };
-        let rows: Vec<AnyElement> = match self.calls.open.as_slice() {
-            [call] => vec![page::chat_row(
-                call,
-                &self.agent,
-                through,
-                page::RowFrame::Own,
-                cx,
-            )],
-            open => (!open.is_empty())
-                .then(|| page::chat_fold(open, self.unfolded, toggle, &self.agent, through, cx))
-                .into_iter()
-                .collect(),
-        };
-        div()
-            .w_full()
-            .flex()
-            .justify_center()
-            .child(
-                div()
-                    .w_full()
-                    .max_w(px(800.))
-                    .px(px(22.))
-                    .pt(SPACE_2)
-                    .pb(SPACE_2)
-                    .flex()
-                    .flex_col()
-                    .gap(SPACE_2)
-                    .children(notices)
-                    .children(rows),
-            )
-            .into_any_element()
-    }
 }
 
 /// The top bar's bell over the calls waiting on the person in every project on every host this

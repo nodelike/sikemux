@@ -156,7 +156,7 @@ impl Activity {
 
     /// The line once the turn has ended, or while it works on a step it named: how it stands,
     /// said by the core, with the next steps as buttons. A failed turn's line is `trouble`'s. The
-    /// calls a turn needs the person for are the chat's own rows above it, except one that only
+    /// calls a turn needs the person for are the chat's own rows below it, except one that only
     /// another chat shows, which the line opens there.
     fn state_line(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let turn = self.turn.as_ref()?;
@@ -225,7 +225,6 @@ impl Activity {
                 cx,
             )
             .pt(SPACE_3)
-            .pb(px(END_SPACE))
             .into_any_element(),
         )
     }
@@ -297,7 +296,7 @@ impl Render for Activity {
         let Some(label) = self.label.clone().filter(|_| !named_step) else {
             return self
                 .state_line(window, cx)
-                .unwrap_or_else(|| div().h(px(END_SPACE)).into_any_element());
+                .unwrap_or_else(|| div().into_any_element());
         };
         ui::clock::second(window, cx);
         let t = Tokens::get(cx).clone();
@@ -372,7 +371,6 @@ impl Render for Activity {
         centred(
             div()
                 .px(px(22.))
-                .pb(px(30.))
                 .flex()
                 .items_center()
                 .gap(SPACE_2)
@@ -403,9 +401,9 @@ fn step_button(label: &'static str, variant: Variant) -> Button {
     .sized(26., 10., TEXT_XS)
 }
 
-/// The room after the chat's last row, kept here rather than on the row so a row arriving
+/// The room after the chat's last row, kept on the footer rather than on the row so a row arriving
 /// does not take it from the one before.
-const END_SPACE: f32 = 27.;
+pub(super) const END_SPACE: f32 = 27.;
 
 impl Chat {
     /// What the line under the last row says: nothing while a permission card already says
