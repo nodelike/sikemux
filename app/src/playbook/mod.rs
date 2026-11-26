@@ -109,6 +109,8 @@ pub struct PlaybookTab {
     space: rows::Choice,
     /// What the space choice was made with, so it is remade when that changes.
     spaces: SpaceOffer,
+    browser_profile: rows::Choice,
+    browser_profiles: BrowserProfileOffer,
     /// The folders of found tasks the person opened.
     opened: HashSet<String>,
     new_trigger: Option<new_trigger::NewTrigger>,
@@ -349,6 +351,7 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
         }
     });
     let (space, spaces) = space_choice(bench, &folder, window, cx);
+    let (browser_profile, browser_profiles) = browser_profile_choice(bench, &folder, window, cx);
     bench.project_settings.insert(
         folder.clone(),
         PlaybookTab {
@@ -364,6 +367,8 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
             filter,
             space,
             spaces,
+            browser_profile,
+            browser_profiles,
             opened: HashSet::new(),
             new_trigger: None,
             _typing: vec![saving, filtering],
@@ -479,6 +484,87 @@ fn remake_space(
     bench.parts.redraw_stage(cx);
 }
 
+#[derive(PartialEq)]
+struct BrowserProfileOffer {
+    labels: Vec<SharedString>,
+    profiles: Vec<String>,
+    chosen: usize,
+}
+
+impl BrowserProfileOffer {
+    fn of(bench: &Workbench, folder: &str) -> Self {
+        let profiles = bench.browser_profiles();
+        let prefs = bench.preferences();
+        let pinned = prefs
+            .project_browser_profiles
+            .get(folder)
+            .map(String::as_str);
+        let project = bench.project_at(folder);
+        let space_profile = project
+            .and_then(|p| p.space.as_deref())
+            .and_then(|sid| {
+                bench
+                    .shown()
+                    .and_then(|view| view.workspace.spaces.iter().find(|s| s.id == sid))
+            })
+            .and_then(|space| space.browser_profile.as_deref())
+            .and_then(|pid| profiles.iter().find(|p| p.id == pid));
+        let inherited_name = space_profile
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| bench.global_default_browser_profile().name);
+        let follow_label: SharedString = format!("Follow space · {inherited_name}").into();
+        let chosen = pinned
+            .and_then(|id| profiles.iter().position(|p| p.id == id))
+            .map_or(0, |at| at + 1);
+        Self {
+            labels: std::iter::once(follow_label)
+                .chain(profiles.iter().map(|p| p.name.clone().into()))
+                .collect(),
+            profiles: profiles.into_iter().map(|p| p.id).collect(),
+            chosen,
+        }
+    }
+}
+
+fn browser_profile_choice(
+    bench: &Workbench,
+    folder: &str,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) -> (rows::Choice, BrowserProfileOffer) {
+    let offer = BrowserProfileOffer::of(bench, folder);
+    let (offered, folder) = (offer.profiles.clone(), folder.to_owned());
+    let choice = rows::Choice::new(
+        offer.labels.clone(),
+        offer.chosen,
+        move |bench, at, cx| {
+            let project_name = bench
+                .project_at(&folder)
+                .map(|project| project.name.clone())
+                .unwrap_or_else(|| folder.clone());
+            let profile_id = at.checked_sub(1).and_then(|at| offered.get(at)).cloned();
+            bench.set_project_browser_profile(folder.clone(), project_name, profile_id, cx);
+        },
+        window,
+        cx,
+    );
+    (choice, offer)
+}
+
+fn remake_browser_profile(
+    bench: &mut Workbench,
+    folder: String,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    let (choice, offer) = browser_profile_choice(bench, &folder, window, cx);
+    if let Some(settings) = bench.settings_of(&folder) {
+        settings.browser_profile = choice;
+        settings.browser_profiles = offer;
+    }
+    bench.parts.redraw_stage(cx);
+}
+
 /// The settings tab of the project in `folder`.
 pub fn pane(
     bench: &Workbench,
@@ -509,6 +595,12 @@ pub fn pane(
         let folder = folder.to_owned();
         cx.defer_in(window, move |bench, window, cx| {
             remake_space(bench, folder, window, cx)
+        });
+    }
+    if settings.browser_profiles != BrowserProfileOffer::of(bench, folder) {
+        let folder = folder.to_owned();
+        cx.defer_in(window, move |bench, window, cx| {
+            remake_browser_profile(bench, folder, window, cx)
         });
     }
     let t = Tokens::get(cx).clone();
@@ -724,7 +816,101 @@ fn general(
             Some(t!("The rail shows the project under this space.")),
             settings.space.view(),
             cx,
-        ));
+        ))
+        .child({
+            let pinned = preferences.project_browser_profiles.contains_key(folder);
+            let unpin_this = this.clone();
+            let unpin_folder = folder.to_owned();
+            let unpin_name = bench
+                .project_at(folder)
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| folder.to_owned());
+            rows::row(
+                t!("Browser profile"),
+                Some(t!("Overrides the space's default for tabs and agents in this project.")),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_2)
+                    .child(settings.browser_profile.view())
+                    .when(pinned, |row| {
+                        row.child(
+                            Button::new("project-profile-follow", t!("Follow space"), Variant::Ghost)
+                                .icon(Icon::Restore)
+                                .sized(26., 8., TEXT_XS)
+                                .on_click(move |_, _, cx| {
+                                    let (folder, name) =
+                                        (unpin_folder.clone(), unpin_name.clone());
+                                    unpin_this.update(cx, |bench, cx| {
+                                        bench.set_project_browser_profile(folder, name, None, cx);
+                                    });
+                                }),
+                        )
+                    }),
+                cx,
+            )
+        })
+        .child({
+            let t = Tokens::get(cx);
+            let resolved = bench
+                .project_at(folder)
+                .and_then(|p| p.browser_profile.clone())
+                .unwrap_or_else(|| sikemux_view::browser_profiles::ResolvedBrowserProfile {
+                    profile: bench.global_default_browser_profile(),
+                    source: sikemux_view::browser_profiles::ProfileSource::Global,
+                    source_label: None,
+                });
+            let is_pinned =
+                resolved.source == sikemux_view::browser_profiles::ProfileSource::Playbook;
+            let source_text = match resolved.source {
+                sikemux_view::browser_profiles::ProfileSource::Playbook => t!("pinned here").into(),
+                sikemux_view::browser_profiles::ProfileSource::Space => match resolved.source_label.as_deref() {
+                    Some(space) if !space.is_empty() => format!("from Space {space}"),
+                    _ => t!("from Space").into(),
+                },
+                _ => t!("global default").into(),
+            };
+            let open_settings = this.clone();
+            rows::row(
+                t!("Agents open tabs as"),
+                Some(t!("Unless a tab or agent overrides.")),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_2)
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(5.))
+                            .text_size(crate::theme::ui_text(TEXT_XS))
+                            .text_color(t.text_primary)
+                            .child(ui::icon(Icon::User, 12.).text_color(t.text_tertiary))
+                            .child(resolved.profile.name),
+                    )
+                    .child(
+                        div()
+                            .text_size(crate::theme::ui_text(TEXT_2XS_H))
+                            .text_color(if is_pinned { t.accent } else { t.text_tertiary })
+                            .child(source_text),
+                    )
+                    .child(
+                        Button::new("project-profile-manage", t!("Manage…"), Variant::Ghost)
+                            .sized(24., 8., TEXT_2XS_H)
+                            .on_click(move |_, window, cx| {
+                                open_settings.update(cx, |bench, cx| {
+                                    crate::settings::open(
+                                        bench,
+                                        crate::settings::Page::BrowserProfiles,
+                                        window,
+                                        cx,
+                                    );
+                                });
+                            }),
+                    ),
+                cx,
+            )
+        });
     rows::section(
         t!("General"),
         None,

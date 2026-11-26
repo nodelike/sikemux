@@ -452,115 +452,229 @@ impl Workbench {
             "theme.set" => return self.theme_set(request, answer, cx),
             _ => {}
         }
-        let run: Box<dyn FnOnce() -> Result<Value, String> + Send> =
-            if is_sim_method(&request.method) {
-                let engine = Arc::clone(self.sims.read(cx).engine());
-                Box::new(move || sikemux_simulator::tools::execute(&engine, &request))
-            } else if let Some(engine) = self
-                .desks
-                .read(cx)
-                .engine
-                .clone()
-                .filter(|_| is_browser_method(&request.method))
-            {
-                let core = Target::here(&self.asks);
-                let desk_told = self.desks.read(cx).told.clone();
-                Box::new(move || {
-                    let agent = request.agent_id.clone().unwrap_or_default();
-                    let project = request.project.clone();
-                    let check_core = core.clone();
-                    let check_agent = agent.clone();
-                    let check = move |what: String, origin: String, with_queries: String| {
-                        let asked =
-                            check_core.request_typed::<call::CheckWebWrite>(WebWriteParams {
-                                agent: check_agent.clone(),
-                                project: project.clone(),
-                                what,
-                                origin,
-                                with_queries,
-                            });
-                        Box::pin(async move { asked.await?.map_or(Ok(()), Err) })
-                            as Pin<Box<dyn Future<Output = Result<(), String>>>>
-                    };
-                    let vault =
-                        move |reference: String, domain: String, tool: String, for_upload: bool| {
-                            let agent_id = agent.clone();
-                            let notify_domain = domain.clone();
-                            let told = desk_told.clone();
-                            let asked = core.request_typed::<call::VaultResolveBrowser>(
-                                sikemux_calls::vault::VaultResolveBrowserParams {
-                                    agent_id: agent_id.clone(),
-                                    reference,
-                                    domain,
-                                    tool,
-                                    for_upload,
-                                },
-                            );
-                            Box::pin(async move {
-                                let resolved = asked.await?;
-                                Ok(match resolved {
-                                    sikemux_calls::vault::VaultResolvedBrowser::Text {
-                                        value,
-                                        masked_label,
-                                        redaction_tokens,
-                                        sensitive,
-                                        ..
-                                    } => {
-                                        let _ = told.send(crate::desk::Heard::BlindFill {
-                                            agent: agent_id,
-                                            domain: notify_domain,
-                                            label: masked_label.clone(),
-                                            upload: false,
-                                        });
-                                        sikemux_browser::tools::VaultResolved::Text {
-                                            value,
-                                            masked_label,
-                                            redaction_tokens,
-                                            sensitive,
-                                        }
-                                    }
-                                    sikemux_calls::vault::VaultResolvedBrowser::File {
-                                        staged_path,
-                                        display_name,
-                                        ..
-                                    } => {
-                                        let _ = told.send(crate::desk::Heard::BlindFill {
-                                            agent: agent_id,
-                                            domain: notify_domain,
-                                            label: display_name.clone(),
-                                            upload: true,
-                                        });
-                                        sikemux_browser::tools::VaultResolved::File {
-                                            staged_path: PathBuf::from(staged_path),
-                                            display_name,
-                                        }
-                                    }
-                                })
-                            })
-                                as Pin<
-                                    Box<
-                                        dyn Future<
-                                            Output = Result<
-                                                sikemux_browser::tools::VaultResolved,
-                                                String,
-                                            >,
-                                        >,
-                                    >,
-                                >
-                        };
-                    sikemux_browser::tools::execute_with_vault(
-                        &engine,
-                        &request,
-                        &check,
-                        Some(&vault),
-                    )
-                })
-            } else {
-                return answer(Err(format!(
-                    "this window cannot answer {} yet",
-                    request.method
-                )));
+        let run: Box<dyn FnOnce() -> Result<Value, String> + Send> = if is_sim_method(
+            &request.method,
+        ) {
+            let engine = Arc::clone(self.sims.read(cx).engine());
+            Box::new(move || sikemux_simulator::tools::execute(&engine, &request))
+        } else if let Some(engine) = self
+            .desks
+            .read(cx)
+            .engine
+            .clone()
+            .filter(|_| is_browser_method(&request.method))
+        {
+            let core = Target::here(&self.asks);
+            let desk_told = self.desks.read(cx).told.clone();
+            let prefs = self.preferences();
+            let initial_profiles: Vec<sikemux_browser::tools::AgentProfileInfo> = {
+                let profiles =
+                    sikemux_view::browser_profiles::ensure_profiles(&prefs.browser_profiles);
+                let default_id = self
+                    .this_view()
+                    .and_then(|view| {
+                        view.workspace
+                            .projects
+                            .iter()
+                            .find(|project| project.path.to_string_lossy() == request.project)
+                    })
+                    .and_then(|project| project.browser_profile.as_ref())
+                    .map(|resolved| resolved.profile.id.clone())
+                    .or_else(|| {
+                        sikemux_view::browser_profiles::global_default(
+                            &profiles,
+                            prefs.default_browser_profile.as_deref(),
+                        )
+                        .map(|profile| profile.id.clone())
+                    });
+                profiles
+                    .into_iter()
+                    .map(|profile| sikemux_browser::tools::AgentProfileInfo {
+                        is_default: default_id.as_deref() == Some(profile.id.as_str()),
+                        access: match profile.access {
+                            sikemux_view::browser_profiles::ProfileAccess::Standard => "standard",
+                            sikemux_view::browser_profiles::ProfileAccess::AskOutsideProject => {
+                                "ask"
+                            }
+                            sikemux_view::browser_profiles::ProfileAccess::ManualOnly => {
+                                "manualOnly"
+                            }
+                        },
+                        id: profile.id,
+                        slug: profile.slug,
+                        name: profile.name,
+                        description: profile.description,
+                    })
+                    .collect()
             };
+            Box::new(move || {
+                let agent = request.agent_id.clone().unwrap_or_default();
+                let project = request.project.clone();
+                let check_core = core.clone();
+                let check_agent = agent.clone();
+                let check_project = project.clone();
+                let check = move |what: String, origin: String, with_queries: String| {
+                    let asked = check_core.request_typed::<call::CheckWebWrite>(WebWriteParams {
+                        agent: check_agent.clone(),
+                        project: check_project.clone(),
+                        what,
+                        origin,
+                        with_queries,
+                    });
+                    Box::pin(async move { asked.await?.map_or(Ok(()), Err) })
+                        as Pin<Box<dyn Future<Output = Result<(), String>>>>
+                };
+                let profile_core = core.clone();
+                let profile_agent = agent.clone();
+                let profile_project = project.clone();
+                let resolve_profile = move |explicit: Option<String>, url: String| {
+                    let asked = profile_core.request_typed::<call::BrowserProfileResolve>(
+                        sikemux_calls::browser_profiles::BrowserProfileResolveParams {
+                            project: Some(profile_project.clone()),
+                            agent_id: (!profile_agent.is_empty()).then(|| profile_agent.clone()),
+                            explicit_profile: explicit.clone(),
+                            tab_override: None,
+                            tab_override_by: None,
+                            url: Some(url),
+                        },
+                    );
+                    Box::pin(async move {
+                        let answer = asked.await?;
+                        let resolved = answer.resolved;
+                        let is_override = matches!(
+                            resolved.source,
+                            sikemux_view::browser_profiles::ProfileSource::AgentOverride
+                                | sikemux_view::browser_profiles::ProfileSource::TabOverride
+                        );
+                        let store = sikemux_browser::ProfileStore::for_profile(
+                            &resolved.profile.id,
+                            resolved.profile.is_default_store,
+                        );
+                        let default_id = answer.inherited.profile.id;
+                        let profiles = answer
+                                .profiles
+                                .into_iter()
+                                .map(|profile| sikemux_browser::tools::AgentProfileInfo {
+                                    is_default: profile.id == default_id,
+                                    access: match profile.access {
+                                        sikemux_view::browser_profiles::ProfileAccess::Standard => {
+                                            "standard"
+                                        }
+                                        sikemux_view::browser_profiles::ProfileAccess::AskOutsideProject => {
+                                            "ask"
+                                        }
+                                        sikemux_view::browser_profiles::ProfileAccess::ManualOnly => {
+                                            "manualOnly"
+                                        }
+                                    },
+                                    id: profile.id,
+                                    slug: profile.slug,
+                                    name: profile.name,
+                                    description: profile.description,
+                                })
+                                .collect();
+                        Ok(sikemux_browser::tools::ResolvedAgentProfile {
+                            tab_profile: sikemux_browser::TabProfile {
+                                profile_id: Some(resolved.profile.id),
+                                store,
+                                is_override,
+                                override_by: resolved.source_label.filter(|_| is_override),
+                            },
+                            slug: resolved.profile.slug,
+                            profiles,
+                        })
+                    })
+                        as Pin<
+                            Box<
+                                dyn Future<
+                                    Output = Result<
+                                        sikemux_browser::tools::ResolvedAgentProfile,
+                                        String,
+                                    >,
+                                >,
+                            >,
+                        >
+                };
+                let vault = move |reference: String,
+                                  domain: String,
+                                  tool: String,
+                                  for_upload: bool| {
+                    let agent_id = agent.clone();
+                    let notify_domain = domain.clone();
+                    let told = desk_told.clone();
+                    let asked = core.request_typed::<call::VaultResolveBrowser>(
+                        sikemux_calls::vault::VaultResolveBrowserParams {
+                            agent_id: agent_id.clone(),
+                            reference,
+                            domain,
+                            tool,
+                            for_upload,
+                        },
+                    );
+                    Box::pin(async move {
+                        let resolved = asked.await?;
+                        Ok(match resolved {
+                            sikemux_calls::vault::VaultResolvedBrowser::Text {
+                                value,
+                                masked_label,
+                                redaction_tokens,
+                                sensitive,
+                                ..
+                            } => {
+                                let _ = told.send(crate::desk::Heard::BlindFill {
+                                    agent: agent_id,
+                                    domain: notify_domain,
+                                    label: masked_label.clone(),
+                                    upload: false,
+                                });
+                                sikemux_browser::tools::VaultResolved::Text {
+                                    value,
+                                    masked_label,
+                                    redaction_tokens,
+                                    sensitive,
+                                }
+                            }
+                            sikemux_calls::vault::VaultResolvedBrowser::File {
+                                staged_path,
+                                display_name,
+                                ..
+                            } => {
+                                let _ = told.send(crate::desk::Heard::BlindFill {
+                                    agent: agent_id,
+                                    domain: notify_domain,
+                                    label: display_name.clone(),
+                                    upload: true,
+                                });
+                                sikemux_browser::tools::VaultResolved::File {
+                                    staged_path: PathBuf::from(staged_path),
+                                    display_name,
+                                }
+                            }
+                        })
+                    })
+                        as Pin<
+                            Box<
+                                dyn Future<
+                                    Output = Result<sikemux_browser::tools::VaultResolved, String>,
+                                >,
+                            >,
+                        >
+                };
+                sikemux_browser::tools::execute_with_host(
+                    &engine,
+                    &request,
+                    &check,
+                    Some(&vault),
+                    Some(&resolve_profile),
+                    &initial_profiles,
+                )
+            })
+        } else {
+            return answer(Err(format!(
+                "this window cannot answer {} yet",
+                request.method
+            )));
+        };
         let spawned = std::thread::Builder::new()
             .name("sikemux-window-call".into())
             .spawn(move || answer(run()));

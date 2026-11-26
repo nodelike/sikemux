@@ -16,6 +16,7 @@ pub(super) mod actions;
 pub(super) mod activity;
 pub(super) mod agents;
 pub(super) mod appearance;
+pub(super) mod browser_profiles;
 pub(super) mod cli;
 pub(super) mod connectors;
 pub(super) mod general;
@@ -38,6 +39,7 @@ pub struct State {
     pub appearance: Option<appearance::Fields>,
     /// Whether Appearance shows its Advanced controls.
     pub advanced: bool,
+    pub browser_profiles: Option<browser_profiles::Fields>,
     pub connectors: Option<connectors::Fields>,
     pub general: Option<general::Fields>,
     pub keybindings: Option<keybindings::Fields>,
@@ -115,6 +117,16 @@ pub fn prepare(bench: &Workbench, page: Page, window: &Window, cx: &mut Context<
     let wanted: Vec<Make> = match page {
         Page::Vault => [agent_vault].into(),
         Page::General => [missing(pages.general.is_some(), general::make), agents].into(),
+        Page::BrowserProfiles => {
+            let bp: Option<Make> = match &pages.browser_profiles {
+                None => Some(browser_profiles::make),
+                Some(fields) if browser_profiles::stale(fields, bench) => {
+                    Some(browser_profiles::rebuild_choices)
+                }
+                Some(_) => None,
+            };
+            [bp].into()
+        }
         Page::Keyboard => [
             missing(pages.keybindings.is_some(), keybindings::make),
             missing(pages.actions.is_some(), actions::make),
@@ -159,6 +171,7 @@ pub fn render(
             sections.extend(agents::render(bench, pages, page, &lit, this, cx));
             sections
         }
+        Page::BrowserProfiles => browser_profiles::render(bench, pages, &lit, this, cx),
         Page::Keyboard => {
             let mut sections = keybindings::render(bench, pages, &lit, this, cx);
             sections.extend(actions::render(bench, pages, &lit, this, cx));
@@ -191,8 +204,10 @@ pub fn dialogs(
     cx: &mut Context<Workbench>,
 ) -> Vec<AnyElement> {
     let vault_dialog = vault::dialog(bench, this, cx);
+    let bp_dialog = browser_profiles::dialog(bench, this, cx);
     vault_dialog
         .into_iter()
+        .chain(bp_dialog)
         .chain(agents::dialogs(bench, this, cx))
         .collect()
 }

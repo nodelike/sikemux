@@ -134,12 +134,17 @@ impl Render for DraggedSpace {
 impl Render for SpaceEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = Tokens::get(cx).clone();
-        let spaces = self
+        let (spaces, profiles) = self
             .bench
             .upgrade()
-            .and_then(|bench| {
+            .map(|bench| {
                 let bench = bench.read(cx);
-                Some(bench.this_view()?.workspace.spaces.clone())
+                let spaces = bench
+                    .this_view()
+                    .map(|view| view.workspace.spaces.clone())
+                    .unwrap_or_default();
+                let profiles = bench.browser_profiles();
+                (spaces, profiles)
             })
             .unwrap_or_default();
         self.names
@@ -149,6 +154,14 @@ impl Render for SpaceEditor {
             .enumerate()
             .map(|(at, space)| {
                 let field = self.name_field(&space.id, &space.name, window, cx);
+                let live_name = {
+                    let typed = field.read(cx).value().trim().to_owned();
+                    if typed.is_empty() {
+                        space.name.clone()
+                    } else {
+                        typed
+                    }
+                };
                 let dragged = DraggedSpace {
                     id: space.id.clone(),
                     name: space.name.clone().into(),
@@ -158,6 +171,137 @@ impl Render for SpaceEditor {
                 let (deleted, removed) = (self.bench.clone(), space.id.clone());
                 let row = SharedString::from(format!("space-edit-{}", space.id));
                 let worn_glyph = Icon::named(&space.icon);
+                let linked_profile = space
+                    .browser_profile
+                    .as_deref()
+                    .and_then(|pid| profiles.iter().find(|profile| profile.id == pid).cloned());
+                let profile_control = {
+                    let menu_bench = self.bench.clone();
+                    let sid_menu = space.id.clone();
+                    let sname_menu = live_name.clone();
+                    let cur_menu = space.browser_profile.clone();
+                    if let Some(profile) = linked_profile {
+                        KitButton::new(SharedString::from(format!("space-prof-{}", space.id)))
+                            .ghost()
+                            .compact()
+                            .h(px(22.))
+                            .px(px(7.))
+                            .rounded(crate::theme::radius_1())
+                            .border(crate::theme::border())
+                            .border_color(t.border)
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(5.))
+                                    .text_size(crate::theme::ui_text(TEXT_3XS_H))
+                                    .text_color(t.text_secondary)
+                                    .child(ui::icon(Icon::Globe, 11.).text_color(t.text_tertiary))
+                                    .child(
+                                        div()
+                                            .max_w(px(96.))
+                                            .overflow_hidden()
+                                            .text_ellipsis()
+                                            .child(profile.name),
+                                    )
+                                    .child(
+                                        ui::icon(Icon::Chevron, 10.).text_color(t.text_tertiary),
+                                    ),
+                            )
+                            .dropdown_menu_with_anchor(
+                                Anchor::TopRight,
+                                ui::menu(move |menu, _, cx| {
+                                    crate::browser_profiles::space_profile_menu(
+                                        menu,
+                                        menu_bench.clone(),
+                                        sid_menu.clone(),
+                                        sname_menu.clone(),
+                                        cur_menu.clone(),
+                                        cx,
+                                    )
+                                }),
+                            )
+                            .into_any_element()
+                    } else {
+                        let create_bench = self.bench.clone();
+                        let sid_create = space.id.clone();
+                        let create_label = format!("{} profile", live_name);
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(2.))
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!(
+                                        "space-prof-create-{}",
+                                        space.id
+                                    )))
+                                    .h(px(22.))
+                                    .px(px(7.))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(4.))
+                                    .rounded(crate::theme::radius_1())
+                                    .border(crate::theme::border())
+                                    .border_dashed()
+                                    .border_color(t.border_selected)
+                                    .text_size(crate::theme::ui_text(TEXT_3XS_H))
+                                    .text_color(t.accent)
+                                    .cursor_pointer()
+                                    .hover(move |chip| chip.bg(t.surface_selected))
+                                    .tooltip(ui::tooltip(t!(
+                                        "One click: a new profile, set as this space's default"
+                                    )))
+                                    .clicks(move |_, _, cx| {
+                                        let _ = create_bench.update(cx, |bench, cx| {
+                                            bench.set_space_browser_profile(
+                                                sid_create.clone(),
+                                                None,
+                                                true,
+                                                cx,
+                                            );
+                                        });
+                                    })
+                                    .child(ui::icon(Icon::Plus, 10.).text_color(t.accent))
+                                    .child(
+                                        div()
+                                            .max_w(px(94.))
+                                            .overflow_hidden()
+                                            .text_ellipsis()
+                                            .child(create_label),
+                                    ),
+                            )
+                            .child(
+                                KitButton::new(SharedString::from(format!(
+                                    "space-prof-pick-{}",
+                                    space.id
+                                )))
+                                .ghost()
+                                .compact()
+                                .h(px(22.))
+                                .w(px(20.))
+                                .rounded(crate::theme::radius_1())
+                                .border(crate::theme::border())
+                                .border_dashed()
+                                .border_color(t.border)
+                                .child(ui::icon(Icon::Chevron, 10.).text_color(t.text_tertiary))
+                                .dropdown_menu_with_anchor(
+                                    Anchor::TopRight,
+                                    ui::menu(move |menu, _, cx| {
+                                        crate::browser_profiles::space_profile_menu(
+                                            menu,
+                                            menu_bench.clone(),
+                                            sid_menu.clone(),
+                                            sname_menu.clone(),
+                                            cur_menu.clone(),
+                                            cx,
+                                        )
+                                    }),
+                                ),
+                            )
+                            .into_any_element()
+                    }
+                };
                 div()
                     .id(row.clone())
                     .group(row.clone())
@@ -210,6 +354,14 @@ impl Render for SpaceEditor {
                             ),
                     )
                     .child(div().flex_1().min_w_0().child(Input::new(&field).small()))
+                    .child(
+                        div()
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .justify_end()
+                            .child(profile_control),
+                    )
                     .child(
                         div()
                             .opacity(0.)
@@ -345,7 +497,7 @@ pub fn anchor(bench: &Workbench, width: f32, cx: &mut Context<Workbench>) -> imp
         .content(move |_, _, cx| {
             let t = Tokens::get(cx);
             div()
-                .w(px(width))
+                .w(px(width.max(392.)))
                 .mt(SPACE_1)
                 .rounded(radius_2() + px(3.))
                 .bg(t.surface_overlay)
@@ -407,6 +559,7 @@ impl Workbench {
                     id: id.clone(),
                     name,
                     icon: "folder".into(),
+                    browser_profile: None,
                 });
                 crate::core::Target::here(&bench.asks)
                     .call_typed::<call::SetSpaces>(SpacesParams { spaces });
@@ -461,14 +614,32 @@ impl Workbench {
 
     /// Deletes the space once the person agrees; its projects stay open and show under All.
     pub fn delete_space(&mut self, id: String, cx: &mut Context<Self>) {
-        let name = self
+        let space = self
             .this_view()
             .and_then(|view| view.workspace.spaces.iter().find(|space| space.id == id))
+            .cloned();
+        let name = space
+            .as_ref()
             .map(|space| space.name.clone())
             .unwrap_or_default();
+        let kept_profile = space
+            .as_ref()
+            .and_then(|space| space.browser_profile.as_deref())
+            .and_then(|pid| self.browser_profile_by_id(pid))
+            .map(|profile| profile.name);
+        let note = match &kept_profile {
+            Some(profile_name) => format!(
+                "Its projects stay open under All. Browser profile “{profile_name}” is kept."
+            ),
+            None => t!("Its projects stay open and show under All.").to_owned(),
+        };
+        let toast_msg = match &kept_profile {
+            Some(profile_name) => format!("Space {name} deleted · profile “{profile_name}” kept"),
+            None => format!("Space {name} deleted"),
+        };
         self.confirm(
             t!("Delete “{name}”?", name = name),
-            t!("Its projects stay open and show under All."),
+            note,
             t!("Delete"),
             true,
             move |bench, yes, _, cx| {
@@ -479,6 +650,7 @@ impl Workbench {
                 if bench.space.as_ref() == Some(&id) {
                     bench.show_space(None, cx);
                 }
+                bench.notify(crate::toast::success(toast_msg.clone()), cx);
             },
             cx,
         );

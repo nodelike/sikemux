@@ -15,15 +15,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
+use gpui_kit::component::button::{Button as KitButton, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Sizable, WindowExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, AppContext, ClipboardItem, Context, Entity, FocusHandle, Focusable,
-    FontWeight, Hsla, InteractiveElement, IntoElement, Keystroke, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
+    div, px, Anchor, AnyElement, App, AppContext, ClipboardItem, Context, Entity, FocusHandle,
+    Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, Keystroke, ParentElement,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
 };
 use gpui_native_view::{native_view, Frame, NativeSurface, Surface};
 use sikemux_agents::harness::runs::RunStatus;
@@ -102,7 +103,7 @@ pub struct Desks {
     /// if it came back with nothing on it.
     restored: Option<HashSet<String>>,
     /// The agent whose address ⌘L asked for, floated once its desk has drawn it.
-    address_wanted: Option<String>,
+    pub(crate) address_wanted: Option<String>,
     /// The agent whose page the person's Open asked to focus, and when, focused once its
     /// desk is in the tab in front.
     page_wanted: Option<(String, Instant)>,
@@ -2168,8 +2169,12 @@ impl Workbench {
             return;
         }
         let agent = agent.to_owned();
+        let profile = self.default_tab_profile_for_agent(&agent);
         runtime().spawn(async move {
-            match engine.open_tab(&agent, None).await {
+            match engine
+                .open_tab_in_profile(&agent, None, None, true, false, profile)
+                .await
+            {
                 Ok(tab_id) => engine.keep(&agent, &tab_id),
                 Err(error) => eprintln!("sikemux: the desk could not open a page: {error}"),
             }
@@ -2247,8 +2252,12 @@ impl Workbench {
             self.reveal_desk(agent);
         }
         let (agent, url) = (agent.to_owned(), url.to_owned());
+        let profile = self.default_tab_profile_for_agent(&agent);
         runtime().spawn(async move {
-            if let Err(error) = engine.open_tab(&agent, Some(&url)).await {
+            if let Err(error) = engine
+                .open_tab_in_profile(&agent, Some(&url), None, true, false, profile)
+                .await
+            {
                 eprintln!(
                     "sikemux: the desk could not open {}: {error}",
                     redacted_url(&url)
@@ -2264,12 +2273,16 @@ impl Workbench {
             return;
         };
         let agent = agent.to_owned();
+        let profile = self.default_tab_profile_for_agent(&agent);
         self.desks.update(cx, |desks, cx| {
             desks.address_wanted = Some(agent.clone());
             cx.notify();
         });
         runtime().spawn(async move {
-            match engine.open_tab(&agent, None).await {
+            match engine
+                .open_tab_in_profile(&agent, None, None, true, false, profile)
+                .await
+            {
                 Ok(tab_id) => engine.keep(&agent, &tab_id),
                 Err(error) => eprintln!("sikemux: the desk could not open a page: {error}"),
             }
@@ -2337,12 +2350,18 @@ impl Workbench {
             return;
         };
         let (agent, input) = (agent.to_owned(), input.to_owned());
+        let profile = self.default_tab_profile_for_agent(&agent);
         runtime().spawn(async move {
-            if let Err(error) = engine.open_typed(&agent, &input).await {
-                eprintln!(
+            let target = (!input.is_empty()).then_some(input.as_str());
+            match engine
+                .open_tab_in_profile(&agent, target, None, true, false, profile)
+                .await
+            {
+                Ok(tab_id) => engine.keep(&agent, &tab_id),
+                Err(error) => eprintln!(
                     "sikemux: the desk could not open {}: {error}",
                     redacted_url(&input)
-                );
+                ),
             }
         });
     }
@@ -3289,14 +3308,195 @@ fn navigation(
                 field.hover(move |field| field.bg(t.text_primary.opacity(0.08)))
             })
             .when(!floating, |field| {
-                field.child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(Input::new(&page.address).appearance(false)),
-                )
+                let pill = front.map(|tab| profile_pill(bench, agent, tab, cx));
+                field
+                    .children(pill.map(|pill| {
+                        div()
+                            .flex_none()
+                            .pl(px(3.))
+                            .flex()
+                            .items_center()
+                            .gap(px(4.))
+                            .child(pill)
+                            .child(div().w(px(1.)).h(px(14.)).bg(t.border))
+                    }))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(Input::new(&page.address).appearance(false)),
+                    )
             })
     }))
+}
+
+/// Quiet inline Browser Profile pill inside the address bar (Option A).
+fn profile_pill(
+    bench: &Workbench,
+    agent: &str,
+    tab: &sikemux_browser::BrowserTab,
+    cx: &Context<Workbench>,
+) -> impl IntoElement {
+    use sikemux_view::browser_profiles::ProfileSource;
+
+    let t = Tokens::get(cx).clone();
+    let (effective, inherited) = bench.resolved_tab_profile(agent, tab);
+    let is_override = matches!(
+        effective.source,
+        ProfileSource::TabOverride | ProfileSource::AgentOverride
+    );
+    let glyph = if effective.source == ProfileSource::AgentOverride {
+        Icon::Agent
+    } else {
+        Icon::User
+    };
+    let ink = if is_override {
+        t.accent
+    } else {
+        t.text_tertiary
+    };
+    let tip = format!(
+        "Profile · {}",
+        crate::browser_profiles::source_hint(&effective)
+    );
+    let bench_weak = cx.weak_entity();
+    let agent_id = agent.to_owned();
+    let tab_id = tab.id.clone();
+    let effective_clone = effective.clone();
+    let inherited_clone = inherited.clone();
+
+    KitButton::new(SharedString::from(format!("desk-profile-pill-{}", tab.id)))
+        .ghost()
+        .compact()
+        .h(px(20.))
+        .px(px(6.))
+        .rounded(crate::theme::radius_1())
+        .tooltip(tip)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .text_size(crate::theme::ui_text(crate::theme::TEXT_3XS_H))
+                .text_color(ink)
+                .child(ui::icon(glyph, 11.).text_color(ink))
+                .child(
+                    div()
+                        .max_w(px(110.))
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(effective.profile.name),
+                ),
+        )
+        .dropdown_menu_with_anchor(
+            Anchor::TopLeft,
+            ui::menu(move |mut menu, window, cx| {
+                let Some(bench_entity) = bench_weak.upgrade() else {
+                    return menu;
+                };
+                let profiles = bench_entity.read(cx).browser_profiles();
+                let header = format!(
+                    "This tab · {}",
+                    crate::browser_profiles::source_hint(&effective_clone)
+                );
+                menu = menu.item(PopupMenuItem::label(header));
+
+                for profile in &profiles {
+                    let chosen = effective_clone.profile.id == profile.id;
+                    let hint = if chosen && is_override {
+                        Some(crate::browser_profiles::source_short(&effective_clone))
+                    } else if inherited_clone.profile.id == profile.id {
+                        Some(crate::browser_profiles::source_short(&inherited_clone))
+                    } else {
+                        None
+                    };
+                    let (bench_pick, aid, tid, pid) = (
+                        bench_weak.clone(),
+                        agent_id.clone(),
+                        tab_id.clone(),
+                        profile.id.clone(),
+                    );
+                    let row = ui::MenuRow::new(profile.name.clone())
+                        .chosen(chosen)
+                        .when_some(hint, |row, hint| row.hint(hint));
+                    menu = menu.item(row.item(cx).on_click(move |_, _, cx| {
+                        let _ = bench_pick.update(cx, |bench, cx| {
+                            bench.switch_tab_to_profile(
+                                aid.clone(),
+                                tid.clone(),
+                                Some(pid.clone()),
+                                cx,
+                            );
+                        });
+                    }));
+                }
+
+                menu = menu.separator();
+
+                if is_override {
+                    let (bench_reset, aid, tid) =
+                        (bench_weak.clone(), agent_id.clone(), tab_id.clone());
+                    let reset_label = format!("Back to {}", inherited_clone.profile.name);
+                    let reset_hint = crate::browser_profiles::source_short(&inherited_clone);
+                    menu = menu.item(
+                        ui::MenuRow::new(reset_label)
+                            .icon(Icon::Restore)
+                            .hint(reset_hint)
+                            .item(cx)
+                            .on_click(move |_, _, cx| {
+                                let _ = bench_reset.update(cx, |bench, cx| {
+                                    bench.switch_tab_to_profile(aid.clone(), tid.clone(), None, cx);
+                                });
+                            }),
+                    );
+                }
+
+                let new_tab_profiles = profiles.clone();
+                let (bench_new, aid_new) = (bench_weak.clone(), agent_id.clone());
+                menu = menu.submenu_with_icon(
+                    Some(Icon::Plus.into()),
+                    t!("New tab in profile"),
+                    window,
+                    cx,
+                    ui::menu(move |mut sub, _, _| {
+                        for profile in &new_tab_profiles {
+                            let (bench_open, aid, pid) =
+                                (bench_new.clone(), aid_new.clone(), profile.id.clone());
+                            sub = sub.item(
+                                PopupMenuItem::new(profile.name.clone())
+                                    .icon(Icon::User)
+                                    .on_click(move |_, _, cx| {
+                                        let _ = bench_open.update(cx, |bench, cx| {
+                                            bench.open_tab_in_named_profile(
+                                                aid.clone(),
+                                                pid.clone(),
+                                                cx,
+                                            );
+                                        });
+                                    }),
+                            );
+                        }
+                        sub
+                    }),
+                );
+
+                let bench_manage = bench_weak.clone();
+                menu.separator().item(
+                    PopupMenuItem::new(t!("Manage profiles…"))
+                        .icon(Icon::Settings)
+                        .on_click(move |_, window, cx| {
+                            let _ = bench_manage.update(cx, |bench, cx| {
+                                crate::settings::open(
+                                    bench,
+                                    crate::settings::Page::BrowserProfiles,
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
+            }),
+        )
 }
 
 /// The artifact's icon and its title in front, at the start of its bar, the title in full on hover.
@@ -4057,6 +4257,9 @@ mod tests {
             local_file: None,
             background: false,
             dialog: None,
+            profile_id: None,
+            profile_override: false,
+            profile_override_by: None,
         }
     }
 

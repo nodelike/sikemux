@@ -1376,13 +1376,28 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         match id {
             Some(space) => {
                 let bench = cx.entity();
-                let icon = spaces
+                let (icon, name, profile) = spaces
                     .iter()
                     .find(|known| known.id == space)
-                    .map(|known| known.icon.clone())
+                    .map(|known| {
+                        (
+                            known.icon.clone(),
+                            known.name.clone(),
+                            known.browser_profile.clone(),
+                        )
+                    })
                     .unwrap_or_default();
                 chip.context_menu(ui::menu(move |popup, window, cx| {
-                    space_menu(popup, window, cx, &bench, &space, &icon)
+                    space_menu(
+                        popup,
+                        window,
+                        cx,
+                        &bench,
+                        &space,
+                        &name,
+                        &icon,
+                        profile.as_deref(),
+                    )
                 }))
                 .into_any_element()
             }
@@ -1436,13 +1451,16 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
 }
 
 /// What a right click on a space offers, as the Mac's space switch does.
+#[allow(clippy::too_many_arguments)]
 fn space_menu(
     popup: PopupMenu,
     window: &mut Window,
     cx: &mut Context<PopupMenu>,
     bench: &Entity<Workbench>,
     space: &str,
+    space_name: &str,
     icon: &str,
+    profile_id: Option<&str>,
 ) -> PopupMenu {
     let item = |label: &'static str,
                 icon: Icon,
@@ -1458,6 +1476,24 @@ fn space_menu(
         let (bench, space, worn) = (bench.downgrade(), space.to_owned(), icon.to_owned());
         move |submenu: PopupMenu, _: &mut Window, _: &mut Context<PopupMenu>| {
             crate::space_editor::icon_choices(submenu, bench.clone(), &space, &worn)
+        }
+    };
+    let profiles = {
+        let (bench, space_id, space_name, current) = (
+            bench.downgrade(),
+            space.to_owned(),
+            space_name.to_owned(),
+            profile_id.map(str::to_owned),
+        );
+        move |submenu: PopupMenu, _: &mut Window, cx: &mut Context<PopupMenu>| {
+            crate::browser_profiles::space_profile_menu(
+                submenu,
+                bench.clone(),
+                space_id.clone(),
+                space_name.clone(),
+                current.clone(),
+                cx,
+            )
         }
     };
     let mut popup = popup
@@ -1477,6 +1513,13 @@ fn space_menu(
         }));
     }
     popup
+        .submenu_with_icon(
+            Some(Icon::Globe.into()),
+            t!("Browser Profile"),
+            window,
+            cx,
+            ui::menu(profiles),
+        )
         .separator()
         .item(item(t!("New Space…"), Icon::Plus, |bench, _, cx| {
             bench.new_space(None, cx)

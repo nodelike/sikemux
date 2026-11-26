@@ -15,6 +15,7 @@ pub enum Page {
     Vault,
     #[default]
     General,
+    BrowserProfiles,
     Appearance,
     Keyboard,
     Agents,
@@ -32,7 +33,7 @@ use Page::*;
 /// The pages in the list on the left, under their groups. Account, Vault, Usage and About
 /// close it, outside any group.
 pub const GROUPS: [(&str, &[Page]); 3] = [
-    (n!("App"), &[General, Appearance, Keyboard]),
+    (n!("App"), &[General, BrowserProfiles, Appearance, Keyboard]),
     (n!("Agents"), &[Agents, Skills, Models]),
     (n!("Reach"), &[Connectors, ThisMac, Developer]),
 ];
@@ -68,6 +69,11 @@ impl Page {
                 n!("General"),
                 n!("Projects, startup, notifications and your other hosts"),
                 Icon::Settings,
+            ),
+            BrowserProfiles => (
+                n!("Browser profiles"),
+                n!("Each profile keeps its own cookies and sign-ins. Spaces and Playbooks only point at one."),
+                Icon::Globe,
             ),
             Appearance => (
                 n!("Appearance"),
@@ -209,6 +215,7 @@ fn entries() -> impl Iterator<Item = &'static Entry> {
         pages::account::ENTRIES,
         pages::vault::ENTRIES,
         pages::general::ENTRIES,
+        pages::browser_profiles::ENTRIES,
         pages::keybindings::ENTRIES,
         pages::agents::sessions::NOTIFICATIONS,
         pages::appearance::ENTRIES,

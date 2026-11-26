@@ -10,6 +10,7 @@ mod agents;
 mod asking;
 mod battery;
 mod boot;
+pub(crate) mod browser_profiles;
 mod buddy_picker;
 mod calls;
 mod chat;
