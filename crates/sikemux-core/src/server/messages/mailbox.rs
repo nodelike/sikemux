@@ -529,6 +529,17 @@ impl Mailbox {
         self.state.locked().reporting.remove(worker);
     }
 
+    /// Until when `worker`'s report of its just-ended turn is still on its way, if it is.
+    pub(super) fn reporting_until(&self, worker: &str) -> Option<u64> {
+        let now = epoch_ms();
+        self.state
+            .locked()
+            .reporting
+            .get(worker)
+            .copied()
+            .filter(|until| *until > now)
+    }
+
     /// Leaves a report from `worker` waiting for `lead`, as one sent while the lead is mid-turn.
     #[cfg(test)]
     pub(crate) fn hold_report(&self, worker: &str, lead: &str, text: &str) {

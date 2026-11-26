@@ -226,6 +226,10 @@ fn calm_due(core: &Core, agents: &[Listed], worker: &str, lead: &str, at: u64) -
     )
 }
 
+fn sibling_is_working(turn: &sikemux_view::turn::TurnState) -> bool {
+    turn.state == sikemux_view::turn::TurnPhase::Working
+}
+
 fn has_busy_siblings(
     turns: &HashMap<String, sikemux_view::turn::TurnState>,
     agents: &[Listed],
@@ -235,12 +239,7 @@ fn has_busy_siblings(
     agents.iter().any(|agent| {
         agent.agent_id != worker
             && agent.parent.as_deref() == Some(lead)
-            && (turns.get(&agent.agent_id)).is_some_and(|turn| {
-                matches!(
-                    turn.state,
-                    sikemux_view::turn::TurnPhase::Working | sikemux_view::turn::TurnPhase::Waiting
-                )
-            })
+            && turns.get(&agent.agent_id).is_some_and(sibling_is_working)
     })
 }
 
@@ -270,30 +269,45 @@ pub(super) fn calm_due_in(
     }
 }
 
-/// Re-evaluates calm reports waiting on `lead_id`'s children when a child stops, closes, or goes idle.
-pub(crate) fn recheck_calm_for_lead(core: &Core, lead_id: &str) {
+/// Re-evaluates calm reports waiting on `lead_id`'s children when a child stops, closes, or goes
+/// idle. Returns a fallback wake deadline if no child is working but one still has its turn report
+/// on the way, so siblings finishing together still batch into one wake.
+pub(super) fn recheck_calm_for_lead(core: &Core, lead_id: &str) -> Option<u64> {
     let mailbox = &core.harness().mailbox;
     if !mailbox.has_calm_waiting_on_siblings(lead_id) {
-        return;
+        return None;
     }
     let agents = roster::listed(core);
-    let any_busy = agents.iter().any(|agent| {
-        agent.parent.as_deref() == Some(lead_id)
-            && crate::server::turn_state::now(core, &agent.agent_id).is_some_and(|turn| {
-                matches!(
-                    turn.state,
-                    sikemux_view::turn::TurnPhase::Working | sikemux_view::turn::TurnPhase::Waiting
-                )
-            })
-    });
-    if !any_busy {
-        mailbox.promote_calm_waiting(lead_id, epoch_ms());
+    let children: Vec<&Listed> = agents
+        .iter()
+        .filter(|agent| agent.parent.as_deref() == Some(lead_id))
+        .collect();
+    if children.iter().any(|agent| {
+        crate::server::turn_state::now(core, &agent.agent_id)
+            .as_ref()
+            .is_some_and(sibling_is_working)
+    }) {
+        return None;
     }
+    let reporting: Vec<u64> = children
+        .iter()
+        .filter_map(|agent| mailbox.reporting_until(&agent.agent_id))
+        .collect();
+    if !reporting.is_empty() {
+        return reporting
+            .into_iter()
+            .filter(|until| *until != u64::MAX)
+            .min();
+    }
+    mailbox.promote_calm_waiting(lead_id, epoch_ms());
+    None
 }
 
 pub(crate) fn recheck_calm_for_child(core: &Core, child_id: &str) {
     let Some(lead_id) = core.names().reports_to(child_id) else {
         return;
     };
-    recheck_calm_for_lead(core, &lead_id);
+    if let Some(until) = recheck_calm_for_lead(core, &lead_id) {
+        core.harness().mailbox.wake.at(until);
+    }
 }

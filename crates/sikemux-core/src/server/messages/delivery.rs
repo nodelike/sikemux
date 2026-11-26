@@ -698,6 +698,11 @@ pub(crate) fn settle(core: &Arc<Core>) {
         if core.inbox().stopped_by(&agent_id).is_some() && !core.workspaces().closed(&agent_id) {
             continue;
         }
+        if mailbox.has_calm_waiting_on_siblings(&agent_id) {
+            if let Some(until) = super::reports::recheck_calm_for_lead(core, &agent_id) {
+                next = sooner(next, Some(until));
+            }
+        }
         if let Some(until) = mailbox
             .calm_until(&agent_id)
             .filter(|until| *until > epoch_ms())

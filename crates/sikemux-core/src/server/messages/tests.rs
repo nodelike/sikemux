@@ -724,3 +724,301 @@ fn a_letter_sent_for_a_closed_agent_carries_its_name() {
     assert_eq!(letters[0].name, name);
     assert_ne!(letters[0].name, "agent-8f42");
 }
+
+/// Chief had sleeping workers parked on future timers (`TurnPhase::Waiting`) and done workers
+/// (`TurnPhase::Done`). When its two active workers finished cleanly, their calm reports were
+/// held as `UntilSiblingsIdle` and never promoted until the person sent a message minutes later.
+#[tokio::test(flavor = "multi_thread")]
+async fn sleeping_timer_and_done_workers_do_not_block_calm_report_wake() {
+    use super::super::activity::{Activity, ActivityCore};
+    use super::super::names::{Starting, Worker};
+    use super::super::turn_state;
+    use super::super::workspace::{add_project, AddProjectParams, AddProjectParamsExt};
+    use sikemux_view::turn::{TurnWait, TurnWaitKind};
+
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("shop");
+    std::fs::create_dir_all(&repo).unwrap();
+    let core = Core::new(Default::default(), Some(dir.path())).unwrap();
+    let project = add_project(&core, AddProjectParams::at(repo.clone()))
+        .await
+        .unwrap();
+    let folder = project.path.to_string_lossy().into_owned();
+
+    let open =
+        |ids: &[&str]| -> HashSet<String> { ids.iter().map(|id| (*id).to_owned()).collect() };
+    let register = |id: &str, lead: Option<&str>, asleep: bool| {
+        let mut draft = json!({
+            "id": id,
+            "provider": "claude",
+            "project": project.id,
+            "cwd": project.path,
+            "title": id,
+            "permissionMode": "auto",
+            "asleep": asleep,
+        });
+        if let Some(lead) = lead {
+            draft
+                .as_object_mut()
+                .unwrap()
+                .insert("lead".into(), lead.into());
+        }
+        core.workspaces()
+            .put_agent_draft(draft.as_object().cloned().unwrap())
+            .unwrap();
+    };
+    register("chief", None, false);
+    register("masaki", Some("chief"), true);
+    register("miko", Some("chief"), true);
+    register("dongsoo", Some("chief"), false);
+    register("kanan", Some("chief"), false);
+
+    let all_ids = ["chief", "masaki", "miko", "dongsoo", "kanan"];
+    core.names().give(
+        Starting {
+            agent_id: "chief",
+            project: folder.clone(),
+            provider: Some("claude"),
+            resume_id: None,
+        },
+        open(&["chief"]),
+    );
+    for worker in ["masaki", "miko", "dongsoo", "kanan"] {
+        core.names()
+            .hire(
+                Worker {
+                    agent_id: worker,
+                    lead: "chief",
+                    project: None,
+                    provider: "claude",
+                    session: Some(&format!("ses-{worker}")),
+                    reports: true,
+                    task: None,
+                },
+                open(&all_ids),
+            )
+            .unwrap();
+    }
+    core.names().settle(open(&all_ids));
+
+    // Park @Masaki on a real one-shot timer hours in the future -> TurnPhase::Waiting (Timer).
+    let timer_req = HarnessRequest {
+        id: "1".to_owned(),
+        project: folder.clone(),
+        agent_id: Some("masaki".to_owned()),
+        method: "trigger_add".to_owned(),
+        params: json!({
+            "title": "Post GeekNews Show GN",
+            "prompt": "Post when the window opens.",
+            "in": 6 * 3600,
+        }),
+    };
+    super::super::triggers::add(&core, &timer_req)
+        .await
+        .expect("one-shot timer added");
+    core.note_activity("masaki", Activity::Started);
+    core.note_activity("masaki", Activity::Finished { cancelled: false });
+    core.harness().mailbox.report_over("masaki");
+    let masaki_turn = turn_state::now(&core, "masaki").expect("masaki turn");
+    assert_eq!(masaki_turn.state, TurnPhase::Waiting);
+    assert_eq!(
+        masaki_turn.wait.as_ref().map(|wait| wait.kind),
+        Some(TurnWaitKind::Timer)
+    );
+
+    // @Miko is asleep and done.
+    core.note_activity("miko", Activity::Started);
+    core.note_activity("miko", Activity::Finished { cancelled: false });
+    core.harness().mailbox.report_over("miko");
+    assert_eq!(
+        turn_state::now(&core, "miko").map(|turn| turn.state),
+        Some(TurnPhase::Done)
+    );
+
+    // Pure calm_due_in check: waiting (timer/watch/ci) and done siblings never delay a calm report,
+    // while an actively Working sibling still holds it.
+    let listed = |id: &str| Listed {
+        name: Some(id.to_owned()),
+        project: folder.clone(),
+        cli: "claude".to_owned(),
+        title: None,
+        status: sikemux_wire::protocol::AgentStatus::Idle,
+        parent: Some("chief".to_owned()),
+        active_at: None,
+        rank: 0,
+        reach: Reach::Chat,
+        agent_id: id.to_owned(),
+    };
+    let waiting_turn = |kind: TurnWaitKind| TurnState {
+        state: TurnPhase::Waiting,
+        since: 1,
+        on: None,
+        wait: Some(TurnWait {
+            kind,
+            what: "later".to_owned(),
+            started_at: 1,
+            expected_ms: None,
+            until: Some(9_999_999),
+            place: None,
+            by: None,
+            agent: None,
+            agents: Vec::new(),
+        }),
+        call: None,
+        done: None,
+        stopped: None,
+        failed: None,
+        seen: false,
+    };
+    let agents = [
+        listed("masaki"),
+        listed("izo"),
+        listed("kei"),
+        listed("miko"),
+        listed("dongsoo"),
+        listed("kanan"),
+    ];
+    let parked_turns = HashMap::from([
+        ("masaki".to_owned(), waiting_turn(TurnWaitKind::Timer)),
+        ("izo".to_owned(), waiting_turn(TurnWaitKind::Watch)),
+        ("kei".to_owned(), waiting_turn(TurnWaitKind::Ci)),
+        (
+            "miko".to_owned(),
+            TurnState {
+                state: TurnPhase::Done,
+                since: 1,
+                on: None,
+                wait: None,
+                call: None,
+                done: None,
+                stopped: None,
+                failed: None,
+                seen: false,
+            },
+        ),
+    ]);
+    assert_eq!(
+        calm_due_in(&core, &parked_turns, &agents, "kanan", "chief", 100),
+        CalmWait::At { at: 100 }
+    );
+    let mut active_turns = parked_turns.clone();
+    active_turns.insert(
+        "dongsoo".to_owned(),
+        TurnState {
+            state: TurnPhase::Working,
+            since: 1,
+            on: None,
+            wait: None,
+            call: None,
+            done: None,
+            stopped: None,
+            failed: None,
+            seen: false,
+        },
+    );
+    assert_eq!(
+        calm_due_in(&core, &active_turns, &agents, "kanan", "chief", 100),
+        CalmWait::UntilSiblingsIdle {
+            capped_at: 100 + CALM_CEILING_MS
+        }
+    );
+
+    // End-to-end promotion with real timer-waiting @Masaki and done @Miko:
+    // 1. @Dongsoo finishes while @Kanan is still working -> held as UntilSiblingsIdle.
+    let now = epoch_ms();
+    let mailbox = &core.harness().mailbox;
+    mailbox.wait(
+        "chief",
+        Queued {
+            text: "- @Dongsoo: finished its turn on \"Fix Browser Bugs\": \"CI green.\"".to_owned(),
+            origin: Some(Origin {
+                from: "dongsoo".to_owned(),
+                kind: MessageKind::Report,
+                awaited: false,
+                calm: Some(CalmWait::UntilSiblingsIdle {
+                    capped_at: now + CALM_CEILING_MS,
+                }),
+            }),
+            mark: None,
+            paths: Vec::new(),
+        },
+    );
+    assert!(mailbox.has_calm_waiting_on_siblings("chief"));
+
+    // 2. While @Kanan's own turn report is in flight, recheck holds promotion so both batch.
+    mailbox.report_begins("kanan");
+    recheck_calm_for_child(&core, "kanan");
+    assert!(mailbox.has_calm_waiting_on_siblings("chief"));
+
+    // 3. @Kanan delivers its calm report and finishes reporting -> no sibling is actively Working
+    //    (@Masaki is Waiting on a timer, @Miko is Done), so both reports are immediately due!
+    report_calm(
+        &core,
+        "kanan".to_owned(),
+        "chief".to_owned(),
+        "finished its turn on \"Settings Vault UI\": \"CI green.\"".to_owned(),
+    )
+    .await;
+    mailbox.report_over("kanan");
+    recheck_calm_for_child(&core, "kanan");
+
+    assert!(!mailbox.has_calm_waiting_on_siblings("chief"));
+    let due = mailbox.calm_until("chief").expect("calm reports waiting");
+    assert!(
+        due <= epoch_ms(),
+        "calm reports must be due at once, not held until ceiling"
+    );
+
+    let batch = mailbox.take("chief");
+    assert_eq!(batch.len(), 2);
+    let combined = joined(&batch);
+    assert!(combined.contains("@Dongsoo"));
+    assert!(combined.contains("Settings Vault UI"));
+    assert_eq!(combined.matches("<agent-message").count(), 1);
+
+    // 4. Even when the last active worker ends quietly without sending its own report,
+    //    recheck promotes the waiting sibling despite sleeping timer workers.
+    let now = epoch_ms();
+    mailbox.wait(
+        "chief",
+        Queued {
+            text: "- @Dongsoo: finished its turn on \"Fix Browser Bugs\": \"CI green.\"".to_owned(),
+            origin: Some(Origin {
+                from: "dongsoo".to_owned(),
+                kind: MessageKind::Report,
+                awaited: false,
+                calm: Some(CalmWait::UntilSiblingsIdle {
+                    capped_at: now + CALM_CEILING_MS,
+                }),
+            }),
+            mark: None,
+            paths: Vec::new(),
+        },
+    );
+    recheck_calm_for_child(&core, "kanan");
+    assert!(!mailbox.has_calm_waiting_on_siblings("chief"));
+    assert!(mailbox.calm_until("chief").expect("due") <= epoch_ms());
+    let _ = mailbox.take("chief");
+
+    // 5. settle() itself self-heals a persisted UntilSiblingsIdle when no sibling is working.
+    let now = epoch_ms();
+    mailbox.wait(
+        "chief",
+        Queued {
+            text: "- @Dongsoo: finished its turn on \"Fix Browser Bugs\": \"CI green.\"".to_owned(),
+            origin: Some(Origin {
+                from: "dongsoo".to_owned(),
+                kind: MessageKind::Report,
+                awaited: false,
+                calm: Some(CalmWait::UntilSiblingsIdle {
+                    capped_at: now + CALM_CEILING_MS,
+                }),
+            }),
+            mark: None,
+            paths: Vec::new(),
+        },
+    );
+    settle(&core);
+    assert!(!mailbox.has_calm_waiting_on_siblings("chief"));
+    assert!(mailbox.calm_until("chief").expect("due") <= epoch_ms());
+}
