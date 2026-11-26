@@ -106,7 +106,8 @@ pub fn keep(places: &mut Vec<Place>, place: Place) {
 /// Where `ship`, an action of the agent called `agent`, lands in `project`. The places its
 /// files name and a production place the action itself names are kept from then on.
 /// `addresses` is what the action writes to, in full; none reads them from the action. `plain`
-/// is the repository it changes when it is a push or merge through git with nothing else to it.
+/// is the repository it changes when it is a push or merge through git with nothing else to it,
+/// and `rewrites` says it is a push that may do more than send commits.
 pub fn judge(
     core: &Core,
     project: &str,
@@ -114,12 +115,13 @@ pub fn judge(
     agent: &str,
     addresses: Option<&str>,
     plain: Option<&str>,
+    rewrites: bool,
 ) -> Judged {
     deploys_pushes(core, project, Path::new(project));
     let _ = has_ci_push_deploys(core, project, Path::new(project));
     let (places, confirmed) = current(core, project);
     let addresses = addresses.unwrap_or(&ship.what);
-    let judged = judge::judged_reading(&places, confirmed, ship, agent, addresses, plain);
+    let judged = judge::judged_reading(&places, confirmed, ship, agent, addresses, plain, rewrites);
     let kept = core.places().of(project).places;
     let found = places.len() != kept.len();
     if found || judged.keep {
@@ -144,10 +146,11 @@ pub fn judge_anywhere(
     agent: &str,
     addresses: Option<&str>,
     plain: Option<&str>,
+    rewrites: bool,
 ) -> (String, Judged) {
     let mut decided = (
         project.to_owned(),
-        judge(core, project, ship, agent, addresses, plain),
+        judge(core, project, ship, agent, addresses, plain, rewrites),
     );
     let others = (core.workspaces().project_paths().into_iter())
         .map(|path| path.to_string_lossy().into_owned())
@@ -157,7 +160,7 @@ pub fn judge_anywhere(
         if !(places.iter()).any(|place| place.shown.production && place.recognises(ship)) {
             continue;
         }
-        let theirs = judge(core, &other, ship, agent, addresses, plain);
+        let theirs = judge(core, &other, ship, agent, addresses, plain, rewrites);
         if holds(theirs.goes) > holds(decided.1.goes) {
             decided = (other, theirs);
         }
@@ -251,6 +254,7 @@ pub fn just_tell(core: &Core, project: &str, place: Place, repository: &str, fro
         place.shown.said_by = Some(by_tap());
         place.shown.said_from = from.clone();
         place.routine_only = true;
+        place.ordinary_only = false;
         if !place.just_tell.iter().any(|said| said == repository) {
             place.just_tell.push(repository.to_owned());
         }
@@ -275,8 +279,9 @@ pub fn just_tell(core: &Core, project: &str, place: Place, repository: &str, fro
     });
 }
 
-/// The person said on a call to let agents make every change to the place `id` from now on and
-/// tell them of each, as its level "tell me" does. A place that no longer asks is left as it is.
+/// The person said on a call to let agents make ordinary changes to the place `id` from now on
+/// and tell them of each: a tag, a release or a push that does more than send commits still
+/// waits for their yes. A place that no longer asks is left as it is.
 pub fn always_tell(core: &Core, project: &str, id: &str, from: Option<String>) {
     let _ = tapped(core, project, |kept| {
         let confirmed = kept.confirmed.is_some();
@@ -288,6 +293,7 @@ pub fn always_tell(core: &Core, project: &str, id: &str, from: Option<String>) {
             place.shown.level = Level::TellMe;
             place.routine_only = false;
             place.just_tell.clear();
+            place.ordinary_only = true;
             place.shown.said_by = Some(by_tap());
             place.shown.said_from = from;
         }
@@ -501,6 +507,7 @@ pub async fn set_level(
                 place.shown.level = params.level;
                 place.routine_only = false;
                 place.just_tell.clear();
+                place.ordinary_only = false;
                 place.shown.said_by = Some(by_tap());
                 place.shown.said_from = from.clone();
             }

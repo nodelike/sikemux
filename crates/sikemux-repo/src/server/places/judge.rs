@@ -8,7 +8,9 @@ use crate::server::places::place::PlaceExt;
 use sikemux_view::inbox::ShipKind;
 use sikemux_view::places::{Level, Recognise};
 
-use super::place::{id_of, new_place, says_not_production, says_production, Place};
+use super::place::{
+    id_of, new_place, says_not_production, says_production, Place, GITHUB_RELEASES,
+};
 use crate::ship::{Ship, Target, SSH};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,13 +37,13 @@ pub struct Judged {
 /// Where `ship` lands among `places`, as the person `confirmed` the list or not. `agent` is
 /// whose action it is, by name, for a place the core finds in it.
 pub fn judged(places: &[Place], confirmed: bool, ship: &Ship, agent: &str) -> Judged {
-    judged_reading(places, confirmed, ship, agent, &ship.what, None)
+    judged_reading(places, confirmed, ship, agent, &ship.what, None, false)
 }
 
 /// [`judged`] with `addresses`, what `ship` writes to with each address in full. A browser's
 /// write is shown and allowed without its address's query, which can still say what it changes.
 /// `plain` is the repository `ship` changes when it is a push or merge through git with nothing
-/// else to it.
+/// else to it, and `rewrites` says it is a push that may do more than send commits.
 pub fn judged_reading(
     places: &[Place],
     confirmed: bool,
@@ -49,6 +51,7 @@ pub fn judged_reading(
     agent: &str,
     addresses: &str,
     plain: Option<&str>,
+    rewrites: bool,
 ) -> Judged {
     let recognising: Vec<&Place> = places
         .iter()
@@ -101,12 +104,13 @@ pub fn judged_reading(
     let strictest = (fact_place.as_ref().map(|(place, _)| place))
         .into_iter()
         .chain(production.iter().copied())
-        .max_by_key(|place| strictness(level_for(place, confirmed, ship, plain)));
+        .max_by_key(|place| strictness(level_for(place, confirmed, ship, plain, rewrites)));
     if let Some(place) = strictest {
         let from_fact =
             (fact_place.as_ref()).is_some_and(|(found, _)| found.shown.id == place.shown.id);
         let keep = from_fact && fact_place.as_ref().is_some_and(|(_, keep)| *keep);
-        return by_level(place, level_for(place, confirmed, ship, plain), keep);
+        let level = level_for(place, confirmed, ship, plain, rewrites);
+        return by_level(place, level, keep);
     }
     if let Some(place) = recognising.first() {
         return Judged {
@@ -170,8 +174,26 @@ fn strictness(level: Level) -> u8 {
     }
 }
 
-fn level_for(place: &Place, confirmed: bool, ship: &Ship, plain: Option<&str>) -> Level {
-    place.level_for(confirmed, plain.filter(|_| routine(place, ship)))
+fn level_for(
+    place: &Place,
+    confirmed: bool,
+    ship: &Ship,
+    plain: Option<&str>,
+    rewrites: bool,
+) -> Level {
+    let through = plain.filter(|_| routine(place, ship));
+    place.level_for(confirmed, through, ordinary(ship, rewrites))
+}
+
+/// Whether `ship` is a change that a place the person always allowed on a call lets run: no
+/// tag, no GitHub release, and no push that `rewrites`, doing more than send commits.
+pub fn ordinary(ship: &Ship, rewrites: bool) -> bool {
+    let release = match ship.target.as_ref().map(Target::bare) {
+        Some(Target::Tag { .. }) => true,
+        Some(Target::Package { registry }) => registry == GITHUB_RELEASES,
+        _ => false,
+    };
+    !rewrites && !release
 }
 
 /// Whether `ship`, a plain push or merge, is the change `place` sees again and again, which the
@@ -619,6 +641,7 @@ mod tests {
             "Otter",
             "POST https://my.registrar.example/clientarea.php?action=domaindetails",
             None,
+            false,
         );
         assert_eq!(judged.goes, Goes::Asks);
         assert!(judged.keep);
@@ -633,6 +656,7 @@ mod tests {
             "Otter",
             "POST https://hosting.example.com/clientarea.php?action=domaindns",
             None,
+            false,
         );
         assert_eq!(judged.goes, Goes::Asks);
         let search = submit(

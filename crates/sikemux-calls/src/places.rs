@@ -56,6 +56,10 @@ pub struct Place {
     /// The repositories the person said that about.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub just_tell: Vec<String>,
+    /// The person said on a call to always allow changes there, which goes for ordinary changes
+    /// alone: a tag, a release or a push that does more than send commits still waits for them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ordinary_only: bool,
 }
 
 /// What a slice needs at a place's step besides a deploy there that went well.
@@ -75,15 +79,16 @@ impl Place {
     /// What agents may do there now: a production place is at `mine` until the person
     /// confirms the list, or sets this place's level themselves.
     pub fn level(&self, confirmed: bool) -> Level {
-        self.level_for(confirmed, None)
+        self.level_for(confirmed, None, true)
     }
 
     /// [`Self::level`] for one change there, through the repository `routine` when it is a
-    /// routine one.
-    pub fn level_for(&self, confirmed: bool, routine: Option<&str>) -> Level {
+    /// routine one. `ordinary` says it is no tag, release or push that does more than send
+    /// commits.
+    pub fn level_for(&self, confirmed: bool, routine: Option<&str>, ordinary: bool) -> Level {
         let unseen = !confirmed && self.shown.said_by.is_none();
         let said = routine.is_some_and(|to| self.just_tell.iter().any(|said| said == to));
-        let beyond = self.routine_only && !said;
+        let beyond = (self.routine_only && !said) || (self.ordinary_only && !ordinary);
         match self.shown.production && (unseen || beyond) {
             true => Level::Mine,
             false => self.shown.level,
