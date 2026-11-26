@@ -202,6 +202,8 @@ pub struct Node {
     code_metrics: OnceCell<Rc<CodeMetrics>>,
     /// A top-level block's size when last laid out, at the width it had then.
     pub(crate) size: Cell<Option<Size<Pixels>>>,
+    /// The reply-gutter inset applied to a top-level block when `size` was measured.
+    pub(crate) inset: Cell<Pixels>,
 }
 
 #[derive(Clone, Debug)]

@@ -1,6 +1,6 @@
-//! Hovering a part's reply button in a narrow pane, where the button overlaps the end of the line,
-//! stays steady without oscillating hover state, blocks clicks on links beneath it, and still
-//! allows clicks on the button itself.
+//! Hovering a part's reply button in narrow and wide panes stays steady without oscillating hover
+//! state, keeps the button clear of both the paragraph text and the scrollbar, and lets clicks
+//! reach the button reliably.
 
 #![allow(
     clippy::expect_used,
@@ -11,11 +11,25 @@ use std::rc::Rc;
 
 use gpui::{
     div, point, px, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
-    Modifiers, ParentElement, Render, Styled, TestAppContext, Window,
+    Modifiers, ParentElement, Pixels, Render, Styled, TestAppContext, Window,
 };
 use gpui_clicks::Clicks;
 use gpui_transcript::{Markdown, Pen, Reply, Row, Style, Transcript};
 use serde_json::json;
+
+const ROW_MAX: f32 = 800.;
+const ROW_SIDE: f32 = 22.;
+const SCROLLBAR: f32 = 16.;
+const REPLY_GUTTER: f32 = 32.;
+const REPLY_BUTTON: f32 = 24.;
+
+fn reply_outset(width: Option<Pixels>) -> Pixels {
+    let Some(width) = width else {
+        return px(REPLY_GUTTER);
+    };
+    let beside = (width - px(ROW_MAX)).max(px(0.)) / 2. + px(ROW_SIDE);
+    (beside - px(SCROLLBAR)).clamp(px(0.), px(REPLY_GUTTER))
+}
 
 struct Message(Markdown);
 
@@ -39,41 +53,25 @@ struct HoverState {
 }
 
 struct Shell {
+    width: Pixels,
     transcript: Entity<Transcript<Message>>,
     _hover: Entity<HoverState>,
 }
 
 impl Render for Shell {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div().w(px(360.)).h(px(300.)).child(self.transcript.clone())
+        div()
+            .w(self.width)
+            .h(px(300.))
+            .child(self.transcript.clone())
     }
 }
 
-#[gpui::test]
-fn narrow_reply_button_stays_hovered_without_flickering(cx: &mut TestAppContext) {
-    let doc = Markdown::new(
-        &json!([{
-            "t": "ul",
-            "c": [
-                {
-                    "t": "li",
-                    "c": [{
-                        "t": "p",
-                        "c": [
-                            "What changed: metadata and config moved to ",
-                            { "t": "a", "href": "https://example.com", "c": ["https://example.com/very-long-link-at-the-right-edge"] }
-                        ]
-                    }]
-                },
-                {
-                    "t": "li",
-                    "c": [{ "t": "p", "c": ["Second bullet item below it."] }]
-                }
-            ]
-        }]),
-        0,
-    );
-
+fn build_harness(
+    cx: &mut TestAppContext,
+    width: Pixels,
+    doc: Markdown,
+) -> (Entity<HoverState>, Entity<Transcript<Message>>) {
     let hover = cx.new(|_| HoverState::default());
     let draw_hover = hover.clone();
     let link_hover = hover.clone();
@@ -149,8 +147,8 @@ fn narrow_reply_button_stays_hovered_without_flickering(cx: &mut TestAppContext)
                     let hover = hover.clone();
                     div()
                         .id(("reply-btn", place))
-                        .debug_selector(|| format!("reply-btn-{place}"))
-                        .w(px(24.))
+                        .debug_selector(|| "reply-btn".into())
+                        .w(px(REPLY_BUTTON))
                         .h(px(26.))
                         .clicks(move |_, _, cx| {
                             hover.update(cx, |state, _| state.button_clicks += 1);
@@ -164,7 +162,8 @@ fn narrow_reply_button_stays_hovered_without_flickering(cx: &mut TestAppContext)
                 hovered,
                 pointed,
                 chosen: Rc::from([]),
-                gutter: px(6.),
+                gutter: px(REPLY_GUTTER),
+                outset: reply_outset(pen.width()),
                 on_hover,
                 on_point,
                 button,
@@ -174,8 +173,17 @@ fn narrow_reply_button_stays_hovered_without_flickering(cx: &mut TestAppContext)
         div()
             .debug_selector(|| "row-0".into())
             .w_full()
-            .px(px(22.))
-            .child(pen.markdown_with(&look, "narrow", doc, window, cx))
+            .flex()
+            .flex_col()
+            .items_center()
+            .child(
+                div()
+                    .debug_selector(|| "col-0".into())
+                    .w_full()
+                    .max_w(px(ROW_MAX))
+                    .px(px(ROW_SIDE))
+                    .child(pen.markdown_with(&look, "msg", doc, window, cx)),
+            )
             .into_any_element()
     };
 
@@ -188,7 +196,30 @@ fn narrow_reply_button_stays_hovered_without_flickering(cx: &mut TestAppContext)
         .detach();
     });
 
+    let _ = width;
+    (hover, transcript)
+}
+
+#[gpui::test]
+fn narrow_reply_button_stays_hovered_without_flickering_or_overlapping_text(
+    cx: &mut TestAppContext,
+) {
+    let doc = Markdown::new(
+        &json!([{
+            "t": "p",
+            "c": [{
+                "t": "a",
+                "href": "https://example.com",
+                "c": ["question-one question-two question-three question-four question-five question-six question-seven"]
+            }]
+        }]),
+        0,
+    );
+
+    let width = px(360.);
+    let (hover, transcript) = build_harness(cx, width, doc);
     let (_, cx) = cx.add_window_view(|_, _| Shell {
+        width,
         transcript,
         _hover: hover.clone(),
     });
@@ -197,16 +228,24 @@ fn narrow_reply_button_stays_hovered_without_flickering(cx: &mut TestAppContext)
     let row_bounds = cx.debug_bounds("row-0").expect("row is drawn");
     let text_point = row_bounds.origin + point(px(60.), px(10.));
 
-    // Hover the first list item so its reply button mounts over the narrow right edge.
+    // Hover the paragraph so its reply button mounts beside the text.
     cx.simulate_mouse_move(text_point, None, Modifiers::none());
     cx.run_until_parked();
 
     let button_bounds = cx
-        .debug_bounds("reply-btn-0")
+        .debug_bounds("reply-btn")
         .expect("reply button mounts when hovering the paragraph");
     let button_center = button_bounds.center();
 
-    // Move onto the overlapping reply button and let frames settle.
+    // Button stays clear of the 16px scrollbar on the right edge of the narrow pane.
+    assert!(
+        button_bounds.right() <= row_bounds.right() - px(SCROLLBAR) + px(0.5),
+        "reply button right ({:?}) must stay clear of scrollbar ({:?})",
+        button_bounds.right(),
+        row_bounds.right() - px(SCROLLBAR)
+    );
+
+    // Move onto the reply button and let frames settle without flickering.
     cx.simulate_mouse_move(button_center, None, Modifiers::none());
     cx.run_until_parked();
     let settled = cx.read(|cx| hover.read(cx).transitions);
@@ -220,17 +259,13 @@ fn narrow_reply_button_stays_hovered_without_flickering(cx: &mut TestAppContext)
         let state = hover.read(cx);
         (state.button, state.part, state.transitions)
     });
-    assert_eq!(
-        after.0,
-        Some(0),
-        "button stays pointed over the narrow edge"
-    );
+    assert_eq!(after.0, Some(0), "button stays pointed in narrow pane");
     assert_eq!(
         after.2, settled,
         "hover state must not oscillate across frames while parked on the reply button"
     );
     assert!(
-        cx.debug_bounds("reply-btn-0").is_some(),
+        cx.debug_bounds("reply-btn").is_some(),
         "reply button stays mounted across frames"
     );
 
@@ -243,6 +278,21 @@ fn narrow_reply_button_stays_hovered_without_flickering(cx: &mut TestAppContext)
     });
     assert_eq!(button_clicks, 1);
     assert_eq!(link_clicks, 0);
+
+    // The 8px gap immediately left of the button has no link text under it (text wrapped earlier).
+    let gap_point = point(button_bounds.left() - px(4.), button_center.y);
+    cx.simulate_click(gap_point, Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(
+        cx.read(|cx| hover.read(cx).link_clicks),
+        0,
+        "paragraph text must wrap left of the gutter so nothing sits under or flush against the button"
+    );
+
+    // Clicking inside the wrapped text still activates the link.
+    cx.simulate_click(text_point, Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(cx.read(|cx| hover.read(cx).link_clicks), 1);
 
     // Moving straight back onto the text keeps the button mounted and clears `pointed`.
     cx.simulate_mouse_move(text_point, None, Modifiers::none());
@@ -258,7 +308,7 @@ fn narrow_reply_button_stays_hovered_without_flickering(cx: &mut TestAppContext)
     let away = point(px(10.), px(10.));
     cx.simulate_mouse_move(away, None, Modifiers::none());
     cx.run_until_parked();
-    assert!(cx.debug_bounds("reply-btn-0").is_none());
+    assert!(cx.debug_bounds("reply-btn").is_none());
 
     // Entering directly at the button's position from outside settles onto the button cleanly.
     cx.simulate_mouse_move(button_center, None, Modifiers::none());
@@ -274,4 +324,96 @@ fn narrow_reply_button_stays_hovered_without_flickering(cx: &mut TestAppContext)
     });
     assert_eq!(direct_button, Some(0));
     assert_eq!(direct_transitions, settled_direct);
+}
+
+#[gpui::test]
+fn wide_reply_button_sits_outside_the_text_column(cx: &mut TestAppContext) {
+    let doc = Markdown::new(
+        &json!([{
+            "t": "p",
+            "c": ["A wide paragraph whose reply button sits cleanly in the outer right margin."]
+        }]),
+        0,
+    );
+
+    let width = px(960.);
+    let (hover, transcript) = build_harness(cx, width, doc);
+    let (_, cx) = cx.add_window_view(|_, _| Shell {
+        width,
+        transcript,
+        _hover: hover.clone(),
+    });
+    cx.run_until_parked();
+
+    let col_bounds = cx.debug_bounds("col-0").expect("column is drawn");
+    let text_right = col_bounds.right() - px(ROW_SIDE);
+    let text_point = col_bounds.origin + point(px(60.), px(10.));
+
+    cx.simulate_mouse_move(text_point, None, Modifiers::none());
+    cx.run_until_parked();
+
+    let button_bounds = cx
+        .debug_bounds("reply-btn")
+        .expect("reply button mounts in wide pane");
+    assert!(
+        button_bounds.left() >= text_right + px(REPLY_GUTTER - REPLY_BUTTON) - px(0.5),
+        "wide reply button ({:?}) must sit outside the text column right edge ({:?})",
+        button_bounds.left(),
+        text_right
+    );
+}
+
+#[gpui::test]
+fn tall_narrow_message_keeps_reply_button_clear_of_text(cx: &mut TestAppContext) {
+    let blocks: Vec<_> = (0..14)
+        .map(|ix| {
+            json!({
+                "t": "p",
+                "c": [{
+                    "t": "a",
+                    "href": "https://example.com",
+                    "c": [format!("block-{ix} question-one question-two question-three question-four question-five question-six")]
+                }]
+            })
+        })
+        .collect();
+    let doc = Markdown::new(&json!(blocks), 0);
+
+    let width = px(360.);
+    let (hover, transcript) = build_harness(cx, width, doc);
+    let (_, cx) = cx.add_window_view(|_, _| Shell {
+        width,
+        transcript,
+        _hover: hover.clone(),
+    });
+    cx.run_until_parked();
+    let _ = cx.refresh();
+    cx.run_until_parked();
+
+    let row_bounds = cx.debug_bounds("row-0").expect("row is drawn");
+    // Hover the bottom visible paragraph (Tall renders visible blocks in the 300px viewport).
+    let probe = point(row_bounds.left() + px(60.), px(280.));
+    cx.simulate_mouse_move(probe, None, Modifiers::none());
+    cx.run_until_parked();
+
+    let _mounted = cx
+        .read(|cx| hover.read(cx).part)
+        .expect("a visible paragraph in Tall is hovered");
+    let button_bounds = cx
+        .debug_bounds("reply-btn")
+        .expect("reply button mounts in Tall narrow pane");
+    assert!(
+        button_bounds.right() <= row_bounds.right() - px(SCROLLBAR) + px(0.5),
+        "Tall narrow button right ({:?}) must stay clear of scrollbar ({:?})",
+        button_bounds.right(),
+        row_bounds.right() - px(SCROLLBAR)
+    );
+    let gap_point = point(button_bounds.left() - px(4.), button_bounds.center().y);
+    cx.simulate_click(gap_point, Modifiers::none());
+    cx.run_until_parked();
+    assert_eq!(
+        cx.read(|cx| hover.read(cx).link_clicks),
+        0,
+        "Tall narrow paragraph text must stay left of the reply button gutter"
+    );
 }

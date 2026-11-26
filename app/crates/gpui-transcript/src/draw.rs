@@ -65,8 +65,10 @@ pub struct Reply {
     pub pointed: bool,
     /// The parts already in the reader's reply, which keep their button showing.
     pub chosen: Rc<[usize]>,
-    /// The room to the right of the text that holds the button.
+    /// The room reserved to the right of the text for the button.
     pub gutter: Pixels,
+    /// How much of `gutter` hangs past the text column's right edge into the outer margin.
+    pub outset: Pixels,
     pub on_hover: OnPartHover,
     pub on_point: OnButtonHover,
     pub button: PartButton,
@@ -433,10 +435,12 @@ impl Pen {
             .enumerate()
             .map(|(ix, block)| blocks.draw(ix, block, window, cx))
             .collect();
+        let inset = blocks.reply_inset();
         root.children(children)
             .on_children_prepainted(move |bounds, _, _| {
                 for (block, bounds) in blocks.blocks.iter().zip(&bounds) {
                     block.size.set(Some(bounds.size));
+                    block.inset.set(inset);
                 }
                 if let Some(first) = bounds.first() {
                     blocks.width.set(Some(first.size.width));
@@ -464,6 +468,12 @@ struct Blocks {
 }
 
 impl Blocks {
+    fn reply_inset(&self) -> Pixels {
+        self.style.reply.as_ref().map_or(px(0.), |reply| {
+            reply.gutter - reply.outset.clamp(px(0.), reply.gutter)
+        })
+    }
+
     fn draw(&self, ix: usize, block: &Node, window: &mut Window, cx: &mut App) -> AnyElement {
         let tasks = match self.style.on_task {
             Some(_) => self.prefixes.tasks_before.get(ix).copied().unwrap_or(0),
@@ -497,10 +507,16 @@ impl Blocks {
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        let mut element = self.draw(ix, block, window, cx);
+        let mut element = div()
+            .w(width)
+            .flex()
+            .flex_col()
+            .child(self.draw(ix, block, window, cx))
+            .into_any_element();
         let space = size(AvailableSpace::Definite(width), AvailableSpace::MinContent);
         let height = element.layout_as_root(space, window, cx).height;
         block.size.set(Some(size(width, height)));
+        block.inset.set(self.reply_inset());
         element
     }
 }
@@ -538,12 +554,16 @@ impl Element for Tall {
     ) -> (LayoutId, Self::RequestLayoutState) {
         let blocks = &self.0;
         let width = blocks.width.get().unwrap_or_default();
+        let inset = blocks.reply_inset();
         let laid: Vec<_> = blocks
             .blocks
             .iter()
             .enumerate()
             .map(|(ix, block)| {
-                let fresh = block.size.get().is_some_and(|size| size.width == width);
+                let fresh = block
+                    .size
+                    .get()
+                    .is_some_and(|size| size.width == width && block.inset.get() == inset);
                 (!fresh).then(|| blocks.laid_out(ix, block, width, window, cx))
             })
             .collect();
@@ -1044,12 +1064,14 @@ impl Draw<'_> {
         let line = self.on.style.text_size * self.on.style.line_height;
         let on_hover = reply.on_hover.clone();
         let on_point = reply.on_point.clone();
+        let outset = reply.outset.clamp(px(0.), reply.gutter);
         let part_id = self.id("part");
         let reply_id = self.id("reply");
         div()
             .id(part_id)
             .relative()
-            .mr(-reply.gutter)
+            .min_w_0()
+            .mr(-outset)
             .pr(reply.gutter)
             .on_hover(move |hovered, window, cx| on_hover(place, *hovered, window, cx))
             .child(drawn)

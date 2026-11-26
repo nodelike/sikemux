@@ -1689,7 +1689,7 @@ fn with_reply(
     looks: &Drawn,
     cx: &App,
 ) -> Rc<Style> {
-    let gutter = reply_gutter(pen.width(), cx);
+    let outset = reply_outset(pen.width(), cx);
     let message = row.message.id.clone();
     let tagged = format!("{REPLY_URI}{message}#{text}.");
     let chosen: Rc<[usize]> = (looks.bench.upgrade())
@@ -1759,7 +1759,6 @@ fn with_reply(
             text.clone(),
         );
         let accent = looks.accent;
-        let ground = (gutter < px(REPLY_BUTTON)).then(|| Tokens::get(cx).surface_raised);
         Rc::new(
             move |place: usize, quote: String, chosen: bool, _: &mut Window, _: &mut App| {
                 let (bench, agent, reader, message) = (
@@ -1773,7 +1772,7 @@ fn with_reply(
                     true => t!("Take out of the reply"),
                     false => t!("Reply to this part"),
                 };
-                let button = IconButton::new(
+                IconButton::new(
                     SharedString::from(format!("reply:{part}")),
                     Icon::Reply,
                     label,
@@ -1789,15 +1788,8 @@ fn with_reply(
                         })
                         .ok();
                     reader.update(cx, |_, cx| cx.notify());
-                });
-                match ground {
-                    Some(ground) => div()
-                        .rounded(theme::radius_2())
-                        .bg(ground)
-                        .child(button)
-                        .into_any_element(),
-                    None => button.into_any_element(),
-                }
+                })
+                .into_any_element()
             },
         )
     };
@@ -1806,7 +1798,8 @@ fn with_reply(
             hovered,
             pointed,
             chosen,
-            gutter,
+            gutter: px(REPLY_GUTTER),
+            outset,
             on_hover,
             on_point,
             button,
@@ -1821,9 +1814,9 @@ const REPLY_GUTTER: f32 = 32.;
 const ROW_SIDE: f32 = 22.;
 const REPLY_BUTTON: f32 = 24.;
 
-/// The reply button's room in a pane `width` wide, short of the scrollbar at its edge. Where the
-/// button doesn't fit beside the text, it lies over the line's end.
-fn reply_gutter(width: Option<Pixels>, cx: &App) -> Pixels {
+/// How much of `REPLY_GUTTER` fits beside the column without touching the scrollbar. Any remainder
+/// comes out of the paragraph's right side so the button never overlaps its text.
+fn reply_outset(width: Option<Pixels>, cx: &App) -> Pixels {
     let Some(width) = width else {
         return px(REPLY_GUTTER);
     };

@@ -1164,7 +1164,14 @@ impl<R: Row> Render for Transcript<R> {
                 let moved = moved.clone();
                 window.defer(cx, move |window, cx| {
                     moved
-                        .update(cx, |this, cx| this.ask_earlier_when_short(window, cx))
+                        .update(cx, |this, cx| {
+                            let now = Some(this.list.viewport_bounds().size.width)
+                                .filter(|width| *width > px(0.));
+                            if now != width {
+                                cx.notify();
+                            }
+                            this.ask_earlier_when_short(window, cx);
+                        })
                         .ok();
                 });
             })
