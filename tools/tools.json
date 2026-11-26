@@ -29,15 +29,15 @@
           "maxLength": 8192
         },
         "newTab": {
-          "description": "Open a new tab or reuse yours on that site",
+          "description": "Open new tab instead of reusing",
           "type": "boolean"
         },
         "background": {
-          "description": "Keep current active tab",
+          "description": "Keep active tab",
           "type": "boolean"
         },
         "profile": {
-          "description": "Browser profile slug (default: project Playbook/Space profile)",
+          "description": "Profile slug",
           "type": "string",
           "maxLength": 64
         },
@@ -300,7 +300,7 @@
       "description": "Drive tabs with async JS (parallel).",
       "properties": {
         "script": {
-          "description": "Async JS using browser.tabs/open/tab/profiles; return JSON",
+          "description": "Async JS with browser.*; return JSON",
           "type": "string",
           "minLength": 1,
           "maxLength": 40000
