@@ -14,7 +14,7 @@
   "app/src/chat/model_picker.rs": 1,
   "app/src/chat/schema.rs": 1,
   "app/src/core.rs": 4,
-  "app/src/desk.rs": 3,
+  "app/src/desk.rs": 4,
   "app/src/desk/pins.rs": 1,
   "app/src/desk/width.rs": 1,
   "app/src/diagram/mod.rs": 2,
