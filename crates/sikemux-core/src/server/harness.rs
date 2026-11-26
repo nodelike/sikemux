@@ -686,7 +686,7 @@ async fn dispatch(
         OUTSIDE_SIGN_IN_METHOD => super::outside::cli::sign_in(core, &request).await,
         OUTSIDE_SIGN_IN_WAIT_METHOD => super::outside::cli::sign_in_wait(core, &request).await,
         OUTSIDE_CALL_METHOD => super::outside::cli::call(core, &request).await,
-        "browser.evaluate" => {
+        "browser.evaluate" | "browser.drive" => {
             let project = request.project.clone();
             let knowing = core.clone();
             let sites = tokio::task::spawn_blocking(move || {

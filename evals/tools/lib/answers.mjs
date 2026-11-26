@@ -185,8 +185,8 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
       }));
     case 'browser_press':
       return needTab(() => ({ pressed: args.key, ...where(tab) }));
-    case 'browser_act':
-      return needTab(() => ({ steps: (args.steps ?? []).length, done: true, ...where(tab) }));
+    case 'browser_drive':
+      return needTab(() => ({ ok: true, result: null, completedSteps: [], ...where(tab) }));
     case 'browser_scroll':
       return needTab(() => {
         const y = args.to === 'bottom' ? 1500 : args.to === 'top' ? 0 : Math.max(0, Math.min(1500, (tab.scrollY ?? 0) + (args.deltaY ?? 600)));

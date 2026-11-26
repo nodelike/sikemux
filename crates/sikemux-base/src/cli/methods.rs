@@ -6,7 +6,7 @@ pub const BROWSER_METHODS: &[&str] = &[
     "browser.click",
     "browser.type",
     "browser.press",
-    "browser.act",
+    "browser.drive",
     "browser.drag",
     "browser.upload",
     "browser.dialog",

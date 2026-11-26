@@ -32,7 +32,7 @@ futures-sink = { version = "0.3" }
 futures-task = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
-hashbrown = { version = "0.17", default-features = false, features = ["default-hasher", "inline-more"] }
+hashbrown = { version = "0.17" }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 libc = { version = "0.2", features = ["extra_traits"] }
@@ -58,6 +58,8 @@ subtle = { version = "2", default-features = false, features = ["const-generics"
 time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 tokio-util = { version = "0.7", features = ["codec", "io-util", "rt"] }
+toml_datetime = { version = "1", default-features = false, features = ["serde", "std"] }
+toml_parser = { version = "1", default-features = false, features = ["std"] }
 tracing = { version = "0.1" }
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["serde", "v4", "v7"] }
@@ -67,17 +69,22 @@ zeroize = { version = "1", features = ["derive"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 data-encoding = { version = "2", default-features = false, features = ["alloc"] }
 digest = { version = "0.11", features = ["alloc", "oid"] }
-once_cell = { version = "1" }
 proc-macro2 = { version = "1" }
 quote = { version = "1" }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "full", "visit", "visit-mut"] }
 time-macros = { version = "0.2", default-features = false, features = ["formatting", "parsing"] }
+toml_datetime = { version = "1" }
+toml_parser = { version = "1" }
+winnow = { version = "1" }
 
 [target.aarch64-apple-darwin.dependencies]
+async-lock = { version = "3" }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 block2 = { version = "0.6" }
 dispatch2 = { version = "0.3" }
+event-listener = { version = "5" }
+event-listener-strategy = { version = "0.5", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 idna = { version = "1" }
 objc2 = { version = "0.6" }

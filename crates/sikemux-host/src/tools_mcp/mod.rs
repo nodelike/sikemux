@@ -542,6 +542,9 @@ fn tab_lock_key(method: &str, args: &Value) -> Option<String> {
     if method == "browser.navigate" && args.get("newTab").and_then(Value::as_bool) == Some(true) {
         return None;
     }
+    if method == "browser.drive" {
+        return None;
+    }
     Some("active".to_owned())
 }
 

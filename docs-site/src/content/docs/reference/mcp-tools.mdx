@@ -17,13 +17,13 @@ Every agent Sikemux starts gets these tools through the `sikemux-tools` MCP serv
 | `browser_click` | Click an element by number, text, selector or point. |
 | `browser_type` | Type into a field, replacing it or at the caret. |
 | `browser_press` | Press a key or chord, such as Meta+a. |
-| `browser_act` | Batch navigate, click, type, wait, read. |
+| `browser_drive` | Drive one or more tabs with a sandboxed async JS script. |
 | `browser_drag` | Drag from one element or point to another. |
 | `browser_upload` | Give files to a file input. |
 | `browser_dialog` | Answer an alert, confirm or prompt. |
 | `browser_viewport` | Set this tab's viewport. |
 | `browser_scroll` | Scroll to an element, by deltaY, or to an end. |
-| `browser_evaluate` | Run a script in the page; returns JSON. |
+| `browser_evaluate` | Run a single-tab DOM expression; use browser_drive for flows. |
 | `browser_network` | Page requests with status and body. |
 | `browser_console` | Page console messages and errors. |
 | `browser_screenshot` | Capture the tab or the whole page. |

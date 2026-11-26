@@ -10,6 +10,7 @@ use base64::Engine;
 use serde_json::{json, Map, Value};
 use sikemux_process::sync::Locked;
 
+mod drive;
 mod target;
 mod wait;
 
@@ -50,10 +51,6 @@ const UPLOAD_TIMEOUT: Duration = Duration::from_secs(3);
 const UPLOAD_LANDING: Duration = Duration::from_secs(2);
 /// How long a click waits for the element it names to show up.
 const APPEAR_WAIT: Duration = Duration::from_secs(3);
-/// A browser_act call stops starting steps in time to answer within the core's wait.
-const ACT_TIME: Duration = Duration::from_millis(MAX_BLOCKING_MS - 10_000);
-/// What a step may take at worst: a click waiting for its element and then a load.
-const STEP_RESERVE: Duration = Duration::from_secs(LOAD_TIMEOUT.as_secs() + APPEAR_WAIT.as_secs());
 const UPLOAD_POLL: Duration = Duration::from_millis(50);
 const MAX_UPLOAD_FILES: usize = 20;
 const DRAG_STEPS: u32 = 12;
@@ -649,7 +646,7 @@ async fn run(
                 report(manager, agent_id, &tab_id, params, false).await?,
             )
         }
-        "browser.act" => act(manager, agent_id, project, check, params).await,
+        "browser.drive" => drive::run_tool(manager, agent_id, project, check, params).await,
         "browser.dialog" => {
             let accept = params
                 .get("accept")
@@ -1133,7 +1130,7 @@ async fn run(
 fn brings_the_desk_out(method: &str, has_a_tab: bool) -> bool {
     match method {
         "browser.tab.close" | "browser.page" | BROWSER_PICTURE_METHOD => false,
-        "browser.navigate" | "browser.act" => true,
+        "browser.navigate" | "browser.drive" => true,
         _ => has_a_tab,
     }
 }
@@ -1304,186 +1301,6 @@ async fn step(
         .await;
     call_page_settle(&view).await;
     arrived(manager, agent_id, &tab_id, params, started, false).await
-}
-
-/// Plays the steps in order and stops at the first that fails, or once the
-/// page moves on when a later step names an element by number or point,
-/// since those belong to the old page.
-async fn act(
-    manager: &BrowserManager,
-    agent_id: &str,
-    project: &str,
-    check: &CheckWrite,
-    params: &Value,
-) -> Result<Value, String> {
-    let steps = params
-        .get("steps")
-        .and_then(Value::as_array)
-        .filter(|steps| !steps.is_empty())
-        .ok_or("steps must list at least one action")?;
-    let calls = steps.iter().map(step_call).collect::<Result<Vec<_>, _>>()?;
-    let outer_tab = requested_tab(params).map(str::to_owned);
-    let deadline = Instant::now() + ACT_TIME;
-    let mut done = Vec::new();
-    let mut stopped = None;
-    let mut current_tab = outer_tab.clone();
-    for (number, (step, (method, mut step_params))) in steps.iter().zip(calls).enumerate() {
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left < STEP_RESERVE {
-            stopped = Some(json!({
-                "step": number,
-                "reason": "the call ran out of time, so this step and the ones after it were not run; send them again",
-            }));
-            break;
-        }
-        if let Some(tab) = current_tab.as_deref() {
-            if step_params.get("tabId").is_none() {
-                put(&mut step_params, "tabId", json!(tab));
-            }
-        }
-        if method == "browser.wait" {
-            let key = if step_params.get("ms").is_some() {
-                "ms"
-            } else {
-                "timeoutMs"
-            };
-            let asked = step_params
-                .get(key)
-                .and_then(Value::as_u64)
-                .unwrap_or(DEFAULT_CONDITION_WAIT_MS);
-            put(
-                &mut step_params,
-                key,
-                json!(asked.min(left.as_millis() as u64)),
-            );
-        }
-        let before = outcome(manager, agent_id, current_tab.as_deref()).ok();
-        let failed =
-            match Box::pin(run(manager, agent_id, project, check, method, &step_params)).await {
-                Ok(result) => {
-                    if let Some(id) = result.get("tabId").and_then(Value::as_str) {
-                        current_tab = Some(id.to_owned());
-                    }
-                    let failed = step_failure(&result);
-                    done.push(step_summary(step, result));
-                    failed
-                }
-                Err(error) => Some(error),
-            };
-        if let Some(error) = failed {
-            stopped = Some(json!({ "step": number, "action": step.get("action"), "error": error }));
-            break;
-        }
-        let rest = steps.get(number + 1..).unwrap_or_default();
-        if let Some(reason) = before
-            .zip(outcome(manager, agent_id, current_tab.as_deref()).ok())
-            .and_then(|(before, now)| blocks_the_rest(&before, &now, rest))
-        {
-            if !rest.is_empty() {
-                stopped = Some(json!({ "step": number, "reason": reason }));
-                break;
-            }
-        }
-    }
-    let mut result = json!({ "done": done });
-    let finished = stopped.is_none();
-    if let Some(stopped) = stopped {
-        put(&mut result, "stopped", stopped);
-    }
-    let reads = steps.iter().any(|step| {
-        matches!(
-            step.get("action").and_then(Value::as_str),
-            Some("read" | "find")
-        )
-    });
-    let mut report_params = params.clone();
-    if finished && reads && params.get("report").is_none() {
-        put(&mut report_params, "report", json!("outcome"));
-    }
-    let (tab_id, _) = resolve_tab(manager, agent_id, current_tab.as_deref())?;
-    merge(
-        result,
-        report(manager, agent_id, &tab_id, &report_params, false).await?,
-    )
-}
-
-fn step_call(step: &Value) -> Result<(&'static str, Value), String> {
-    let method = match step.get("action").and_then(Value::as_str) {
-        Some("click") => "browser.click",
-        Some("type") => "browser.type",
-        Some("press") => "browser.press",
-        Some("navigate") => "browser.navigate",
-        Some("wait") => "browser.wait",
-        Some("find") => "browser.find",
-        Some("read") => "browser.state",
-        _ => {
-            return Err(
-                "each step's action must be click, type, press, navigate, wait, find or read"
-                    .into(),
-            )
-        }
-    };
-    let mut params = step.clone();
-    if let Value::Object(map) = &mut params {
-        map.remove("action");
-        map.insert("report".into(), json!("outcome"));
-        if method == "browser.wait" && wait_condition(step).is_none() {
-            let pause = map.remove("timeoutMs").unwrap_or(json!(1000));
-            map.insert("ms".into(), pause);
-        }
-    }
-    Ok((method, params))
-}
-
-/// Why a step that answered still did not do what it was for: a wait that ran
-/// out, or a page that failed to load.
-fn step_failure(result: &Value) -> Option<String> {
-    if result["met"] == json!(false) {
-        let failing = result["failing"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .collect::<Vec<_>>()
-            .join("; ");
-        return Some(format!(
-            "waited {} ms, and still {failing}",
-            result["waitedMs"]
-        ));
-    }
-    result["loadError"].as_str().map(str::to_owned)
-}
-
-/// What one step did, without the page details every step would repeat.
-fn step_summary(step: &Value, mut result: Value) -> Value {
-    if let Value::Object(map) = &mut result {
-        for key in ["tabId", "url", "title", "loading", "tabs", "visible"] {
-            map.remove(key);
-        }
-        map.insert("action".into(), step["action"].clone());
-    }
-    result
-}
-
-/// Why the steps after this one cannot run on the page it left the tab on.
-fn blocks_the_rest(before: &Value, now: &Value, rest: &[Value]) -> Option<&'static str> {
-    if now.get("dialog").is_some() {
-        return Some(
-            "a dialog opened, so the steps after it were not run; answer it with browser_dialog",
-        );
-    }
-    if before["tabId"] != now["tabId"] {
-        return Some("another tab came to the front, so the steps after it were not run");
-    }
-    let moved = now["loading"] == json!(true) || before["url"] != now["url"];
-    let by_place = rest.iter().any(|step| {
-        ["index", "x", "y"]
-            .iter()
-            .any(|key| step.get(*key).is_some())
-    });
-    (moved && by_place).then_some(
-        "the page moved on, and a later step names an element by number or point from the old page, so the steps after it were not run",
-    )
 }
 
 /// Whether `script` reads as an expression or as statements, or the syntax error that
@@ -2312,23 +2129,7 @@ mod tests {
         assert!(!brings_the_desk_out("browser.page", false));
         assert!(brings_the_desk_out("browser.state", true));
         assert!(brings_the_desk_out("browser.navigate", false));
-    }
-
-    #[test]
-    fn a_step_becomes_its_tool_call_and_reports_only_what_it_did() {
-        let (method, params) =
-            step_call(&json!({ "action": "type", "index": 3, "text": "hi" })).unwrap();
-        assert_eq!(method, "browser.type");
-        assert_eq!(
-            params,
-            json!({ "index": 3, "text": "hi", "report": "outcome" })
-        );
-        assert!(step_call(&json!({ "action": "act" })).is_err());
-        let summary = step_summary(
-            &json!({ "action": "press", "key": "Enter" }),
-            json!({ "pressed": "Enter", "url": "https://a.test", "tabId": "t", "loading": false }),
-        );
-        assert_eq!(summary, json!({ "pressed": "Enter", "action": "press" }));
+        assert!(brings_the_desk_out("browser.drive", false));
     }
 
     #[test]

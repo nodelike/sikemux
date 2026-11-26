@@ -7,6 +7,7 @@ description = "The browser engine: tabs, their pages and the agents' tools, with
 
 [dependencies]
 base64.workspace = true
+rquickjs = { version = "0.14", default-features = false, features = ["std", "futures", "disable-assertions"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sikemux-base = { path = "../sikemux-base" }

@@ -156,6 +156,12 @@ opt-level = "z"
 # The browser's tabs and tools act on a click or an agent's call; WebKit draws the pages.
 [profile.release.package.sikemux-browser]
 opt-level = "z"
+[profile.release.package.rquickjs]
+opt-level = "z"
+[profile.release.package.rquickjs-core]
+opt-level = "z"
+[profile.release.package.rquickjs-sys]
+opt-level = "z"
 
 # Plugins never sit on a hot path, so they go further and are built for the
 # smallest size.

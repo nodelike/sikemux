@@ -134,7 +134,7 @@ fn named(name: &str, tool: &ToolCall, args: &Map<String, Value>) -> Option<Kind>
         "git_commit" => (F::Git, I::Commit, None),
         "who_wrote" | "why" => (F::Git, I::Query, None),
         "browser_navigate" | "navigate" | "preview_start" => (F::Browser, I::Open, None),
-        "browser_click" | "browser_act" | "browser_drag" | "browser_scroll" | "computer" => {
+        "browser_click" | "browser_drive" | "browser_drag" | "browser_scroll" | "computer" => {
             (F::Browser, I::Click, None)
         }
         "browser_type" | "browser_press" | "browser_upload" | "form_input" => {

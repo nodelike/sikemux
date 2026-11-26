@@ -1404,3 +1404,77 @@ fn every_manifest_tool_is_reached_through_gateway_call_and_folds_under_its_own_n
         );
     }
 }
+
+#[test]
+fn tab_turns_run_distinct_tabs_in_parallel_and_serialize_same_tab() {
+    use std::sync::Barrier;
+
+    assert_eq!(
+        tab_lock_key("browser.click", &json!({ "tabId": "tab-a" })).as_deref(),
+        Some("tab:tab-a")
+    );
+    assert_eq!(
+        tab_lock_key("browser.click", &json!({ "tabId": "tab-b" })).as_deref(),
+        Some("tab:tab-b")
+    );
+    assert_eq!(
+        tab_lock_key("browser.click", &json!({})).as_deref(),
+        Some("active")
+    );
+    assert_eq!(
+        tab_lock_key(
+            "browser.navigate",
+            &json!({ "url": "https://a.test", "newTab": true })
+        ),
+        None
+    );
+    assert_eq!(
+        tab_lock_key("browser.drive", &json!({ "script": "return 1" })),
+        None
+    );
+
+    // Two concurrent workers targeting different tabs must both hold their locks at once.
+    let turns = Arc::new(TabTurns::default());
+    let both_entered = Arc::new(Barrier::new(2));
+    let t1 = {
+        let turns = Arc::clone(&turns);
+        let barrier = Arc::clone(&both_entered);
+        let (q, ticket) = turns.take("tab:one");
+        std::thread::spawn(move || {
+            let _guard = q.wait(ticket);
+            barrier.wait();
+        })
+    };
+    let t2 = {
+        let turns = Arc::clone(&turns);
+        let barrier = Arc::clone(&both_entered);
+        let (q, ticket) = turns.take("tab:two");
+        std::thread::spawn(move || {
+            let _guard = q.wait(ticket);
+            barrier.wait();
+        })
+    };
+    t1.join().expect("tab one completed without deadlock");
+    t2.join().expect("tab two completed without deadlock");
+
+    // Two tickets on the same tab must run strictly in ticket order.
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let (q1, tk1) = turns.take("tab:same");
+    let (q2, tk2) = turns.take("tab:same");
+    let order2 = Arc::clone(&order);
+    let second = std::thread::spawn(move || {
+        let _guard = q2.wait(tk2);
+        order2.locked().push(2);
+    });
+    let first = {
+        let order1 = Arc::clone(&order);
+        std::thread::spawn(move || {
+            let _guard = q1.wait(tk1);
+            std::thread::sleep(Duration::from_millis(25));
+            order1.locked().push(1);
+        })
+    };
+    first.join().expect("first ticket");
+    second.join().expect("second ticket");
+    assert_eq!(*order.locked(), vec![1, 2]);
+}

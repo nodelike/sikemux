@@ -38,7 +38,7 @@ For one area in depth, call `guide` with one of these as `topic`:
 - `pages` — charts, tables, diagrams and mockups shown to the person
 - `theme` — restyling Sikemux
 - `browser-reading` — page state, report modes, element numbers, `browser_find`, frames
-- `browser-input` — clicking, typing, `browser_act`, keys, drag, upload, dialogs
+- `browser-input` — clicking, typing, `browser_drive`, keys, drag, upload, dialogs
 - `browser-pages` — navigating, reloading, waiting, local files, viewports, tabs
 - `browser-evidence` — `browser_screenshot`, `browser_annotate`, `browser_record`
 - `browser-debugging` — network, console, `app_console`, `browser_evaluate`
@@ -397,13 +397,16 @@ click instead, and `expectLabel` fails a click that would land elsewhere.
 without one it adds at the caret, unless `replace: true`. Check the returned
 `value` and any `warning`. On a `<select>` it picks the matching option.
 
-`browser_act` plays up to 20 `steps` in one call; use it whenever you know the
-next steps. Each step is an `action` (`navigate`, `click`, `type`, `press`,
-`wait`, `find`, `read`) with its tool's fields. Name elements by `text`,
-`field` or `selector`, not by number, and put a `wait` after a step that loads
-a page. It stops at the first failed step, or when the page moves on before a
-step that uses `index` or `x`, `y`; `stopped` says where and why. A call that
-runs long stops early and says which steps to send again.
+`browser_drive` runs a sandboxed async JS script on the host with a `browser`
+SDK (`browser.tabs()`, `browser.open(url, { background? })`, `browser.tab(id?)`)
+and `Tab` handles (`goto`, `click`, `hover`, `type`, `press`, `scroll`, `wait`,
+`state`, `find`, `eval`, `screenshot`, `console`, `network`, `viewport`,
+`close`). Use it for multi-step flows, branching, loops, and parallel multi-tab
+work with `Promise.all([...])` — returning only the structured JSON you need.
+Every call routes through Sikemux's gated primitives (real OS input and
+production write gates). Pass `{ optional: true }` or use `try/catch` for
+optional steps; a held production write aborts immediately and returns
+`{ ok: false, heldAt, completedSteps, error }`.
 
 `browser_press` holds modifiers with `+`, as in `Shift+Tab`; `Meta` is
 Command. `Meta+a`, `Meta+c`, `Meta+x`, `Meta+v`, `Meta+z` and `Shift+Meta+z`
@@ -506,7 +509,9 @@ never reached the server.
 misbehaves rather than a page. After the app was relaunched, `previous: true`
 reads the errors of the run before.
 
-`browser_evaluate` returns nothing from statements without a `return`.
+`browser_evaluate` runs a single-tab in-page DOM expression and returns JSON
+(use `browser_drive` for multi-step, cross-tab, or interactive flows). Statements
+without a `return` return nothing.
 Promises are awaited up to `timeoutMs` (60 seconds at most). Use it only when
 no other tool reads what you need, and act with the other tools, which send
 real input. A script that reloads or leaves the page loses its result. It runs

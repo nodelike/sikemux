@@ -85,12 +85,12 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
-        "browser_act",
+        "browser_drive",
         Spec {
-            verb: "act",
+            verb: "drive",
             kind: "edit",
             icon: "steps",
-            target: &["{steps}-step sequence"],
+            target: &["{script}"],
             detail: &[],
             plugin: None,
         },

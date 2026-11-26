@@ -2834,11 +2834,11 @@ mod tool_labels {
         );
         assert_eq!(kept.as_ref().map(|kept| &kept["index"]), Some(&json!(3)));
 
-        let (_, steps) = kept_while_running_and_once_finished(
-            "mcp__sikemux-tools__browser_act",
-            json!({ "steps": [{ "action": "click" }, { "action": "press" }] }),
+        let (_, drive) = kept_while_running_and_once_finished(
+            "mcp__sikemux-tools__browser_drive",
+            json!({ "script": "return browser.tabs()" }),
         );
-        assert_eq!(steps, Some(json!({ "steps": 2 })));
+        assert_eq!(drive, Some(json!({ "script": "return browser.tabs()" })));
     }
 
     #[test]
@@ -2980,12 +2980,12 @@ fn our_tools_show_paths_by_name_lists_joined_or_counted_and_waits_as_durations()
         json!({ "paths": ["/tmp/a.png", "/tmp/b.pdf"] }),
     );
     assert_eq!(upload.target, "a.png, b.pdf");
-    let act = row_of(
-        "mcp__sikemux-tools__browser_act",
+    let drive = row_of(
+        "mcp__sikemux-tools__browser_drive",
         None,
-        json!({ "steps": [{ "action": "click" }, { "action": "press" }] }),
+        json!({ "script": "return browser.tabs()" }),
     );
-    assert_eq!(act.target, "2-step sequence");
+    assert_eq!(drive.target, "return browser.tabs()");
     assert_eq!(
         row_of("mcp__sikemux-tools__browser_screenshot", None, json!({})).target,
         ""

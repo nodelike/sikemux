@@ -21,7 +21,6 @@
       "description": "Go to a URL, back, forward or reload; waits for the page.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -34,7 +33,7 @@
           "type": "boolean"
         },
         "background": {
-          "description": "Open or reuse without switching the active tab or opening a shut desk",
+          "description": "Do not switch active tab or open desk",
           "type": "boolean"
         },
         "go": {
@@ -106,7 +105,6 @@
       "description": "Read the tab: numbered elements, text, tabs, downloads.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -146,7 +144,6 @@
       "description": "Find elements by visible text or accessible name.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -173,7 +170,6 @@
       "description": "Click an element by number, text, selector or point.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -235,7 +231,6 @@
       "description": "Type into a field, replacing it or at the caret.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -285,7 +280,6 @@
       "description": "Press a key or chord, such as Meta+a.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -307,121 +301,32 @@
       ]
     },
     {
-      "name": "browser_act",
-      "row": {"verb": "act", "kind": "edit", "icon": "steps", "target": ["{steps}-step sequence"]},
-      "method": "browser.act",
-      "description": "Batch navigate, click, type, wait, read.",
+      "name": "browser_drive",
+      "row": {"verb": "drive", "kind": "edit", "icon": "steps", "target": ["{script}"]},
+      "method": "browser.drive",
+      "description": "Drive one or more tabs with a sandboxed async JS script.",
       "properties": {
+        "script": {
+          "description": "Async JS using browser.tabs/open/tab; return JSON",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40000
+        },
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
-        "steps": {
-          "description": "Up to 20 in order; add wait after a page load",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 20,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "action": {
-                "enum": ["navigate", "click", "type", "press", "wait", "find", "read"]
-              },
-              "url": {
-                "type": "string",
-                "maxLength": 8192
-              },
-              "go": {
-                "enum": ["back", "forward", "reload"]
-              },
-              "field": {
-                "description": "type: a field's label, placeholder or name",
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500
-              },
-              "query": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500
-              },
-              "textGone": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500
-              },
-              "selectorGone": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 512
-              },
-              "urlGone": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 2048
-              },
-              "networkIdle": {
-                "type": "boolean"
-              },
-              "timeoutMs": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 60000
-              },
-              "index": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "text": {
-                "type": "string",
-                "maxLength": 20000
-              },
-              "role": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 40
-              },
-              "selector": {
-                "description": "read: whose text to return; default the page",
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 512
-              },
-              "replace": {
-                "type": "boolean"
-              },
-              "expectLabel": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 500
-              },
-              "x": {
-                "type": "number",
-                "minimum": 0
-              },
-              "y": {
-                "type": "number",
-                "minimum": 0
-              },
-              "submit": {
-                "type": "boolean"
-              },
-              "key": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 24
-              }
-            },
-            "required": ["action"]
-          }
+        "timeoutMs": {
+          "description": "Default 45000",
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 115000
         },
-        "report": {
-          "enum": ["outcome", "changes", "full"]
+        "background": {
+          "type": "boolean"
         }
       },
-      "required": ["steps"]
+      "required": ["script"]
     },
     {
       "name": "browser_drag",
@@ -430,7 +335,6 @@
       "description": "Drag from one element or point to another.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -475,7 +379,6 @@
       "description": "Give files to a file input.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -528,7 +431,6 @@
       "description": "Answer an alert, confirm or prompt.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -558,7 +460,6 @@
       "description": "Set this tab's viewport.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -586,7 +487,6 @@
       "description": "Scroll to an element, by deltaY, or to an end.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -628,10 +528,9 @@
       "name": "browser_evaluate",
       "row": {"verb": "eval", "kind": "execute", "icon": "code", "target": ["{script}"]},
       "method": "browser.evaluate",
-      "description": "Run a script in the page; returns JSON.",
+      "description": "Run a single-tab DOM expression; use browser_drive for flows.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -658,7 +557,6 @@
       "description": "Page requests with status and body.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -705,7 +603,6 @@
       "description": "Page console messages and errors.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -728,7 +625,6 @@
       "description": "Capture the tab or the whole page.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -770,7 +666,6 @@
       "description": "Box an element or caption the page.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -809,7 +704,6 @@
       "description": "Record this tab to MP4, or stop.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
@@ -831,7 +725,6 @@
       "description": "Wait for text, a selector, a URL or quiet network.",
       "properties": {
         "tabId": {
-          "description": "Target tab id; default the active tab",
           "type": "string",
           "maxLength": 128
         },
