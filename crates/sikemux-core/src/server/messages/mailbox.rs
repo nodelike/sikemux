@@ -162,7 +162,7 @@ pub(crate) struct Loop {
 /// seen to take.
 pub(super) struct Pasted {
     pub(super) texts: Vec<Queued>,
-    /// When Enter was sent, once it was.
+    /// When Enter was sent, once it was, by the core's uptime as the terminal's output is timed.
     pub(super) entered_at: Option<u64>,
 }
 

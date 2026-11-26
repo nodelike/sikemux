@@ -1022,3 +1022,102 @@ async fn sleeping_timer_and_done_workers_do_not_block_calm_report_wake() {
     assert!(!mailbox.has_calm_waiting_on_siblings("chief"));
     assert!(mailbox.calm_until("chief").expect("due") <= epoch_ms());
 }
+
+fn pasted_for(core: &Core, agent_id: &str, texts: &[&str]) {
+    let texts = texts
+        .iter()
+        .map(|text| Queued {
+            text: (*text).to_owned(),
+            origin: Some(Origin {
+                from: "agent-chief".to_owned(),
+                kind: MessageKind::Message,
+                awaited: false,
+                calm: None,
+            }),
+            mark: None,
+            paths: Vec::new(),
+        })
+        .collect();
+    core.harness().mailbox.state.locked().pasted.insert(
+        agent_id.to_owned(),
+        mailbox::Pasted {
+            texts,
+            entered_at: None,
+        },
+    );
+}
+
+/// @Kirishima, in its terminal, read the messages pasted into it and answered for a minute,
+/// yet each one went back to wait and was pasted again when it came to rest, 35 times over.
+#[tokio::test]
+async fn a_paste_the_agent_answered_is_delivered_once() {
+    let core = Core::new(Default::default(), None).unwrap();
+    pasted_for(&core, "agent-kirishima", &["Keep building it locally."]);
+    delivery::entered(&core, "agent-kirishima");
+
+    let answered_until = core.uptime_ms() + TURN_OUTPUT_MS + 60_000;
+    prompt_settled(&core, "agent-kirishima", answered_until);
+
+    let mailbox = &core.harness().mailbox;
+    assert!(!mailbox
+        .state
+        .locked()
+        .pasted
+        .contains_key("agent-kirishima"));
+    assert!(
+        !mailbox.has_waiting("agent-kirishima"),
+        "the paste went back to wait"
+    );
+}
+
+/// A paste the agent's terminal swallows counts toward giving up on typing into it, even when
+/// the agent is seen at work before Enter reaches it.
+#[tokio::test]
+async fn a_missed_paste_still_counts_when_the_agent_looks_busy_before_enter() {
+    let core = Core::new(Default::default(), None).unwrap();
+    let mailbox = &core.harness().mailbox;
+    mailbox
+        .state
+        .locked()
+        .missed_pastes
+        .insert("agent-kirishima".to_owned(), 2);
+    pasted_for(&core, "agent-kirishima", &["Keep building it locally."]);
+
+    prompt_taken(&core, "agent-kirishima");
+
+    assert_eq!(mailbox.missed_pastes("agent-kirishima"), 2);
+}
+
+/// Stopping a worker between turns still empties what waits for it, so it is not woken again
+/// by the same messages.
+#[tokio::test]
+async fn stopping_an_agent_between_turns_drops_what_waits_for_it() {
+    let core = Core::new(Default::default(), None).unwrap();
+    pasted_for(&core, "agent-kirishima", &["Keep building it locally."]);
+    let mailbox = &core.harness().mailbox;
+    mailbox.wait(
+        "agent-kirishima",
+        Queued {
+            text: "List every Teams channel.".to_owned(),
+            origin: Some(Origin {
+                from: "agent-chief".to_owned(),
+                kind: MessageKind::Message,
+                awaited: false,
+                calm: None,
+            }),
+            mark: None,
+            paths: Vec::new(),
+        },
+    );
+
+    let stopped =
+        crate::server::agent_stop::stop_here(&core, "agent-kirishima", "agent-chief").await;
+
+    assert_eq!(stopped, Ok(true));
+    assert!(!mailbox.has_waiting("agent-kirishima"));
+    assert!(!mailbox
+        .state
+        .locked()
+        .pasted
+        .contains_key("agent-kirishima"));
+}
