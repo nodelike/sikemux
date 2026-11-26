@@ -170,7 +170,7 @@ fn named(name: &str, tool: &ToolCall, args: &Map<String, Value>) -> Option<Kind>
             let (prefix, _) = name.split_once('_')?;
             let family = match prefix {
                 "bitbucket" | "forgejo" | "github" | "gitlab" => F::Git,
-                "signoz" | "aws" | "rundeck" | "vercel" | "db" | "app" => F::Ops,
+                "signoz" | "aws" | "rundeck" | "vercel" | "cloudflare" | "db" | "app" => F::Ops,
                 "jira" | "board" | "linear" => F::Trackers,
                 _ => return None,
             };
@@ -196,7 +196,14 @@ fn service(server: &str, name: &str) -> ToolFamily {
     } else if has(&["jira", "atlassian", "linear", "confluence"]) {
         ToolFamily::Trackers
     } else if has(&[
-        "sentry", "datadog", "grafana", "vercel", "aws", "postgres", "supabase",
+        "sentry",
+        "datadog",
+        "grafana",
+        "vercel",
+        "cloudflare",
+        "aws",
+        "postgres",
+        "supabase",
     ]) {
         ToolFamily::Ops
     } else {
@@ -213,6 +220,7 @@ fn service_intent(name: &str) -> ToolIntent {
             !matches!(
                 *word,
                 "bitbucket"
+                    | "cloudflare"
                     | "github"
                     | "jira"
                     | "board"
@@ -226,44 +234,50 @@ fn service_intent(name: &str) -> ToolIntent {
         })
         .unwrap_or(&name);
     let starts = |words: &[&str]| words.iter().any(|word| first.starts_with(word));
-    if starts(&[
-        "get",
-        "list",
-        "search",
-        "read",
-        "query",
-        "find",
-        "fetch",
-        "logs",
-        "traces",
-        "issue",
-        "pull",
-        "pipeline",
-        "step",
-        "execution",
-        "metrics",
-        "services",
-        "fields",
-        "dashboards",
-        "describe",
-        "tables",
-        "databases",
-        "identity",
-        "profiles",
-        "cost",
-        "projects",
-        "deployment",
-        "domains",
-        "env",
-        "comments",
-        "console",
-        "jobs",
-        "plan",
-        "target",
-        "task",
-        "ec2",
-        "ecs",
-    ]) {
+    if name.ends_with("_list")
+        || starts(&[
+            "get",
+            "list",
+            "search",
+            "read",
+            "query",
+            "find",
+            "fetch",
+            "logs",
+            "traces",
+            "issue",
+            "pull",
+            "pipeline",
+            "step",
+            "execution",
+            "metrics",
+            "services",
+            "fields",
+            "dashboards",
+            "describe",
+            "tables",
+            "databases",
+            "identity",
+            "profiles",
+            "cost",
+            "projects",
+            "deployment",
+            "domains",
+            "env",
+            "comments",
+            "console",
+            "jobs",
+            "plan",
+            "target",
+            "task",
+            "ec2",
+            "ecs",
+            "accounts",
+            "zones",
+            "workers",
+            "pages",
+        ])
+    {
         ToolIntent::Query
     } else {
         ToolIntent::Use

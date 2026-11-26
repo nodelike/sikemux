@@ -72,7 +72,7 @@ pub struct Tokens {
     #[serde(default = "an_hour")]
     pub expires_in: u64,
     /// What the grant allows, for a service that says.
-    #[serde(default)]
+    #[serde(default, alias = "scope")]
     pub scopes: String,
 }
 
@@ -103,8 +103,11 @@ fn refusal(bytes: &[u8]) -> Option<String> {
 }
 
 impl OAuthApp {
-    /// A build without the secret a service needs can only take a pasted token.
+    /// A build without the client or secret a service needs can only take a pasted token.
     pub fn available(&self) -> bool {
+        if self.client_id.is_empty() {
+            return false;
+        }
         match self.secret {
             Secret::None => true,
             Secret::Compiled(secret) => secret.is_some_and(|secret| !secret.is_empty()),
@@ -112,6 +115,11 @@ impl OAuthApp {
     }
 
     fn secret<S>(&self) -> Result<Option<&'static str>, ServiceError<S>> {
+        if self.client_id.is_empty() {
+            return Err(ServiceError::Auth(
+                "this build cannot sign in through the browser; paste a token instead".into(),
+            ));
+        }
         match self.secret {
             Secret::None => Ok(None),
             Secret::Compiled(secret) => secret

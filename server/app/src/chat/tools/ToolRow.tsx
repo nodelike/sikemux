@@ -80,6 +80,7 @@ import {
   Logo,
 } from "@shared/ui/Icons";
 import bitbucketMark from "../../../../../app/assets/icons/bitbucket.svg";
+import cloudflareMark from "../../../../../app/assets/icons/cloudflare.svg";
 import forgejoMark from "../../../../../app/assets/icons/forgejo.svg";
 import giteaMark from "../../../../../app/assets/icons/gitea.svg";
 import githubMark from "../../../../../app/assets/icons/github.svg";
@@ -132,6 +133,7 @@ const TOOL_ICONS: Record<ToolIconName, ComponentType<{ size?: number }>> = {
   timer: IconTimer,
   user: IconUser,
   bitbucket: brandMark(bitbucketMark),
+  cloudflare: brandMark(cloudflareMark),
   forgejo: brandMark(forgejoMark),
   gitea: brandMark(giteaMark),
   github: brandMark(githubMark),

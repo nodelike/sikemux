@@ -66,6 +66,7 @@ icons!(
     Click => "click",
     Clock => "clock",
     Close => "close",
+    Cloudflare => "cloudflare",
     Code => "code",
     Codex => "codex",
     CollapseAll => "collapse-all",

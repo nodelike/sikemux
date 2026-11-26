@@ -273,6 +273,10 @@ fn production_fact(ship: &Ship, addresses: &str, found_in: Option<String>) -> Op
             "Production on Vercel".to_owned(),
             Recognise::VercelTarget { production: true },
         )),
+        Target::CloudflareZone { zone } => Some(place(
+            format!("{zone} on Cloudflare"),
+            Recognise::CloudflareZone { zone: zone.clone() },
+        )),
         Target::RundeckJob {
             path,
             production: true,
@@ -407,6 +411,7 @@ fn not_production_fact(ship: &Ship) -> bool {
 fn program_of(ship: &Ship) -> String {
     match ship.target.as_ref().map(Target::bare) {
         Some(Target::Database { .. }) => "database write".to_owned(),
+        Some(Target::CloudflareZone { .. }) => "Cloudflare write".to_owned(),
         Some(Target::GitHub { .. }) => "GitHub write".to_owned(),
         _ => match ship.kind {
             ShipKind::Publish => "publish".to_owned(),
@@ -429,6 +434,7 @@ pub fn seen_key(ship: &Ship) -> (String, String) {
         Some(Target::TerraformWorkspace { name }) => format!("Terraform workspace {name}"),
         Some(Target::Workflow { file, .. }) => format!("the {file} workflow"),
         Some(Target::Stage { tool, name }) => format!("{name} on {tool}"),
+        Some(Target::CloudflareZone { zone }) => format!("{zone} on Cloudflare"),
         _ => {
             let words: Vec<&str> = (ship.what.split_whitespace())
                 .filter(|word| !word.starts_with('-') && !word.contains('='))
@@ -459,6 +465,7 @@ pub fn fact_of_seen(ship: &Ship) -> Recognise {
             tool: tool.clone(),
             name: name.clone(),
         },
+        Some(Target::CloudflareZone { zone }) => Recognise::CloudflareZone { zone: zone.clone() },
         _ => Recognise::Command {
             words: seen_key(ship).1,
         },
@@ -636,5 +643,45 @@ mod tests {
         let judged = judged(&project(), true, &ship, "Ada");
         assert_eq!(judged.goes, Goes::Asks);
         assert!(judged.keep);
+    }
+
+    #[test]
+    fn cloudflare_zone_writes_hold_by_default_and_respect_per_zone_level() {
+        let write = |zone: &str| Ship {
+            kind: ShipKind::ProductionWrite,
+            what: format!("cloudflare_dns_upsert {{\"zone\":\"{zone}\"}}"),
+            target: Some(Target::CloudflareZone {
+                zone: zone.to_owned(),
+            }),
+        };
+        let prod = judged(&[], true, &write("sikemux.com"), "Ada");
+        assert_eq!(prod.goes, Goes::Asks);
+        assert!(prod.keep);
+        assert_eq!(
+            prod.place.as_ref().map(|place| place.shown.name.as_str()),
+            Some("sikemux.com on Cloudflare")
+        );
+        assert_eq!(
+            prod.place.as_ref().map(|place| place.shown.kind),
+            Some(sikemux_view::places::PlaceKind::Cloudflare)
+        );
+
+        let mut relaxed = new_place(
+            "sandbox.example on Cloudflare",
+            true,
+            vec![Recognise::CloudflareZone {
+                zone: "sandbox.example".into(),
+            }],
+            None,
+        );
+        relaxed.shown.level = Level::Yours;
+        assert_eq!(
+            judged(&[relaxed.clone()], true, &write("sandbox.example"), "Ada").goes,
+            Goes::Freely
+        );
+        assert_eq!(
+            judged(&[relaxed], true, &write("sikemux.com"), "Ada").goes,
+            Goes::Asks
+        );
     }
 }

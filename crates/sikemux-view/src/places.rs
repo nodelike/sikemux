@@ -27,6 +27,7 @@ pub enum Level {
 #[serde(rename_all = "camelCase")]
 pub enum PlaceKind {
     Vercel,
+    Cloudflare,
     Github,
     Database,
     Aws,
@@ -55,6 +56,9 @@ pub enum Recognise {
     },
     VercelTarget {
         production: bool,
+    },
+    CloudflareZone {
+        zone: String,
     },
     AwsProfile {
         name: String,

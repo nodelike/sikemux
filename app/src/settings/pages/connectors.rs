@@ -32,7 +32,7 @@ use crate::workbench::Workbench;
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[Entry] = &[
     section(Connectors, "Account vault", "vault recovery key sealed sign-ins hosts"),
-    section(Connectors, "Connectors", "aws bitbucket database postgres postgresql mysql sqlite sql github gitlab forgejo gitea codeberg jira linear rundeck signoz slack vercel sign in sign out login logout token account enable disable switch off turn on integrations plugins connectors"),
+    section(Connectors, "Connectors", "aws bitbucket cloudflare dns zones workers pages database postgres postgresql mysql sqlite sql github gitlab forgejo gitea codeberg jira linear rundeck signoz slack vercel sign in sign out login logout token account enable disable switch off turn on integrations plugins connectors"),
 ];
 
 const RUNDECK: &str = "sikemux.rundeck";

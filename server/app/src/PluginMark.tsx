@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 /** The marks the desktop app draws for its connectors, read from its own files. */
 const MARKS = import.meta.glob<string>(
-  "../../../app/assets/icons/{bitbucket,database,forgejo,github,gitlab,googleplay,jira,linear,rundeck,signoz,slack,vercel}.svg",
+  "../../../app/assets/icons/{bitbucket,cloudflare,database,forgejo,github,gitlab,googleplay,jira,linear,rundeck,signoz,slack,vercel}.svg",
   { query: "?raw", import: "default", eager: true },
 );
 

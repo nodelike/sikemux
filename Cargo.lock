@@ -10308,6 +10308,7 @@ dependencies = [
  "sikemux-plugin-api",
  "sikemux-plugin-aws",
  "sikemux-plugin-bitbucket",
+ "sikemux-plugin-cloudflare",
  "sikemux-plugin-database",
  "sikemux-plugin-forgejo",
  "sikemux-plugin-github",
@@ -10500,6 +10501,20 @@ dependencies = [
  "serde_json",
  "sikemux-plugin-api",
  "time",
+ "tokio",
+ "url",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-plugin-cloudflare"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sikemux-plugin-api",
  "tokio",
  "url",
  "workspace-hack",

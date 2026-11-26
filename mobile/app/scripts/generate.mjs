@@ -22,6 +22,7 @@ const LOGO_FILES = { IconCodex: 'codex.svg', IconOmp: 'omp.svg', IconMuse: 'muse
 const SERVICE_FILES = {
   IconGithub: 'github.svg',
   IconBitbucket: 'bitbucket.svg',
+  IconCloudflare: 'cloudflare.svg',
   IconJira: 'jira.svg',
   IconGitlab: 'gitlab.svg',
   IconForgejo: 'forgejo.svg',

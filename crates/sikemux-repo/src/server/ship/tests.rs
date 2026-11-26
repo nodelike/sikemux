@@ -1,5 +1,5 @@
 use super::gate::github_write;
-use super::tools::{rundeck_target, vercel_redeploy_target};
+use super::tools::{cloudflare_zone_target, rundeck_target, vercel_redeploy_target};
 
 /// @Yanagi's writes to GitHub each asked "Change writes on GitHub's API with this work?",
 /// five cards the person couldn't tell apart.
@@ -77,5 +77,30 @@ fn connector_lookup_errors_fail_closed_and_vercel_target_is_case_insensitive() {
     assert_eq!(
         vercel_redeploy_target(None, || Ok(json!({ "target": "preview" }))),
         Ok(Target::Vercel { production: false })
+    );
+
+    assert!(cloudflare_zone_target(None, || Err("unused".into())).is_err());
+    assert!(
+        cloudflare_zone_target(Some("023e105f4ecef8ad9ca31a8372d0c353"), || Err(
+            "api error".into()
+        ))
+        .is_err()
+    );
+    assert!(
+        cloudflare_zone_target(Some("023e105f4ecef8ad9ca31a8372d0c353"), || Ok(json!({}))).is_err()
+    );
+    assert_eq!(
+        cloudflare_zone_target(Some("023e105f4ecef8ad9ca31a8372d0c353"), || Ok(
+            json!({ "name": "Sikemux.COM." })
+        )),
+        Ok(Target::CloudflareZone {
+            zone: "sikemux.com".into(),
+        })
+    );
+    assert_eq!(
+        cloudflare_zone_target(Some("Sikemux.COM."), || Err("unused".into())),
+        Ok(Target::CloudflareZone {
+            zone: "sikemux.com".into(),
+        })
     );
 }

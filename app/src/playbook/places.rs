@@ -384,6 +384,7 @@ fn mark(place: &Place, cx: &App) -> AnyElement {
     let tool = place.name.rsplit_once(" on ").map(|(_, tool)| tool);
     let icon = match place.kind {
         PlaceKind::Vercel => Icon::Vercel,
+        PlaceKind::Cloudflare => Icon::Cloudflare,
         PlaceKind::Github => Icon::Github,
         PlaceKind::Aws => Icon::Aws,
         PlaceKind::Rundeck => Icon::Rundeck,
@@ -394,12 +395,14 @@ fn mark(place: &Place, cx: &App) -> AnyElement {
         PlaceKind::Site => site_mark(&place.name),
         PlaceKind::Connector => connector_mark(&place.name),
         PlaceKind::Other => {
+            if matches!(tool, Some("Cloudflare" | "Cloudflare Workers" | "Wrangler")) {
+                return ui::picture(Icon::Cloudflare, 14., tint);
+            }
             let file = match tool {
                 Some("Heroku") => "heroku",
                 Some("Firebase") => "firebase",
                 Some("Netlify") => "netlify",
                 Some("Supabase") => "supabase",
-                Some("Cloudflare" | "Cloudflare Workers" | "Wrangler") => "wrangler",
                 Some("Serverless") => "serverless",
                 _ if place.name.contains("npm") => "npm",
                 _ => return ui::picture(Icon::Server, 14., tint),
@@ -447,6 +450,7 @@ fn connector_mark(name: &str) -> Icon {
         ("forgejo", Icon::Forgejo),
         ("gitea", Icon::Gitea),
         ("bitbucket", Icon::Bitbucket),
+        ("cloudflare", Icon::Cloudflare),
         ("vercel", Icon::Vercel),
         ("rundeck", Icon::Rundeck),
         ("aws", Icon::Aws),

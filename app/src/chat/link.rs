@@ -36,6 +36,8 @@ pub fn service_mark(href: &str) -> Option<Icon> {
         Icon::Linear
     } else if on("vercel.com") || on("vercel.app") {
         Icon::Vercel
+    } else if on("cloudflare.com") || on("pages.dev") || on("workers.dev") {
+        Icon::Cloudflare
     } else if on("slack.com") {
         Icon::Slack
     } else if on("aws.amazon.com") || on("amazonaws.com") {

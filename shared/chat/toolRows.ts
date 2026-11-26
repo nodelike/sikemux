@@ -12,6 +12,7 @@ export type ToolRowIcon =
     | "click"
     | "clock"
     | "close"
+    | "cloudflare"
     | "code"
     | "commit"
     | "cube"

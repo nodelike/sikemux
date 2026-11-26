@@ -12,11 +12,12 @@ name = "sikemux-host"
 path = "src/main.rs"
 
 [features]
-default = ["aws", "bitbucket", "database", "forgejo", "github", "gitlab", "googleplay", "jira", "linear", "rundeck", "signoz", "slack", "vercel"]
+default = ["aws", "bitbucket", "cloudflare", "database", "forgejo", "github", "gitlab", "googleplay", "jira", "linear", "rundeck", "signoz", "slack", "vercel"]
 # Films and pictures only: browser sign-ins end by themselves, with no browser and no Keychain.
 stand-in-sign-ins = []
 aws = ["dep:sikemux-plugin-aws"]
 bitbucket = ["dep:sikemux-plugin-bitbucket"]
+cloudflare = ["dep:sikemux-plugin-cloudflare"]
 forgejo = ["dep:sikemux-plugin-forgejo"]
 gitlab = ["dep:sikemux-plugin-gitlab"]
 googleplay = ["dep:sikemux-plugin-googleplay"]
@@ -52,6 +53,7 @@ sikemux-pty = { path = "../sikemux-pty" }
 sikemux-plugin-api = { path = "../sikemux-plugin-api" }
 sikemux-plugin-aws = { path = "../../plugins/aws", optional = true }
 sikemux-plugin-bitbucket = { path = "../../plugins/bitbucket", optional = true }
+sikemux-plugin-cloudflare = { path = "../../plugins/cloudflare", optional = true }
 sikemux-plugin-forgejo = { path = "../../plugins/forgejo", optional = true }
 sikemux-plugin-gitlab = { path = "../../plugins/gitlab", optional = true }
 sikemux-plugin-database = { path = "../../plugins/database", optional = true }

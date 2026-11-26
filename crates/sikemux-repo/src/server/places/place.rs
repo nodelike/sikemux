@@ -38,6 +38,9 @@ pub fn covers(fact: &Recognise, ship: &Ship) -> bool {
         (Recognise::VercelTarget { production }, Some(Target::Vercel { production: at })) => {
             production == at
         }
+        (Recognise::CloudflareZone { zone }, Some(Target::CloudflareZone { zone: at })) => {
+            zone.eq_ignore_ascii_case(at)
+        }
         (Recognise::AwsProfile { name }, Some(Target::AwsProfile { name: at }))
         | (Recognise::KubeContext { name }, Some(Target::KubeContext { name: at }))
         | (Recognise::TerraformWorkspace { name }, Some(Target::TerraformWorkspace { name: at })) => {
@@ -107,6 +110,7 @@ pub fn kind_of(fact: &Recognise) -> PlaceKind {
     match fact {
         Recognise::RundeckJob { .. } => PlaceKind::Rundeck,
         Recognise::VercelTarget { .. } => PlaceKind::Vercel,
+        Recognise::CloudflareZone { .. } => PlaceKind::Cloudflare,
         Recognise::AwsProfile { .. } => PlaceKind::Aws,
         Recognise::KubeContext { .. } => PlaceKind::Kubernetes,
         Recognise::TerraformWorkspace { .. } => PlaceKind::Terraform,
@@ -131,6 +135,7 @@ pub fn kind_of(fact: &Recognise) -> PlaceKind {
 fn fact_says_production(fact: &Recognise) -> bool {
     match fact {
         Recognise::VercelTarget { production } => *production,
+        Recognise::CloudflareZone { .. } => true,
         Recognise::RundeckJob { path } => (path.split('/').next()).is_some_and(says_production),
         Recognise::AwsProfile { name }
         | Recognise::KubeContext { name }
@@ -254,6 +259,7 @@ pub fn checked(mut place: Place, others: &[Place]) -> Result<Place, String> {
         | Recognise::Site { origin: value }
         | Recognise::Connector { name: value }
         | Recognise::Database { name: value }
+        | Recognise::CloudflareZone { zone: value }
         | Recognise::Package { registry: value }
         | Recognise::Stage { name: value, .. }
         | Recognise::Tag { pattern: value, .. }

@@ -58,6 +58,7 @@ const TOOL_ICONS: Record<ToolIconName, IconName> = {
   click: 'IconClick',
   clock: 'IconClock',
   close: 'IconClose',
+  cloudflare: 'IconCloudflare',
   code: 'IconCode',
   command: 'IconCommand',
   commit: 'IconCommit',

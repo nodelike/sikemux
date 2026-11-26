@@ -169,6 +169,8 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.sikemux-plugin-bitbucket]
 opt-level = "z"
+[profile.release.package.sikemux-plugin-cloudflare]
+opt-level = "z"
 [profile.release.package.sikemux-plugin-database]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-forgejo]

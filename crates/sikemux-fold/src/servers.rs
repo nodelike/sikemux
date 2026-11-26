@@ -15,6 +15,7 @@ const BRANDS: &[&str] = &[
     "forgejo",
     "gitea",
     "bitbucket",
+    "cloudflare",
     "linear",
     "slack",
     "vercel",

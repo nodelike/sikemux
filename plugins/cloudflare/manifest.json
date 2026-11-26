@@ -1,0 +1,151 @@
+{
+  "id": "sikemux.cloudflare",
+  "name": "Cloudflare",
+  "callTimeoutSecs": 60,
+  "accountMethods": ["signIn", "signInWithBrowser", "signOut"],
+  "tokenForm": {
+    "method": "signIn",
+    "lede": "Tools for your agents to manage Cloudflare zones, DNS records, Workers, Pages and cache.",
+    "fields": [
+      {
+        "name": "token",
+        "label": "API token",
+        "placeholder": "Your Cloudflare API token",
+        "secret": true
+      }
+    ],
+    "tokenPage": "https://dash.cloudflare.com/profile/api-tokens?name=Sikemux&accountId=*&zoneId=all&permissionGroupKeys=%5B%7B%22key%22%3A%22zone%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22dns%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22cache_purge%22%2C%22type%22%3A%22purge%22%7D%2C%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22page%22%2C%22type%22%3A%22read%22%7D%5D"
+  },
+  "family": {
+    "name": "cloudflare",
+    "description": "Cloudflare zones, DNS, Workers, Pages and cache."
+  },
+  "tools": [
+    {
+      "name": "cloudflare_accounts",
+      "row": {"verb": "list", "kind": "read", "icon": "cloudflare", "target": ["Cloudflare accounts"]},
+      "method": "accounts",
+      "description": "List authorized Cloudflare accounts.",
+      "properties": {}
+    },
+    {
+      "name": "cloudflare_zones",
+      "row": {"verb": "list", "kind": "read", "icon": "globe", "target": ["{name}", "Cloudflare zones"], "detail": ["{account}"]},
+      "method": "zones",
+      "description": "List Cloudflare zones with status, plan and assigned nameservers.",
+      "properties": {
+        "name": { "type": "string", "description": "Optional domain name filter." },
+        "account": { "type": "string", "description": "Account name or 32-char ID." }
+      }
+    },
+    {
+      "name": "cloudflare_zone_create",
+      "row": {"verb": "create", "kind": "edit", "icon": "globe", "target": ["{name}"], "detail": ["{account}"]},
+      "method": "zone_create",
+      "description": "Add a domain to Cloudflare and return assigned nameservers.",
+      "properties": {
+        "name": { "type": "string", "description": "Domain name, e.g. sikemux.com." },
+        "account": { "type": "string", "description": "Account name or 32-char ID." },
+        "type": { "type": "string", "enum": ["full", "partial", "secondary"], "description": "Default full." },
+        "jumpStart": { "type": "boolean", "description": "Scan common DNS records on creation." }
+      },
+      "required": ["name"]
+    },
+    {
+      "name": "cloudflare_dns_list",
+      "row": {"verb": "list", "kind": "read", "icon": "network", "target": ["{zone} DNS"], "detail": ["{type}", "{format}"]},
+      "method": "dns_list",
+      "description": "List DNS records for a zone by domain name or ID, as JSON or BIND export.",
+      "properties": {
+        "zone": { "type": "string", "description": "Domain name or 32-char zone ID." },
+        "type": { "type": "string", "description": "Filter by record type, e.g. A, CNAME, MX, TXT." },
+        "name": { "type": "string", "description": "Filter by record name." },
+        "format": { "type": "string", "enum": ["json", "bind"], "description": "Default json." },
+        "page": { "type": "integer", "description": "Fetch one page (100 per page). Omit to follow up to 500 records." },
+        "account": { "type": "string", "description": "Account name or 32-char ID." }
+      },
+      "required": ["zone"]
+    },
+    {
+      "name": "cloudflare_dns_upsert",
+      "row": {"verb": "upsert", "kind": "edit", "icon": "network", "target": ["{type} {name} in {zone}", "{zone} DNS"]},
+      "method": "dns_upsert",
+      "description": "Create or update one DNS record. Defaults to proxied: false (DNS-only) and ttl: 1 (Auto).",
+      "properties": {
+        "zone": { "type": "string", "description": "Domain name or 32-char zone ID." },
+        "id": { "type": "string", "description": "Existing record ID to update." },
+        "type": { "type": "string", "description": "Record type: A, AAAA, CNAME, MX, TXT, NS, CAA, SRV." },
+        "name": { "type": "string", "description": "Record name, or @ for zone apex." },
+        "content": { "type": "string", "description": "Record value." },
+        "ttl": { "type": "integer", "description": "TTL in seconds, or 1 for Auto (default 1)." },
+        "proxied": { "type": "boolean", "description": "Orange-cloud proxy (default false)." },
+        "priority": { "type": "integer", "description": "Priority for MX or SRV records." },
+        "comment": { "type": "string", "description": "Optional record note." },
+        "account": { "type": "string", "description": "Account name or 32-char ID." }
+      },
+      "required": ["zone", "type", "name", "content"]
+    },
+    {
+      "name": "cloudflare_dns_delete",
+      "row": {"verb": "delete", "kind": "delete", "icon": "network", "target": ["{id} in {zone}"]},
+      "method": "dns_delete",
+      "description": "Delete a DNS record by ID.",
+      "properties": {
+        "zone": { "type": "string", "description": "Domain name or 32-char zone ID." },
+        "id": { "type": "string", "description": "DNS record ID." },
+        "account": { "type": "string", "description": "Account name or 32-char ID." }
+      },
+      "required": ["zone", "id"]
+    },
+    {
+      "name": "cloudflare_dns_batch",
+      "row": {"verb": "batch", "kind": "edit", "icon": "network", "target": ["{zone} DNS"]},
+      "method": "dns_batch",
+      "description": "Atomically apply deletes, patches, puts and posts to a zone's DNS records in one transaction.",
+      "properties": {
+        "zone": { "type": "string", "description": "Domain name or 32-char zone ID." },
+        "deletes": { "type": "array", "items": { "type": "object" }, "description": "Records to delete: [{id}]." },
+        "patches": { "type": "array", "items": { "type": "object" }, "description": "Partial updates: [{id, ...fields}]." },
+        "puts": { "type": "array", "items": { "type": "object" }, "description": "Full replacements: [{id, type, name, content, ...}]." },
+        "posts": { "type": "array", "items": { "type": "object" }, "description": "Records to create: [{type, name, content, ...}]." },
+        "account": { "type": "string", "description": "Account name or 32-char ID." }
+      },
+      "required": ["zone"]
+    },
+    {
+      "name": "cloudflare_workers",
+      "row": {"verb": "list", "kind": "read", "icon": "bolt", "target": ["{zone} Workers", "{account} Workers", "Cloudflare Workers"]},
+      "method": "workers",
+      "description": "List Workers scripts and bound custom domains or zone routes.",
+      "properties": {
+        "account": { "type": "string", "description": "Account name or 32-char ID." },
+        "zone": { "type": "string", "description": "Optional domain or zone ID to list bound routes." }
+      }
+    },
+    {
+      "name": "cloudflare_pages",
+      "row": {"verb": "list", "kind": "read", "icon": "rocket", "target": ["{account} Pages", "Cloudflare Pages"]},
+      "method": "pages",
+      "description": "List Cloudflare Pages projects and latest deployment status.",
+      "properties": {
+        "account": { "type": "string", "description": "Account name or 32-char ID." }
+      }
+    },
+    {
+      "name": "cloudflare_purge_cache",
+      "row": {"verb": "purge", "kind": "execute", "icon": "refresh", "target": ["{zone} cache"]},
+      "method": "purge_cache",
+      "description": "Purge cached URLs, prefixes, tags, hosts or the full zone cache.",
+      "properties": {
+        "zone": { "type": "string", "description": "Domain name or 32-char zone ID." },
+        "everything": { "type": "boolean", "description": "Purge all cached files in the zone." },
+        "files": { "type": "array", "items": { "type": "string" }, "description": "Full URLs to purge." },
+        "tags": { "type": "array", "items": { "type": "string" }, "description": "Cache-Tag values to purge." },
+        "hosts": { "type": "array", "items": { "type": "string" }, "description": "Hostnames to purge." },
+        "prefixes": { "type": "array", "items": { "type": "string" }, "description": "URL prefixes to purge." },
+        "account": { "type": "string", "description": "Account name or 32-char ID." }
+      },
+      "required": ["zone"]
+    }
+  ]
+}

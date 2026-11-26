@@ -64,6 +64,9 @@ pub enum Target {
     Vercel {
         production: bool,
     },
+    CloudflareZone {
+        zone: String,
+    },
     AwsProfile {
         name: String,
     },

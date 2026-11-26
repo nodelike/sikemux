@@ -23,6 +23,7 @@ use crate::ship::{Ship, Target};
 const DATABASE: &str = "sikemux.database";
 const RUNDECK: &str = "sikemux.rundeck";
 const VERCEL: &str = "sikemux.vercel";
+const CLOUDFLARE: &str = "sikemux.cloudflare";
 const FOLLOW_LOOKS: usize = 60;
 const FOLLOW_EVERY: Duration = Duration::from_secs(15);
 const HEALTH_TRIES: usize = 6;
@@ -117,6 +118,42 @@ pub(super) fn vercel_redeploy_target(
     })
 }
 
+fn is_cloudflare_zone_id(raw: &str) -> bool {
+    raw.len() == 32 && raw.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+pub(super) fn cloudflare_zone_target(
+    raw: Option<&str>,
+    looked_up: impl FnOnce() -> Result<Value, String>,
+) -> Result<Target, String> {
+    let unverified = || {
+        "Sikemux could not verify which Cloudflare zone this targets, so it waits for the person's yes."
+            .to_owned()
+    };
+    let raw = raw
+        .map(str::trim)
+        .filter(|zone| !zone.is_empty())
+        .ok_or_else(unverified)?;
+    let domain = if is_cloudflare_zone_id(raw) {
+        looked_up()
+            .ok()
+            .and_then(|read| {
+                read.get("name")?
+                    .as_str()
+                    .map(|name| name.trim().trim_end_matches('.').to_ascii_lowercase())
+            })
+            .filter(|name| !name.is_empty() && !is_cloudflare_zone_id(name))
+            .ok_or_else(unverified)?
+    } else {
+        let normalized = raw.trim_end_matches('.').to_ascii_lowercase();
+        if normalized.is_empty() {
+            return Err(unverified());
+        }
+        normalized
+    };
+    Ok(Target::CloudflareZone { zone: domain })
+}
+
 /// What a call to the Sikemux tool `name` changes and where it lands, for the tools that can
 /// reach a production place; the places on the list decide whether it waits.
 async fn tool_ship(core: &Arc<Core>, name: &str, arguments: &Value) -> Result<ToolShip, String> {
@@ -165,6 +202,39 @@ async fn tool_ship(core: &Arc<Core>, name: &str, arguments: &Value) -> Result<To
                 Ok(target) => ToolShip::Checked(ShipKind::Deploy, Some(target)),
                 Err(why) => ToolShip::Unverified {
                     kind: ShipKind::Deploy,
+                    why,
+                },
+            }
+        }
+        "cloudflare_zone_create"
+        | "cloudflare_dns_upsert"
+        | "cloudflare_dns_delete"
+        | "cloudflare_dns_batch"
+        | "cloudflare_purge_cache" => {
+            let raw = match name {
+                "cloudflare_zone_create" => arguments["name"].as_str(),
+                _ => arguments["zone"].as_str(),
+            };
+            let trimmed = raw.map(str::trim).filter(|zone| !zone.is_empty());
+            let looked_up = match trimmed {
+                Some(zone) if is_cloudflare_zone_id(zone) => Some(
+                    plugged::call(
+                        core,
+                        CLOUDFLARE,
+                        "resolveZone",
+                        json!({ "zone": zone, "account": arguments.get("account") }),
+                    )
+                    .await
+                    .map_err(|failure| plugged::explain(&failure)),
+                ),
+                _ => None,
+            };
+            match cloudflare_zone_target(trimmed, || {
+                looked_up.unwrap_or_else(|| Err("missing zone lookup".to_owned()))
+            }) {
+                Ok(target) => ToolShip::Checked(ShipKind::ProductionWrite, Some(target)),
+                Err(why) => ToolShip::Unverified {
+                    kind: ShipKind::ProductionWrite,
                     why,
                 },
             }
