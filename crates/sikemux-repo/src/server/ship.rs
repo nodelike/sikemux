@@ -623,7 +623,8 @@ fn read(
         sends = Some(ship.what.clone());
     }
     let name = core.names().name_or_id(agent_id);
-    let judged = places::judge(core, &project, &ship, &name, addresses, plain.as_deref());
+    let (project, judged) =
+        places::judge_anywhere(core, &project, &ship, &name, addresses, plain.as_deref());
     Ok(Reading::Judged(Box::new(Reads {
         merging: merging.is_some(),
         cwd: cwd.to_owned(),

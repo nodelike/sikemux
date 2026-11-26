@@ -12,6 +12,7 @@ pub mod store;
 pub mod work;
 
 use crate::server::changed::ChangedCore;
+use crate::server::places::place::PlaceExt;
 use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -129,6 +130,47 @@ pub fn judge(
         });
     }
     judged
+}
+
+/// [`judge`], but by another of this host's projects where one of its production places takes
+/// `ship` and asks more of it, so a change to that project's production waits as its own would.
+/// Returns the project that decided.
+pub fn judge_anywhere(
+    core: &Core,
+    project: &str,
+    ship: &Ship,
+    agent: &str,
+    addresses: Option<&str>,
+    plain: Option<&str>,
+) -> (String, Judged) {
+    let mut decided = (
+        project.to_owned(),
+        judge(core, project, ship, agent, addresses, plain),
+    );
+    let others = (core.workspaces().project_paths().into_iter())
+        .map(|path| path.to_string_lossy().into_owned())
+        .filter(|other| other != project);
+    for other in others {
+        let (places, _) = current(core, &other);
+        if !(places.iter()).any(|place| place.shown.production && place.recognises(ship)) {
+            continue;
+        }
+        let theirs = judge(core, &other, ship, agent, addresses, plain);
+        if holds(theirs.goes) > holds(decided.1.goes) {
+            decided = (other, theirs);
+        }
+    }
+    decided
+}
+
+/// How much a judgement holds an action back.
+fn holds(goes: Goes) -> u8 {
+    match goes {
+        Goes::Freely => 0,
+        Goes::Unplaced => 1,
+        Goes::Tells => 2,
+        Goes::Asks => 3,
+    }
 }
 
 /// Lists an action no place covers under seen, once however often it runs. The list never
