@@ -7,12 +7,14 @@ An agent drives its desk tabs through Sikemux's `browser_*` tools. It can:
 
 - read a page as numbered elements and text, or just the part around a phrase or at its end;
 - click, type, press keys, scroll and drag;
-- run a script in the page;
+- run a script in one page with `browser_evaluate`, or a whole flow across tabs with `browser_drive`, a sandboxed script that drives several tabs at once, picks options, uploads files, answers page dialogs and saves downloads;
 - wait for a page to reach a state, such as text appearing, a streamed answer settling, the network going quiet or a script's check coming true;
 - take screenshots, draw on them and record the tab;
 - read the network calls and console messages of the page.
 
-You see each of these happen on the desk.
+You see each of these happen on the desk. Every browser tool can name the tab it works on, so an agent can drive several at once; a tab it opens in the background never takes the front from you.
+
+A page's alert, confirm or prompt shows inside its own tab, never as a box over the whole window. One raised in a tab you aren't looking at waits for the agent to answer it.
 
 In **YOLO**, an agent can upload any file to a page with `browser_upload`. In the other modes it takes files only from the project and its checkout, temporary folders, attachments, downloads and recordings; for anything else, the agent asks you to add the file.
 
@@ -24,14 +26,26 @@ An artifact opens as a tab on the desk of the chat you open it from. From a noti
 
 **Artifacts** on the tab rail (`⌘⌥8`, or `Ctrl+Alt+8` on Linux and Windows), beside **Agents**, **Terminals** and **Files**, lists what agents showed in the project, one line each with its title and the time it has left. **Window › Artifacts** opens the same page. Search finds one by title or by its agent. **Working** comes first: the artifacts open in a tab on any agent's desk of the project, with a coloured icon, where a click goes to the tab. The rest sit in **Shared**, **Expiring** and **Kept**. Each section has the last updated first.
 
-An artifact's header on the desk has its title on the left and its icons on the right: its history, **Share** and **Keep**. The address and the back and forward buttons come once a link in it takes the tab to a website. The composer at its foot sends to the desk's agent with the artifact attached; on an artifact an ask links, it shows the ask's choices and answers the ask.
+An artifact's header on the desk starts with the artifact icon and a dot before its title, with its icons on the right: its history, **Share** and **Keep**. The address and the back and forward buttons come once a link in it takes the tab to a website. Only the composer floats over the artifact, and sends to the desk's agent with the artifact attached. On an artifact an ask links, what you type goes to the asker as a note and leaves the ask open; **Open in Asks** in the artifact's bar opens the ask to answer it.
 
 - **Keep** holds an artifact until you let it go. Its icon is a timer until then, and hovering it says when the artifact goes; kept, it is a lit pin. One you don't keep goes 7 days after it was shown, or a day after its ask settles. An agent can show one already kept.
-- **Share** makes a link, for 1 hour to 30 days, that anyone with it can open or only people signed in to Sikemux, at `app.sikemux.com/p/`. Sharing keeps the artifact, and the link shows its latest version. Sent in a chat app, the link previews as **Shared artifact**, with Sikemux's icon.
+- **Share** makes a link, for 1 hour to 30 days, that anyone with it can open or only people signed in to Sikemux, at `app.sikemux.com/p/`. Sharing keeps the artifact, and the link shows its latest version. Sent in a chat app, the link previews with a picture of the artifact's title and the sharer's name; the share dialog says Sikemux's server and chat apps can read those two, while the artifact itself stays sealed. A link shared before keeps the plain preview until it is shared again. An open link checks for a newer version when you come back to its tab, and keeps your place on the page. Small video, audio, scripts and stylesheets beside the page go along, up to 25 MiB in all; Sikemux says so when media is over that or can't be shared.
 
 Showing the same title again makes a new version. Ask an agent for one you saw before and it finds it with `page_list` and shows it again rather than making it anew.
 
 On a Mac, pinch or double-tap with two fingers to zoom an artifact or an HTML file's preview, and move around it with two fingers. The next one opens at its own size.
+
+## The Vault
+
+**Settings → Vault** keeps what agents fill into forms for you, encrypted on this host:
+
+- **Details**: your personal or business profile, addresses, tax numbers and fields of your own.
+- **Secrets**: API keys, logins and 2FA seeds, kept in Sikemux's Vault or linked from 1Password by an `op://` reference (see [Secrets from 1Password](/agents/secrets/)). A 2FA code is made on the host as it fills.
+- **Payments**: cards. A card's number and CVC never reach an agent, and a CVC is never saved.
+- **Docs**: files such as an ID or an agreement, up to 25 MB, for a page to upload.
+- **Activity**: every fill, upload, approval and save, without the values.
+
+An agent fills a page from the Vault without seeing what it fills: Sikemux types the values into the page on the host, and uploads a document without the agent reading the file. Each item can name the sites it may go to. When an agent meets a form whose values aren't in the Vault yet, its chat shows a card to enter them, with **Save to Vault & fill** or **Use once**. A fill that needs your yes shows **Approve with Touch ID** in the chat, and a card payment always does; **Always allow on** a site stops asking there.
 
 ## Pages that need a password
 

@@ -26,7 +26,7 @@ It installs to `~/.local/bin/agy`. **Settings → Agents** runs the same install
 
 `agy` keeps its own Google sign-in, and Sikemux never reads it. A chat opens on that sign-in. When `agy` is signed out and Google AI Studio is connected in **Settings → Models**, the chat signs in with that Gemini API key instead. Otherwise it offers `agy`'s own login in a terminal.
 
-On a Mac or Linux you can [add more accounts](/agents/accounts/#add-an-account) and pick one for each chat. An added account keeps its sign-in as a file in a folder of its own, apart from the one `agy` already has, and a chat on it stops with the reason rather than run on another account. When an account runs out, the chat offers the others; it never switches by itself.
+On a Mac or Linux you can [add more accounts](/agents/accounts/#add-an-account) and pick one for each chat. Adding one takes a single trip to the browser, with no code to paste; **Use a code instead** in the dialog signs in with a pasted code. Its models and efforts show as soon as it is signed in: while they are read the model picker says so, and if reading them fails it says why, with **Try again**. An added account keeps its sign-in as a file in a folder of its own, apart from the one `agy` already has, and a chat on it stops with the reason rather than run on another account. When an account runs out, the chat offers the others; it never switches by itself.
 
 ## How Sikemux runs it
 
