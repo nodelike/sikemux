@@ -56,8 +56,9 @@ pub struct Place {
     /// The repositories the person said that about.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub just_tell: Vec<String>,
-    /// The person said on a call to always allow changes there, which goes for ordinary changes
-    /// alone: a tag, a release or a push that does more than send commits still waits for them.
+    /// The person said on a call to always allow deploys there, which goes for ordinary deploys
+    /// alone: a release, a push that does more than send commits, or a change that is no deploy
+    /// still waits for them.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ordinary_only: bool,
 }
@@ -83,8 +84,8 @@ impl Place {
     }
 
     /// [`Self::level`] for one change there, through the repository `routine` when it is a
-    /// routine one. `ordinary` says it is no tag, release or push that does more than send
-    /// commits.
+    /// routine one. `ordinary` says it is a deploy that is no release and no push that does
+    /// more than send commits.
     pub fn level_for(&self, confirmed: bool, routine: Option<&str>, ordinary: bool) -> Level {
         let unseen = !confirmed && self.shown.said_by.is_none();
         let said = routine.is_some_and(|to| self.just_tell.iter().any(|said| said == to));

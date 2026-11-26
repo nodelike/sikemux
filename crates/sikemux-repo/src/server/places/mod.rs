@@ -279,9 +279,10 @@ pub fn just_tell(core: &Core, project: &str, place: Place, repository: &str, fro
     });
 }
 
-/// The person said on a call to let agents make ordinary changes to the place `id` from now on
-/// and tell them of each: a tag, a release or a push that does more than send commits still
-/// waits for their yes. Only once they confirmed the list, and only for a place that still asks.
+/// The person said on a call to let agents deploy to the place `id` from now on and tell them
+/// of each: a release, a push that does more than send commits, or a change that is no deploy
+/// still waits for their yes. Only once they confirmed the list, and only for a place that
+/// still asks.
 pub fn always_tell(core: &Core, project: &str, id: &str, from: Option<String>) {
     let _ = tapped(core, project, |kept| {
         let confirmed = kept.confirmed.is_some();
@@ -355,7 +356,7 @@ pub fn allowed_sites(core: &Core, project: &str) -> Vec<String> {
     let kept = core.places().of(project);
     let (places, confirmed) = (kept.places, kept.confirmed.is_some());
     (places.iter())
-        .filter(|place| !place.asks(confirmed))
+        .filter(|place| !place.asks(confirmed) && !place.ordinary_only)
         .flat_map(|place| place.recognise.iter())
         .filter_map(|fact| match fact {
             Recognise::Site { origin } => Some(origin.clone()),
