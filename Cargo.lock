@@ -11562,10 +11562,10 @@ dependencies = [
 name = "textmate-highlight"
 version = "0.1.0"
 dependencies = [
- "flate2",
  "irosashi",
  "serde",
  "serde_json",
+ "zstd",
 ]
 
 [[package]]

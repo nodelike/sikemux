@@ -5,7 +5,7 @@ line by line on [irosashi](https://crates.io/crates/irosashi), whose tokens matc
 vscode-textmate's.
 
 - `Library` reads a bundle: an index of grammars with the grammars each one needs,
-  and every grammar compressed on its own. A language's grammars are unpacked the
+  and all grammars packed in one zstd stream. A language's grammars are unpacked the
   first time it is highlighted.
 - `Styles` turns a token's scopes into a style the way a VS Code theme does: the
   deepest scope with a matching rule wins, and the longest selector among its rules.

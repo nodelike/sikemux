@@ -62,10 +62,10 @@ strip = "symbols"
 
 # The two largest crates by far. In one piece each compiles on a single processor and outgrows a
 # release runner's memory, which was most of a release build. The link's LTO still joins them.
-# Cargo drops the profile's strip from any package with an override, so both name it again.
 [profile.release.package.sikemux-core]
 codegen-units = 16
-strip = "symbols"
+opt-level = "z"
+# Cargo drops the profile's strip from a package with an override, so the app's names it again.
 [profile.release.package.sikemux-gpui]
 codegen-units = 16
 strip = "symbols"
@@ -268,8 +268,104 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.crossbeam-utils]
 opt-level = 3
-# Config parsers, signing, DNS discovery, and database drivers never sit on a hot path, so they
-# are built for the smallest size; network/TLS/SQLite stay on the profile's default "s".
+# Control-plane, I/O-bound, and one-shot decode crates never run per frame or per terminal byte,
+# so they build for the smallest size while hot paths stay at opt-level 3 or default "s".
+[profile.release.package.sikemux-agents]
+opt-level = "z"
+[profile.release.package.sikemux-calls]
+opt-level = "z"
+[profile.release.package.sikemux-chat]
+opt-level = "z"
+[profile.release.package.sikemux-corekit]
+opt-level = "z"
+[profile.release.package.sikemux-drivers]
+opt-level = "z"
+[profile.release.package.sikemux-linked]
+opt-level = "z"
+[profile.release.package.sikemux-loopback]
+opt-level = "z"
+[profile.release.package.sikemux-repo]
+opt-level = "z"
+[profile.release.package.sikemux-serve]
+opt-level = "z"
+[profile.release.package.sikemux-voice]
+opt-level = "z"
+[profile.release.package.sikemux-workspace]
+opt-level = "z"
+[profile.release.package.gpui-base]
+opt-level = "z"
+[profile.release.package.gpui-component]
+opt-level = "z"
+[profile.release.package.html5ever]
+opt-level = "z"
+[profile.release.package.markup5ever_rcdom]
+opt-level = "z"
+[profile.release.package.image]
+opt-level = "z"
+[profile.release.package.image-webp]
+opt-level = "z"
+[profile.release.package.zune-jpeg]
+opt-level = "z"
+[profile.release.package.tiff]
+opt-level = "z"
+[profile.release.package.gif]
+opt-level = "z"
+[profile.release.package.png]
+opt-level = "z"
+[profile.release.package.resvg]
+opt-level = "z"
+[profile.release.package.usvg]
+opt-level = "z"
+[profile.release.package.tiny-skia]
+opt-level = "z"
+[profile.release.package.fontdb]
+opt-level = "z"
+[profile.release.package.skrifa]
+opt-level = "z"
+[profile.release.package.rustybuzz]
+opt-level = "z"
+[profile.release.package.iroh]
+opt-level = "z"
+[profile.release.package.iroh-base]
+opt-level = "z"
+[profile.release.package.iroh-relay]
+opt-level = "z"
+[profile.release.package.noq]
+opt-level = "z"
+[profile.release.package.noq-proto]
+opt-level = "z"
+[profile.release.package.noq-udp]
+opt-level = "z"
+[profile.release.package.reqwest]
+opt-level = "z"
+[profile.release.package.rustls]
+opt-level = "z"
+[profile.release.package.rustls-webpki]
+opt-level = "z"
+[profile.release.package.hyper]
+opt-level = "z"
+[profile.release.package.hyper-util]
+opt-level = "z"
+[profile.release.package.h2]
+opt-level = "z"
+[profile.release.package.agent-client-protocol]
+opt-level = "z"
+[profile.release.package.agent-client-protocol-schema]
+opt-level = "z"
+[profile.release.package.serde_with]
+opt-level = "z"
+[profile.release.package.clap]
+opt-level = "z"
+[profile.release.package.clap_builder]
+opt-level = "z"
+[profile.release.package.schemars]
+opt-level = "z"
+[profile.release.package.zstd]
+opt-level = "z"
+[profile.release.package.zstd-safe]
+opt-level = "z"
+[profile.release.package.zstd-sys]
+opt-level = "z"
 [profile.release.package.plist]
 opt-level = "z"
 [profile.release.package.minisign-verify]
