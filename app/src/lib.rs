@@ -98,6 +98,7 @@ mod trust;
 mod turn_line;
 pub mod ui;
 mod updates;
+pub(crate) mod vault_ui;
 mod visits;
 mod voice;
 pub mod workbench;

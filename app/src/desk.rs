@@ -112,7 +112,9 @@ pub struct Desks {
     tab_scrolls: std::cell::RefCell<HashMap<String, TabScroll>>,
     /// What the engine tells the window, until the window listens.
     hearing: Option<mpsc::UnboundedReceiver<Heard>>,
-    told: mpsc::UnboundedSender<Heard>,
+    pub(crate) told: mpsc::UnboundedSender<Heard>,
+    /// Recent blind-fill or blind-upload notices per agent desk, shown as a subtle chrome pill.
+    pub(crate) blind_fills: HashMap<String, BlindFillBadge>,
     /// The desks in snip mode.
     snips: HashMap<String, snip::Snipper>,
     /// Pictures of pages at other widths, which All shows beside the live page.
@@ -339,8 +341,17 @@ pub(crate) struct Page {
     _typing: Subscription,
 }
 
+pub(crate) struct BlindFillBadge {
+    pub(crate) domain: String,
+    pub(crate) label: String,
+    pub(crate) upload: bool,
+    pub(crate) at: Instant,
+}
+
+const BLIND_FILL_BADGE_TTL: Duration = Duration::from_secs(45);
+
 /// What the engine tells the window.
-enum Heard {
+pub(crate) enum Heard {
     Tabs,
     Downloaded(BrowserDownload),
     Shortcut(BrowserShortcut),
@@ -350,6 +361,12 @@ enum Heard {
     /// A click in snip mode on `agent`'s page, with the note written on it.
     Pinned(String, String, serde_json::Value),
     PinAnswered(sikemux_browser::pins::PinAnswer),
+    BlindFill {
+        agent: String,
+        domain: String,
+        label: String,
+        upload: bool,
+    },
 }
 
 impl Desks {
@@ -425,6 +442,7 @@ impl Desks {
             tab_scrolls: Default::default(),
             hearing,
             told: heard,
+            blind_fills: HashMap::new(),
             snips: HashMap::new(),
             pictures: width::Pictures::default(),
             pins_shown: pins::PinsShown::default(),
@@ -1070,6 +1088,72 @@ impl Workbench {
                         let _ = engine.set_bounds(&agent, None);
                     }
                 }
+            }
+            Heard::BlindFill {
+                agent,
+                domain,
+                label,
+                upload,
+            } => {
+                let who = self.agent_name(&agent);
+                let host = if domain.is_empty() {
+                    t!("this page").to_owned()
+                } else {
+                    domain.clone()
+                };
+                let msg = if upload {
+                    t!(
+                        "Blind-uploaded {label} to {host} · hidden from @{who}",
+                        label = label,
+                        host = host,
+                        who = who
+                    )
+                } else {
+                    t!(
+                        "Blind-filled {label} on {host} · hidden from @{who}",
+                        label = label,
+                        host = host,
+                        who = who
+                    )
+                };
+                self.notify(toast::success(msg), cx);
+                let now = Instant::now();
+                let expiring_agent = agent.clone();
+                self.desks.update(cx, |desks, cx| {
+                    desks.blind_fills.insert(
+                        agent,
+                        BlindFillBadge {
+                            domain,
+                            label,
+                            upload,
+                            at: now,
+                        },
+                    );
+                    cx.notify();
+                });
+                self.parts.redraw_stage(cx);
+                cx.spawn(async move |bench, cx| {
+                    cx.background_executor().timer(BLIND_FILL_BADGE_TTL).await;
+                    let _ = bench.update(cx, |bench, cx| {
+                        let removed = bench.desks.update(cx, |desks, cx| {
+                            if desks
+                                .blind_fills
+                                .get(&expiring_agent)
+                                .is_some_and(|badge| badge.at == now)
+                            {
+                                desks.blind_fills.remove(&expiring_agent);
+                                cx.notify();
+                                true
+                            } else {
+                                false
+                            }
+                        });
+                        if removed {
+                            bench.parts.redraw_stage(cx);
+                        }
+                    });
+                })
+                .detach();
             }
         }
     }
@@ -2974,6 +3058,60 @@ fn second_row(cx: &App) -> gpui_kit::Div {
         .border_color(Tokens::get(cx).border)
 }
 
+/// A subtle pill in the browser toolbar whenever the host recently blind-filled or blind-uploaded
+/// from Vault on this agent's desk.
+fn blind_fill_pill(
+    bench: &Workbench,
+    agent: &str,
+    front: Option<&sikemux_browser::BrowserTab>,
+    cx: &App,
+) -> Option<AnyElement> {
+    let desks = bench.desks.read(cx);
+    let badge = desks.blind_fills.get(agent)?;
+    if badge.at.elapsed() >= BLIND_FILL_BADGE_TTL {
+        return None;
+    }
+    if !badge.domain.is_empty() {
+        if let Some(tab_host) = front
+            .and_then(|tab| url::Url::parse(&tab.url).ok())
+            .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        {
+            let target = badge.domain.to_ascii_lowercase();
+            if tab_host != target && !tab_host.ends_with(&format!(".{target}")) {
+                return None;
+            }
+        }
+    }
+    let t = Tokens::get(cx);
+    let label = if badge.upload {
+        t!("Blind-uploaded · hidden from agents")
+    } else {
+        t!("Blind-filled · hidden from agents")
+    };
+    let tip = format!("{label} ({})", badge.label);
+    Some(
+        div()
+            .id(SharedString::from(format!("blind-fill-pill-{agent}")))
+            .flex_none()
+            .h(px(22.))
+            .px(SPACE_2)
+            .flex()
+            .items_center()
+            .gap(SPACE_1)
+            .rounded(px(11.))
+            .bg(t.warn.opacity(0.12))
+            .border(crate::theme::border())
+            .border_color(t.warn.opacity(0.32))
+            .text_size(crate::theme::ui_text(crate::theme::TEXT_2XS))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(t.warn)
+            .tooltip(ui::tooltip(tip))
+            .child(ui::icon(Icon::ShieldCheck, 12.).text_color(t.warn))
+            .child(label)
+            .into_any_element(),
+    )
+}
+
 /// The pages, files and terminals of a desk, the one in front under the address bar while it
 /// is a page, or what can be opened while the desk holds nothing.
 fn pages_desk(
@@ -3034,6 +3172,7 @@ fn pages_desk(
             None => navigation(bar, bench, agent, front, window, cx),
         })
         .children(front.map(|tab| width::chip(bench, agent, &tab.id, cx)))
+        .children(blind_fill_pill(bench, agent, front, cx))
         .child(snip_toggle(bench, agent, cx))
         .children(front.and_then(external_address).map(|address| {
             IconButton::new(

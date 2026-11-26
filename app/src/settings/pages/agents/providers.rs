@@ -989,7 +989,7 @@ fn code_row(vault: &ShownOrgVault, code: &str, this: &Entity<Workbench>, cx: &Ap
         .gap(SPACE_2)
         .px(SPACE_4)
         .pb(SPACE_2H)
-        .child(super::super::vault::key_box(code, cx))
+        .child(super::super::account_vault::key_box(code, cx))
         .child(button(
             format!("org-code-copy-{}", vault.org),
             t!("Copy"),

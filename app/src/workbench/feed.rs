@@ -504,6 +504,9 @@ impl Workbench {
                 crate::agents::setup::read(self, cx);
             }
         }
+        if topic == Topic::Vault {
+            crate::settings::agent_vault_changed(self, cx);
+        }
     }
 
     /// Reads the file tree, the finder's list and search again when `topic` moved on
@@ -665,6 +668,8 @@ impl Workbench {
                 let target = Target::new(&self.asks, place.clone());
                 target.watch_plain(Read::Trust);
                 target.watch_plain(Read::Questions);
+                target.watch_plain(Read::VaultRequests);
+                target.watch_plain(Read::VaultApprovals);
             }
             Place::This => self.feeds.set_front(None),
         }

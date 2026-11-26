@@ -102,6 +102,7 @@ pub(crate) use shown::{turn_picture, turn_picture_held};
 pub(crate) mod status;
 mod team;
 mod tools;
+pub(crate) mod vault_cards;
 pub(crate) use installing::installs_moved;
 
 mod worktree;
@@ -2045,6 +2046,7 @@ pub fn pane(
     }
     drop(seen);
     let asks: Vec<AnyElement> = asking.into_iter().chain(sending).collect();
+    let vault_cards = vault_cards::cards_for(bench, &agent.id, cx);
     let dock = live::dock(bench, agent, chat, asks, cx);
     let notice = composing::notice(bench, &agent.id, cx).map(|notice| {
         div()
@@ -2085,6 +2087,7 @@ pub fn pane(
         .children(status::plan(agent, chat, cx))
         .children(status::trouble(bench, agent, chat, cx))
         .children(permissions)
+        .children(vault_cards)
         .children(notice)
         .children(dock)
         .children(

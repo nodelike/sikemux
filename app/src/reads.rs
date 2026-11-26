@@ -92,11 +92,15 @@ pub enum Read {
     Outside,
     /// Everyone this host and its linked hosts let in.
     Admissions,
+    /// Pending Agentic Vault first-entry card requests waiting on the person.
+    VaultRequests,
+    /// Pending Agentic Vault blind-fill approvals waiting on the person.
+    VaultApprovals,
 }
 
 impl Read {
     /// What the window watches from the moment it opens.
-    pub const FROM_THE_START: [Read; 15] = [
+    pub const FROM_THE_START: [Read; 17] = [
         Read::Theme,
         Read::Plugins,
         Read::Hosts,
@@ -112,6 +116,8 @@ impl Read {
         Read::WhatsNew,
         Read::Outside,
         Read::Admissions,
+        Read::VaultRequests,
+        Read::VaultApprovals,
     ];
 
     /// What the core in front is watched for while its project is in front. A feed's `leave`
@@ -132,7 +138,13 @@ impl Read {
     ];
 
     /// What an account host is watched for only while it is in front; this host's are always.
-    pub const OF_THE_HOST_IN_FRONT: [Read; 3] = [Read::Trust, Read::Questions, Read::Drafts];
+    pub const OF_THE_HOST_IN_FRONT: [Read; 5] = [
+        Read::Trust,
+        Read::Questions,
+        Read::Drafts,
+        Read::VaultRequests,
+        Read::VaultApprovals,
+    ];
 
     /// The core's method that answers it, and the topics whose changing reads it again.
     const fn source(self) -> (&'static str, &'static [Topic]) {
@@ -181,6 +193,8 @@ impl Read {
             Read::SshHosts => (call::SshHosts::METHOD, &[]),
             Read::HostStats => (call::HostStats::METHOD, &[Topic::HostStats]),
             Read::Outside => (call::OutsideAccess::METHOD, &[Topic::Outside]),
+            Read::VaultRequests => (call::VaultRequests::METHOD, &[Topic::Vault]),
+            Read::VaultApprovals => (call::VaultApprovals::METHOD, &[Topic::Vault]),
         }
     }
 
@@ -758,6 +772,24 @@ impl Workbench {
             Read::HostStats => {
                 if let Some(stats) = decoded(value, "host stats") {
                     self.host_stats_read(place, stats, cx);
+                }
+            }
+            Read::VaultRequests => {
+                if keep_decoded(
+                    &mut self.feeds.at_mut(&place).vault_requests,
+                    value,
+                    "vault requests",
+                ) {
+                    self.redraw(PartSet::STAGE | PartSet::SHELL, cx);
+                }
+            }
+            Read::VaultApprovals => {
+                if keep_decoded(
+                    &mut self.feeds.at_mut(&place).vault_approvals,
+                    value,
+                    "vault approvals",
+                ) {
+                    self.redraw(PartSet::STAGE | PartSet::SHELL, cx);
                 }
             }
         }

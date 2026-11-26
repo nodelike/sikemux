@@ -87,6 +87,8 @@ pub struct Feed {
     pub trust: Vec<TrustQuestion>,
     pub drafts: Option<Drafts>,
     pub questions: Vec<Question>,
+    pub vault_requests: Vec<sikemux_calls::vault::VaultPendingRequest>,
+    pub vault_approvals: Vec<sikemux_calls::vault::VaultPendingApproval>,
     pub tasks: Option<TaskList>,
     pub task_list: Option<sikemux_view::task_list::ProjectTasks>,
     pub sharing: Option<sikemux_view::teammates::ProjectSharing>,
@@ -220,6 +222,8 @@ impl Feeds {
             gone.trust.clear();
             gone.drafts = None;
             gone.questions.clear();
+            gone.vault_requests.clear();
+            gone.vault_approvals.clear();
         }
         if let Some(host) = &host {
             self.host_mut(host);
@@ -232,6 +236,22 @@ impl Feeds {
     pub fn questions(&self) -> impl Iterator<Item = &Question> {
         let front = self.front.as_ref().and_then(|front| self.hosts.get(front));
         (self.this.questions.iter()).chain(front.into_iter().flat_map(|feed| &feed.questions))
+    }
+
+    pub fn vault_requests(
+        &self,
+    ) -> impl Iterator<Item = &sikemux_calls::vault::VaultPendingRequest> {
+        let front = self.front.as_ref().and_then(|front| self.hosts.get(front));
+        (self.this.vault_requests.iter())
+            .chain(front.into_iter().flat_map(|feed| &feed.vault_requests))
+    }
+
+    pub fn vault_approvals(
+        &self,
+    ) -> impl Iterator<Item = &sikemux_calls::vault::VaultPendingApproval> {
+        let front = self.front.as_ref().and_then(|front| self.hosts.get(front));
+        (self.this.vault_approvals.iter())
+            .chain(front.into_iter().flat_map(|feed| &feed.vault_approvals))
     }
 
     /// The questions a chat answers outside a call: an assumption an agent went on that nobody

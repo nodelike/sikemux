@@ -464,6 +464,7 @@ impl Workbench {
                 .filter(|_| is_browser_method(&request.method))
             {
                 let core = Target::here(&self.asks);
+                let desk_told = self.desks.read(cx).told.clone();
                 Box::new(move || {
                     let agent = request.agent_id.clone().unwrap_or_default();
                     let project = request.project.clone();
@@ -483,9 +484,12 @@ impl Workbench {
                     };
                     let vault =
                         move |reference: String, domain: String, tool: String, for_upload: bool| {
+                            let agent_id = agent.clone();
+                            let notify_domain = domain.clone();
+                            let told = desk_told.clone();
                             let asked = core.request_typed::<call::VaultResolveBrowser>(
                                 sikemux_calls::vault::VaultResolveBrowserParams {
-                                    agent_id: agent.clone(),
+                                    agent_id: agent_id.clone(),
                                     reference,
                                     domain,
                                     tool,
@@ -501,20 +505,36 @@ impl Workbench {
                                         redaction_tokens,
                                         sensitive,
                                         ..
-                                    } => sikemux_browser::tools::VaultResolved::Text {
-                                        value,
-                                        masked_label,
-                                        redaction_tokens,
-                                        sensitive,
-                                    },
+                                    } => {
+                                        let _ = told.send(crate::desk::Heard::BlindFill {
+                                            agent: agent_id,
+                                            domain: notify_domain,
+                                            label: masked_label.clone(),
+                                            upload: false,
+                                        });
+                                        sikemux_browser::tools::VaultResolved::Text {
+                                            value,
+                                            masked_label,
+                                            redaction_tokens,
+                                            sensitive,
+                                        }
+                                    }
                                     sikemux_calls::vault::VaultResolvedBrowser::File {
                                         staged_path,
                                         display_name,
                                         ..
-                                    } => sikemux_browser::tools::VaultResolved::File {
-                                        staged_path: PathBuf::from(staged_path),
-                                        display_name,
-                                    },
+                                    } => {
+                                        let _ = told.send(crate::desk::Heard::BlindFill {
+                                            agent: agent_id,
+                                            domain: notify_domain,
+                                            label: display_name.clone(),
+                                            upload: true,
+                                        });
+                                        sikemux_browser::tools::VaultResolved::File {
+                                            staged_path: PathBuf::from(staged_path),
+                                            display_name,
+                                        }
+                                    }
                                 })
                             })
                                 as Pin<

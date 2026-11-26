@@ -55,7 +55,7 @@ pub struct Fields {
     organization: Option<Entity<InputState>>,
     /// GitHub's page for making an App is open, which dropping stops.
     making_app: Option<Task<()>>,
-    pub(super) vault: super::vault::Fields,
+    pub(super) vault: super::account_vault::Fields,
 }
 
 /// The GitHub Apps agents act as, as the GitHub connector last said.
@@ -131,7 +131,7 @@ fn change_fields<R>(
 pub(super) fn change_vault(
     bench: &Workbench,
     cx: &mut App,
-    change: impl FnOnce(&mut super::vault::Fields, &mut Context<crate::settings::Settings>),
+    change: impl FnOnce(&mut super::account_vault::Fields, &mut Context<crate::settings::Settings>),
 ) {
     change_fields(bench, cx, |fields, cx| change(&mut fields.vault, cx));
 }
@@ -139,7 +139,7 @@ pub(super) fn change_vault(
 /// Reads what the connectors with settings of their own say now.
 pub(super) fn read(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     change_fields(bench, cx, |fields, _| fields.stale = false);
-    super::vault::read(bench, window, cx);
+    super::account_vault::read(bench, window, cx);
     let on = |id: &str| {
         bench
             .reads
@@ -377,7 +377,7 @@ pub fn render(
                     cx,
                 )
                 .into_any_element();
-                std::iter::once(row).chain(super::vault::asking(
+                std::iter::once(row).chain(super::account_vault::asking(
                     &plugin.id,
                     &fields.vault,
                     this,
@@ -386,7 +386,7 @@ pub fn render(
             }))
             .into_any_element(),
     };
-    let vault = super::vault::section(&fields.vault, lit("Account vault"), this, cx);
+    let vault = super::account_vault::section(&fields.vault, lit("Account vault"), this, cx);
     let connectors = rows::section(n!("Connectors"), None, None, lit("Connectors"), body, cx);
     vault.into_iter().chain([connectors]).collect()
 }
@@ -463,7 +463,11 @@ fn controls(plugin: &Listed, fields: &Fields, this: &Entity<Workbench>) -> AnyEl
         .items_center()
         .gap(SPACE_2)
         .children(configure)
-        .children(super::vault::choices(&plugin.id, &fields.vault, this))
+        .children(super::account_vault::choices(
+            &plugin.id,
+            &fields.vault,
+            this,
+        ))
         .children(button)
         .child(toggle)
         .into_any_element()

@@ -186,6 +186,7 @@ pub struct Workbench {
     /// What the person has done on the cards of the calls that wait on them.
     pub calls: Entity<crate::calls::Cards>,
     _calls_go: Subscription,
+    pub(crate) vault_cards: crate::chat::vault_cards::VaultCards,
     pub(crate) _older: Option<Task<()>>,
 }
 
@@ -440,6 +441,7 @@ impl Workbench {
                 bench.go_with(&go.0, cx)
             }),
             calls,
+            vault_cards: crate::chat::vault_cards::VaultCards::default(),
             _older: None,
         };
         bench.parts.stage_follows(&bench.sims, cx);
@@ -1012,6 +1014,7 @@ impl Render for Workbench {
         use crate::keymap::SHELL;
         self.settle_limits();
         self.follow_question_drafts(window, cx);
+        crate::chat::vault_cards::sync(self, window, cx);
         let asked = self.asked(window, cx);
         #[cfg(feature = "drive")]
         if asked.is_some() {

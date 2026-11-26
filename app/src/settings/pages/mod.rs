@@ -11,6 +11,7 @@ use crate::workbench::Workbench;
 
 pub(super) mod about;
 pub(super) mod account;
+mod account_vault;
 pub(super) mod actions;
 pub(super) mod activity;
 pub(super) mod agents;
@@ -25,7 +26,7 @@ pub(super) mod mods;
 pub(super) mod outside;
 pub(super) mod settled;
 pub mod theme_editor;
-mod vault;
+pub(super) mod vault;
 mod week_card;
 
 /// What the pages keep while settings are open: what the core last answered
@@ -42,6 +43,7 @@ pub struct State {
     pub general: Option<general::Fields>,
     pub keybindings: Option<keybindings::Fields>,
     pub settled: Option<settled::Fields>,
+    pub vault: Option<vault::Fields>,
     /// The command a search found, which the shortcuts page opens filtered to.
     pub shortcut: Option<&'static str>,
     /// The command line's install, once the page has asked, and none until the core says.
@@ -102,11 +104,17 @@ pub fn prepare(bench: &Workbench, page: Page, window: &Window, cx: &mut Context<
     let connectors: Option<Make> = match &pages.connectors {
         None => Some(connectors::make),
         Some(fields) if fields.stale => Some(connectors::read),
-        Some(fields) if fields.vault.stale => Some(vault::read),
+        Some(fields) if fields.vault.stale => Some(account_vault::read),
+        Some(_) => None,
+    };
+    let agent_vault: Option<Make> = match &pages.vault {
+        None => Some(vault::make),
+        Some(fields) if fields.stale => Some(vault::read),
         Some(_) => None,
     };
     let missing = |made: bool, make: Make| (!made).then_some(make);
     let wanted: Vec<Make> = match page {
+        Page::Vault => [agent_vault].into(),
         Page::General => [missing(pages.general.is_some(), general::make), agents].into(),
         Page::Keyboard => [
             missing(pages.keybindings.is_some(), keybindings::make),
@@ -146,6 +154,7 @@ pub fn render(
     let page = settings.page;
     match page {
         Page::Account => account::render(bench, &lit, this, cx),
+        Page::Vault => vault::render(bench, pages, &lit, this, cx),
         Page::General => {
             let mut sections = general::render(bench, pages, &lit, this, cx);
             sections.extend(agents::render(bench, pages, page, &lit, this, cx));
@@ -184,8 +193,10 @@ pub fn dialogs(
     cx: &mut Context<Workbench>,
 ) -> Vec<AnyElement> {
     let connector = connectors::dialog(bench, this, cx);
+    let vault_dialog = vault::dialog(bench, this, cx);
     connector
         .into_iter()
+        .chain(vault_dialog)
         .chain(agents::dialogs(bench, this, cx))
         .collect()
 }
@@ -221,4 +232,15 @@ pub fn plugins_changed(bench: &Workbench, cx: &mut App) {
 /// core tells of it with the plugins, whose list need not differ.
 pub fn vault_changed(bench: &Workbench, cx: &mut App) {
     connectors::change_vault(bench, cx, |fields, _| fields.stale = true);
+}
+
+/// Marks the Settings → Vault page stale when `Topic::Vault` changes, so it reloads lazily only
+/// while open.
+pub fn agent_vault_changed(bench: &Workbench, cx: &mut App) {
+    change_form(
+        bench,
+        cx,
+        |pages| pages.vault.as_mut(),
+        |fields, _| fields.stale = true,
+    );
 }

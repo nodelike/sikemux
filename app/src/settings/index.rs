@@ -12,6 +12,7 @@ use crate::workbench::Workbench;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Page {
     Account,
+    Vault,
     #[default]
     General,
     Appearance,
@@ -27,7 +28,7 @@ pub enum Page {
 
 use Page::*;
 
-/// The pages in the list on the left, under their groups. Account, Usage and About
+/// The pages in the list on the left, under their groups. Account, Vault, Usage and About
 /// close it, outside any group.
 pub const GROUPS: [(&str, &[Page]); 3] = [
     (n!("App"), &[General, Appearance, Keyboard]),
@@ -35,8 +36,8 @@ pub const GROUPS: [(&str, &[Page]); 3] = [
     (n!("Reach"), &[Connectors, ThisMac]),
 ];
 
-/// The pages below the groups, at the foot of the list.
-pub const FOOT: [Page; 2] = [Usage, About];
+/// The pages below the groups, at the foot of the list, right beside Account.
+pub const FOOT: [Page; 3] = [Vault, Usage, About];
 
 /// Pages only the Mac has: the notch, dictation and the iOS Simulator. Other systems
 /// neither show them nor find them.
@@ -56,6 +57,11 @@ impl Page {
                 n!("Account"),
                 n!("Your Sikemux account, which links your phone and hosts"),
                 Icon::User,
+            ),
+            Vault => (
+                n!("Vault"),
+                n!("Encrypted details, secrets, payment cards and documents for zero-exposure blind autofill"),
+                Icon::Lock,
             ),
             General => (
                 n!("General"),
@@ -195,6 +201,7 @@ pub(super) const fn row(
 fn entries() -> impl Iterator<Item = &'static Entry> {
     [
         pages::account::ENTRIES,
+        pages::vault::ENTRIES,
         pages::general::ENTRIES,
         pages::keybindings::ENTRIES,
         pages::agents::sessions::NOTIFICATIONS,
