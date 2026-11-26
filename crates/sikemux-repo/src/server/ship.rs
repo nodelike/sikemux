@@ -819,6 +819,12 @@ pub(super) fn check_call(
             telling,
         })
     };
+    let standing_yes = |key: &str, once: bool, since: u64| {
+        person_calls::find_key(core, &project, key)
+            .filter(|call| (call.answer.as_ref()).is_some_and(|answer| answer.at >= since))
+            .filter(|call| passes(core, call, agent_id))
+            .filter(|call| core.ship().claim(&call.id, once, follows))
+    };
     match judged.goes {
         Goes::Freely => Ok(deploy(None, None)),
         Goes::Unplaced => {
@@ -830,7 +836,11 @@ pub(super) fn check_call(
                 clippy::expect_used,
                 reason = "a judgement that tells always names its place"
             )]
-            let ((key, _), told) = keyed.zip(judged.place.as_ref()).expect("a place tells");
+            let ((key, once), told) = keyed.zip(judged.place.as_ref()).expect("a place tells");
+            if let Some(yes) = standing_yes(&key, once, 0) {
+                starts_on_yes(core, agent_id, &yes.id, once, &ship.what)?;
+                return Ok(deploy(Some(yes.id), None));
+            }
             let raise = call_for(core, agent_id, &project, &ship, cwd, told, None);
             Ok(deploy(None, Some(Telling { key, raise })))
         }
@@ -844,29 +854,11 @@ pub(super) fn check_call(
                 reason = "a judgement that asks always names its place"
             )]
             let ((key, once), gated) = keyed.zip(judged.place.clone()).expect("a place asks");
-            let yes = person_calls::find_key(core, &project, &key)
-                .filter(|call| passes(core, call, agent_id))
-                .filter(|call| core.ship().claim(&call.id, once, follows));
-            if let Some(yes) = yes {
-                if let Err(why) = person_calls::started(core, &yes.id) {
-                    if once {
-                        core.ship().unspend(&yes.id);
-                    }
-                    return Err(format!(
-                        "Not yet: Sikemux couldn't record that `{}` started ({why}), so it doesn't run. Try again in a moment.",
-                        ship.what
-                    ));
-                }
-                if !once {
-                    let mut state = core.ship().state.locked();
-                    let covered = (state.covering.iter())
-                        .any(|(agent, call, _)| agent == agent_id && *call == yes.id);
-                    if !covered {
-                        state
-                            .covering
-                            .push((agent_id.to_owned(), yes.id.clone(), true));
-                    }
-                }
+            // A yes given before the person last set the place's level no longer counts, so a
+            // place they set back to ask does ask.
+            let level_set = (gated.shown.said_by.as_ref()).map_or(0, |said| said.at);
+            if let Some(yes) = standing_yes(&key, once, level_set) {
+                starts_on_yes(core, agent_id, &yes.id, once, &ship.what)?;
                 return Ok(deploy(Some(yes.id), None));
             }
             let routine = plain.filter(|_| places::judge::routine(&gated, &ship));
@@ -881,6 +873,36 @@ pub(super) fn check_call(
             gate(core, agent_id, &project, ship, cwd, asking, judged.why)
         }
     }
+}
+
+/// Records that `what` starts on the yes of the call `yes`, which then hears how it ended. A
+/// deploy's yes covers `agent_id` until its turn ends. When that can't be written nothing runs.
+fn starts_on_yes(
+    core: &Core,
+    agent_id: &str,
+    yes: &str,
+    once: bool,
+    what: &str,
+) -> Result<(), String> {
+    if let Err(why) = person_calls::started(core, yes) {
+        if once {
+            core.ship().unspend(yes);
+        }
+        return Err(format!(
+            "Not yet: Sikemux couldn't record that `{what}` started ({why}), so it doesn't run. Try again in a moment."
+        ));
+    }
+    if !once {
+        let mut state = core.ship().state.locked();
+        let covered =
+            (state.covering.iter()).any(|(agent, call, _)| agent == agent_id && call == yes);
+        if !covered {
+            state
+                .covering
+                .push((agent_id.to_owned(), yes.to_owned(), true));
+        }
+    }
+    Ok(())
 }
 
 /// What the shim and the hook ask before an action leaving this machine runs:
