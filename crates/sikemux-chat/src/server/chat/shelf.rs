@@ -144,10 +144,10 @@ impl Shelf {
             .collect()
     }
 
-    pub fn update_bytes(&self, agent_id: &str, bytes: u64) {
+    pub fn update_bytes(&self, agent_id: &str, feed: &str, bytes: u64) {
         let mut kept = self.kept.locked();
         if let Some(shelved) = kept.get_mut(agent_id) {
-            if shelved.bytes != bytes {
+            if shelved.feed == feed && !shelved.running && shelved.bytes != bytes {
                 shelved.bytes = bytes;
                 drop(kept);
                 self.save();

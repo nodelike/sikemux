@@ -188,6 +188,25 @@ impl Replay {
         history.first().is_some_and(|now| now < first)
     }
 
+    /// Persists in-memory settled entries past what a reopened history file holds on disk.
+    pub(in super::super) fn persist_missing(&mut self) {
+        let Some(history) = self.history.as_mut() else {
+            return;
+        };
+        let disk_next = history.next();
+        for entry in &mut self.entries {
+            if entry.on_disk && entry.index >= disk_next {
+                history.append(
+                    entry.index,
+                    entry.seq,
+                    &entry.event,
+                    entry.point,
+                    entry.starts_turn,
+                );
+            }
+        }
+    }
+
     /// Writes the newest event to the history, which nothing joins after.
     pub(in super::super) fn settle(&mut self) {
         if let Some(last) = self.entries.back_mut() {

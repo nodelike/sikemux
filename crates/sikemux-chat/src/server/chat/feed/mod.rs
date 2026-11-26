@@ -323,8 +323,7 @@ impl Feed {
     ) -> Arc<Self> {
         let feed = Self::new(agent_id, permission_mode, None);
         if let Some(dir) = dir {
-            let path = |name: &str| dir.join(format!("{name}.jsonl"));
-            if let Err(error) = std::fs::rename(path(from), path(&feed.id)) {
+            if let Err(error) = super::history::rename(dir, from, &feed.id) {
                 if error.kind() != std::io::ErrorKind::NotFound {
                     eprintln!(
                         "sikemux core: a chat's history was not kept through the restart: {error}"
@@ -362,6 +361,7 @@ impl Feed {
     pub fn restored(agent_id: String, state: FeedState) -> Arc<Self> {
         let mut replay = state.replay;
         replay.history = state.history.map(History::reopen);
+        replay.persist_missing();
         replay.seq = state.seq;
         replay.unsent = true;
         replay.unnumbered = state.seq + 1;
@@ -1492,9 +1492,11 @@ impl Feed {
         for _ in 0..2 {
             let planned = self.inner.locked().replay.plan(side, turns)?;
             let mut events = match &planned.reader {
-                Some(reader) => reader
-                    .range(planned.lo, planned.hi)
-                    .map_err(|error| error.to_string())?,
+                Some(reader) => match reader.range(planned.lo, planned.hi) {
+                    Ok(events) => events,
+                    Err(_) if !reader.still_current() => continue,
+                    Err(error) => return Err(error.to_string()),
+                },
                 None => Vec::new(),
             };
             if planned
@@ -1769,5 +1771,95 @@ mod tests {
         let page = feed.history(&feed.id, first as u64 * 5, 100).unwrap();
         assert_eq!(prompts(&page.rows), asks(0..first));
         assert!(!feed.excerpt(None, 3, usize::MAX).said.is_empty());
+    }
+
+    #[tokio::test]
+    async fn restored_feed_flushes_in_memory_entries_when_disk_history_lagged_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let feed = Feed::new(
+            "agent".into(),
+            PermissionMode::WorkspaceWrite,
+            Some(dir.path()),
+        );
+        {
+            let mut inner = feed.inner.lock().unwrap();
+            for n in 0..2 {
+                turn(&mut inner.replay, n);
+            }
+            inner.replay.settle();
+        }
+        let feed_id = feed.id().to_owned();
+        let plain = dir.path().join(format!("{feed_id}.jsonl"));
+        let stale_zst = dir.path().join(format!("{feed_id}.jsonl.zst"));
+        let stale_copy = dir.path().join("stale.jsonl");
+        std::fs::copy(&plain, &stale_copy).unwrap();
+
+        {
+            let mut inner = feed.inner.lock().unwrap();
+            for n in 2..5 {
+                turn(&mut inner.replay, n);
+            }
+            inner.replay.settle();
+        }
+        let (state, _) = feed.release().unwrap();
+        std::fs::remove_file(&plain).unwrap();
+        super::super::history::compress_file(dir.path(), "stale").unwrap();
+        std::fs::rename(dir.path().join("stale.jsonl.zst"), &stale_zst).unwrap();
+
+        let restored = Feed::restored("agent".into(), state);
+        {
+            let mut inner = restored.inner.lock().unwrap();
+            turn(&mut inner.replay, 5);
+            inner.replay.settle();
+        }
+        assert!(restored.rest() > 0);
+        restored.outlive_chat();
+        drop(restored);
+
+        let kept = Feed::kept(
+            "agent".into(),
+            PermissionMode::WorkspaceWrite,
+            dir.path(),
+            &feed_id,
+        );
+        let mut inner = kept.inner.lock().unwrap();
+        kept.fold(&mut inner);
+        let older = Feed::holds_older(&inner);
+        let view = kept.fold(&mut inner).view(older);
+        assert_eq!(prompts(&view.rows), asks(0..6));
+    }
+
+    #[tokio::test]
+    async fn recovering_keeps_compressed_history_across_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let feed = Feed::new(
+            "agent".into(),
+            PermissionMode::WorkspaceWrite,
+            Some(dir.path()),
+        );
+        let old_id = feed.id().to_owned();
+        {
+            let mut inner = feed.inner.lock().unwrap();
+            for n in 0..3 {
+                turn(&mut inner.replay, n);
+            }
+        }
+        assert!(feed.rest() > 0);
+        assert!(dir.path().join(format!("{old_id}.jsonl.zst")).is_file());
+        feed.outlive_chat();
+        drop(feed);
+
+        let recovered = Feed::recovering(
+            "agent".into(),
+            PermissionMode::WorkspaceWrite,
+            Some(dir.path()),
+            &old_id,
+        );
+        recovered.recover(dir.path());
+        let mut inner = recovered.inner.lock().unwrap();
+        recovered.fold(&mut inner);
+        let older = Feed::holds_older(&inner);
+        let view = recovered.fold(&mut inner).view(older);
+        assert_eq!(prompts(&view.rows), asks(0..3));
     }
 }

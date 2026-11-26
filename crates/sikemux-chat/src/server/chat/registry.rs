@@ -349,6 +349,7 @@ impl Chats {
 
     /// Lets go of what a chat that cannot be opened again kept, its history file with it.
     pub fn forget(&self, agent_id: &str) {
+        let _one_at_a_time = self.unshelving.locked();
         self.resting
             .locked()
             .retain(|resting| resting.agent_id != agent_id);
@@ -359,6 +360,44 @@ impl Chats {
         if self.get(agent_id).is_none() {
             history::remove(dir, &shelved.feed);
         }
+    }
+
+    /// Compresses a shelved feed's plain history file only while it is neither active nor in
+    /// memory, serialized against unshelve so a waking chat's file is never unlinked under it.
+    pub fn compress_shelved(&self, agent_id: &str, feed: &str) -> Option<u64> {
+        let dir = self.history.as_deref()?;
+        if !history::plain_exists(dir, feed) {
+            return None;
+        }
+        let bytes = {
+            let _one_at_a_time = self.unshelving.locked();
+            if self
+                .chats
+                .locked()
+                .iter()
+                .any(|(id, chat)| id == agent_id || chat.feed.id() == feed)
+            {
+                return None;
+            }
+            if self
+                .resting
+                .locked()
+                .iter()
+                .any(|resting| resting.agent_id == agent_id || resting.feed.id() == feed)
+            {
+                return None;
+            }
+            let still_resting = self
+                .shelf
+                .get(agent_id)
+                .is_some_and(|shelved| !shelved.running && shelved.feed == feed);
+            if !still_resting {
+                return None;
+            }
+            history::compress_file(dir, feed).ok()??
+        };
+        self.shelf.update_bytes(agent_id, feed, bytes);
+        Some(bytes)
     }
 
     /// Lets go of the kept history of each chat closed or asleep whose agent no longer keeps
@@ -686,40 +725,19 @@ impl crate::server::part::Part for Chats {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         self.resets.arm_saved(core);
         let mut tasks = vec![super::reset::wake_on_readings(core)];
-        if let Some(dir) = self.history.clone() {
+        if self.history.is_some() {
             let core = core.clone();
             tasks.push(tokio::spawn(async move {
                 let resting = core.chats().shelf.resting_feeds();
                 if resting.is_empty() {
                     return;
                 }
-                let active: std::collections::HashSet<String> = core
-                    .chats()
-                    .all()
-                    .into_iter()
-                    .map(|chat| chat.agent_id().to_owned())
-                    .collect();
-                let to_compress: Vec<(String, String)> = resting
-                    .into_iter()
-                    .filter(|(agent_id, _)| !active.contains(agent_id))
-                    .collect();
-                if to_compress.is_empty() {
-                    return;
-                }
-                let compressed = tokio::task::spawn_blocking(move || {
-                    let mut updated = Vec::new();
-                    for (agent_id, feed) in to_compress {
-                        if let Ok(Some(bytes)) = history::compress_file(&dir, &feed) {
-                            updated.push((agent_id, bytes));
-                        }
+                let _ = tokio::task::spawn_blocking(move || {
+                    for (agent_id, feed) in resting {
+                        core.chats().compress_shelved(&agent_id, &feed);
                     }
-                    updated
                 })
-                .await
-                .unwrap_or_default();
-                for (agent_id, bytes) in compressed {
-                    core.chats().shelf.update_bytes(&agent_id, bytes);
-                }
+                .await;
             }));
         }
         tasks
@@ -825,5 +843,57 @@ mod tests {
         assert!(history.join("newer-feed.jsonl").is_file());
         assert!(chats.unshelve("agent", Some("newer")).is_some());
         assert!(chats.take_rest("agent", Some("newer")).is_some());
+    }
+
+    #[tokio::test]
+    async fn startup_compression_skips_woken_or_unshelved_feeds() {
+        let data = tempfile::tempdir().unwrap();
+        let chats = Chats::new(Some(data.path()));
+        let history = data.path().join("chat-history");
+        std::fs::create_dir_all(&history).unwrap();
+        let sample = br#"{"index":0,"seq":1,"startsTurn":true,"point":true,"event":{"kind":"prompt","payload":{"text":"hello"}}}
+"#;
+        std::fs::write(history.join("woken-feed.jsonl"), sample).unwrap();
+        std::fs::write(history.join("sleeping-feed.jsonl"), sample).unwrap();
+
+        let make_shelved = |feed: &str, session: &str| shelf::Shelved {
+            feed: feed.into(),
+            session: session.into(),
+            provider: "antigravity".into(),
+            cwd: data.path().to_path_buf(),
+            account: None,
+            permission_mode: PermissionMode::Bypass,
+            claude: false,
+            start: None,
+            reach: None,
+            transcript: None,
+            running: false,
+            bytes: sample.len() as u64,
+            read_at: 0,
+        };
+        chats
+            .shelf
+            .put("woken", make_shelved("woken-feed", "sess-1"));
+        chats
+            .shelf
+            .put("sleeping", make_shelved("sleeping-feed", "sess-2"));
+
+        assert!(chats.unshelve("woken", Some("sess-1")).is_some());
+        let rested = chats.take_rest("woken", Some("sess-1")).unwrap();
+        assert!(history.join("woken-feed.jsonl").is_file());
+
+        assert!(chats.compress_shelved("woken", "woken-feed").is_none());
+        assert!(history.join("woken-feed.jsonl").is_file());
+        assert!(!history.join("woken-feed.jsonl.zst").exists());
+        drop(rested);
+
+        let compressed = chats.compress_shelved("sleeping", "sleeping-feed");
+        assert!(compressed.is_some());
+        assert!(!history.join("sleeping-feed.jsonl").exists());
+        assert!(history.join("sleeping-feed.jsonl.zst").is_file());
+        assert_eq!(
+            chats.shelf.get("sleeping").unwrap().bytes,
+            compressed.unwrap()
+        );
     }
 }
