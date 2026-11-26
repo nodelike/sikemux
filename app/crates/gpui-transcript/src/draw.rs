@@ -13,21 +13,23 @@ use gpui::{
     App, AvailableSpace, Bounds, ClipboardItem, DispatchPhase, Div, Element, ElementId, Font,
     FontStyle, FontWeight, GlobalElementId, HighlightStyle, HitboxBehavior, Hsla,
     InspectorElementId, InteractiveElement, InteractiveText, IntoElement, LayoutId, MouseButton,
-    ParentElement, Pixels, Point, ScrollEvent, ScrollHandle, SharedString, Stateful,
-    StatefulInteractiveElement, StrikethroughStyle, Styled, StyledText, TextAlign, TextLayout,
-    UnderlineStyle, Window,
+    MouseDownEvent, MouseUpEvent, ParentElement, Pixels, Point, ScrollEvent, ScrollHandle,
+    SharedString, Stateful, StatefulInteractiveElement, StrikethroughStyle, Styled, StyledText,
+    TextAlign, TextLayout, UnderlineStyle, Window,
 };
 
 use crate::markdown::{
     superscript, CodeMetrics, Kind, Markdown, Marks, Node, Picture, Piece, Prefixes, Rich,
 };
-use crate::select::{Key, Mark, Selecting, Shown};
+use crate::select::{edge_step, Key, Mark, Selecting, Shown};
 
 /// Where a long code block is scrolled to, and whose the gesture under way is.
 #[derive(Default)]
 struct CodeScroll {
     handle: ScrollHandle,
     latch: crate::scroll_latch::ScrollLatch,
+    /// A selection is being dragged from inside the block.
+    selecting: Rc<Cell<bool>>,
 }
 
 /// A fenced code block, for a host that draws its own.
@@ -1809,8 +1811,39 @@ impl Draw<'_> {
             .child(
                 canvas(
                     |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
-                    move |_, hitbox, window, _| {
+                    move |_, hitbox, window, cx| {
                         let view = window.current_view();
+                        let selecting = scroll.read(cx).selecting.clone();
+                        let room = handle.max_offset().x;
+                        if selecting.get() && room > px(0.) {
+                            let bounds = hitbox.bounds;
+                            let step =
+                                edge_step(window.mouse_position().x, bounds.left(), bounds.right());
+                            let was = handle.offset();
+                            let x = (was.x - step).clamp(-room, px(0.));
+                            if x != was.x {
+                                handle.set_offset(point(x, was.y));
+                                window.request_animation_frame();
+                            }
+                        }
+                        let pressed = hitbox.clone();
+                        window.on_mouse_event({
+                            let selecting = selecting.clone();
+                            move |event: &MouseDownEvent, phase, window, _| {
+                                if phase == DispatchPhase::Capture
+                                    && event.button == MouseButton::Left
+                                {
+                                    selecting.set(pressed.is_hovered(window));
+                                }
+                            }
+                        });
+                        window.on_mouse_event(move |event: &MouseUpEvent, phase, _, _| {
+                            if phase == DispatchPhase::Capture && event.button == MouseButton::Left
+                            {
+                                selecting.set(false);
+                            }
+                        });
+                        let handle = handle.clone();
                         window.on_mouse_event(move |event: &ScrollEvent, phase, window, cx| {
                             if phase != DispatchPhase::Bubble {
                                 return;
