@@ -819,7 +819,7 @@ def answered(said):
 
 
 CHECKS = [("DP5", dp5), ("DP3", dp3), ("D5", d5), ("DK3", dk3), ("D6", d6_dk4_dk5), ("DK6", dk6), ("D7", d7), ("DK8", dk8),
-          ("DK2", dk2), ("DK9", dk9), ("ONE-DESK", one_desk), ("DK7", dk7), ("DK7 Keep", dk7_keep), ("D8", d8), ("DF1", df1), ("DF3", df3), ("DF2", df2), ("DF4", df4), ("DF5", df5), ("DK1", dk1), ("RS1", rs1),
+          ("DK2", dk2), ("DK9", dk9), ("DK7", dk7), ("DK7 Keep", dk7_keep), ("ONE-DESK", one_desk), ("D8", d8), ("DF1", df1), ("DF3", df3), ("DF2", df2), ("DF4", df4), ("DF5", df5), ("DK1", dk1), ("RS1", rs1),
           ("TK1", tk1), ("GK1", gk1)]
 
 
