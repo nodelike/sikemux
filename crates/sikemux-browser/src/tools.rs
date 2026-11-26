@@ -65,11 +65,98 @@ const PAGE_SCRIPT_LIMIT: Duration = Duration::from_secs(20);
 pub type CheckWrite =
     dyn Fn(String, String, String) -> Pin<Box<dyn Future<Output = Result<(), String>>>>;
 
+/// Host-resolved Vault payload, strictly consumed inside the browser engine and never echoed
+/// back to agents.
+#[derive(Clone, Debug)]
+pub enum VaultResolved {
+    Text {
+        value: String,
+        masked_label: String,
+        redaction_tokens: Vec<String>,
+        sensitive: bool,
+    },
+    File {
+        staged_path: PathBuf,
+        display_name: String,
+    },
+}
+
+/// Resolves a `vault:<id>.<field>` or `vault:<id>` reference inside the host for the given
+/// `(reference, page_url_or_domain, tool, for_upload)`.
+pub type ResolveVault = dyn Fn(
+    String,
+    String,
+    String,
+    bool,
+) -> Pin<Box<dyn Future<Output = Result<VaultResolved, String>>>>;
+
+struct StagedFilesGuard(Vec<PathBuf>);
+
+impl Drop for StagedFilesGuard {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = std::fs::remove_file(path);
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::remove_dir(parent);
+            }
+        }
+    }
+}
+
+pub fn is_vault_ref(raw: &str) -> bool {
+    raw.trim().starts_with("vault:")
+}
+
+pub fn redact_text(text: &str, secrets: &[String]) -> String {
+    if secrets.is_empty() || text.is_empty() {
+        return text.to_owned();
+    }
+    let mut out = text.to_owned();
+    for secret in secrets {
+        if !secret.is_empty() && out.contains(secret.as_str()) {
+            out = out.replace(secret.as_str(), "••••••••");
+        }
+    }
+    out
+}
+
+pub fn redact_value(value: &mut Value, secrets: &[String]) {
+    if secrets.is_empty() {
+        return;
+    }
+    match value {
+        Value::String(s) => {
+            *s = redact_text(s, secrets);
+        }
+        Value::Array(items) => {
+            for item in items {
+                redact_value(item, secrets);
+            }
+        }
+        Value::Object(map) => {
+            for val in map.values_mut() {
+                redact_value(val, secrets);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Runs on a CLI broker thread, so blocking on the async runtime is safe.
 pub fn execute(
     manager: &BrowserManager,
     request: &HarnessRequest,
     check: &CheckWrite,
+) -> Result<Value, String> {
+    execute_with_vault(manager, request, check, None)
+}
+
+/// Runs a browser tool call with an optional host-side Vault blind-fill resolver.
+pub fn execute_with_vault(
+    manager: &BrowserManager,
+    request: &HarnessRequest,
+    check: &CheckWrite,
+    vault: Option<&ResolveVault>,
 ) -> Result<Value, String> {
     let agent_id = request
         .agent_id
@@ -97,6 +184,7 @@ pub fn execute(
         agent_id,
         &request.project,
         check,
+        vault,
         &request.method,
         &request.params,
     ));
@@ -130,6 +218,11 @@ pub fn execute(
         if !saved.is_empty() {
             map.entry("downloads").or_insert(json!(saved));
         }
+    }
+    let secrets = manager.blind_secrets_for(agent_id, None);
+    match &mut result {
+        Ok(val) => redact_value(val, &secrets),
+        Err(err) => *err = redact_text(err, &secrets),
     }
     result
 }
@@ -206,6 +299,7 @@ async fn run(
     agent_id: &str,
     project: &str,
     check: &CheckWrite,
+    vault: Option<&ResolveVault>,
     method: &str,
     params: &Value,
 ) -> Result<Value, String> {
@@ -440,27 +534,59 @@ async fn run(
             )
         }
         "browser.upload" => {
-            let paths = params
+            let raw_paths = params
                 .get("paths")
                 .and_then(Value::as_array)
-                .ok_or("paths is required")?
-                .iter()
-                .map(|path| {
-                    let path =
-                        std::path::PathBuf::from(path.as_str().ok_or("paths must be strings")?);
+                .ok_or("paths is required")?;
+            if raw_paths.is_empty() || raw_paths.len() > MAX_UPLOAD_FILES {
+                return Err(format!("pass between 1 and {MAX_UPLOAD_FILES} files"));
+            }
+            let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
+            let page_url = manager
+                .page(agent_id, &tab_id)
+                .map(|page| page.url)
+                .unwrap_or_default();
+            let mut paths = Vec::with_capacity(raw_paths.len());
+            let mut names = Vec::with_capacity(raw_paths.len());
+            let mut staged_guard = StagedFilesGuard(Vec::new());
+            let mut had_vault = false;
+            for item in raw_paths {
+                let raw = item.as_str().ok_or("paths must be strings")?;
+                if is_vault_ref(raw) {
+                    let resolver = vault.ok_or("Vault blind-upload is unavailable on this host")?;
+                    let resolved = resolver(
+                        raw.trim().to_owned(),
+                        page_url.clone(),
+                        "browser.upload".to_owned(),
+                        true,
+                    )
+                    .await?;
+                    let VaultResolved::File {
+                        staged_path,
+                        display_name,
+                    } = resolved
+                    else {
+                        return Err(format!("{raw} is not a Vault document"));
+                    };
+                    staged_guard.0.push(staged_path.clone());
+                    paths.push(staged_path);
+                    names.push(display_name);
+                    had_vault = true;
+                } else {
+                    let path = std::path::PathBuf::from(raw);
                     if !path.is_absolute() {
                         return Err(format!("{} is not an absolute path", path.display()));
                     }
                     if !path.is_file() {
                         return Err(format!("{} is not a file", path.display()));
                     }
-                    uploadable(manager, path, &params["uploadFrom"])
-                })
-                .collect::<Result<Vec<_>, String>>()?;
-            if paths.is_empty() || paths.len() > MAX_UPLOAD_FILES {
-                return Err(format!("pass between 1 and {MAX_UPLOAD_FILES} files"));
+                    let checked = uploadable(manager, path, &params["uploadFrom"])?;
+                    if let Some(name) = checked.file_name() {
+                        names.push(name.to_string_lossy().into_owned());
+                    }
+                    paths.push(checked);
+                }
             }
-            let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
             let by_point = params.get("x").is_some() || params.get("y").is_some();
             let input = match by_point {
                 true => Value::Null,
@@ -477,11 +603,6 @@ async fn run(
                 ),
                 None => target(&view, params, "index", "x", "y").await?,
             };
-            let names: Vec<String> = paths
-                .iter()
-                .filter_map(|path| path.file_name())
-                .map(|name| name.to_string_lossy().into_owned())
-                .collect();
             call(&view, "uploadLanded", &[json!(true)]).await?;
             manager.offer_upload(&tab_id, paths);
             show_pointer(&view, x, y, true).await;
@@ -513,7 +634,11 @@ async fn run(
                 return Err("a file chooser took the files, but no file input on the page changed, so the page did not get them; pass the selector or number of the button or drop zone that opens its chooser instead".into());
             }
             put(&mut result, "uploaded", json!(names));
+            if had_vault {
+                put(&mut result, "blindUploaded", json!(true));
+            }
             settle(manager, agent_id, &tab_id, &view).await;
+            drop(staged_guard);
             merge(
                 result,
                 report(manager, agent_id, &tab_id, params, false).await?,
@@ -556,13 +681,49 @@ async fn run(
             )
         }
         "browser.type" => {
-            let value = text("text").ok_or("text is required")?;
+            let raw_text = text("text").ok_or("text is required")?;
             let submit = params
                 .get("submit")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             let replace = params.get("replace").and_then(Value::as_bool) == Some(true);
             let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
+            let (value, blind_ref, blind_masked, blind_sensitive) = if is_vault_ref(&raw_text) {
+                let resolver = vault.ok_or("Vault blind-fill is unavailable on this host")?;
+                let page_url = manager
+                    .page(agent_id, &tab_id)
+                    .map(|page| page.url)
+                    .unwrap_or_default();
+                let resolved = resolver(
+                    raw_text.trim().to_owned(),
+                    page_url,
+                    "browser.type".to_owned(),
+                    false,
+                )
+                .await?;
+                let VaultResolved::Text {
+                    value,
+                    masked_label,
+                    redaction_tokens,
+                    sensitive,
+                } = resolved
+                else {
+                    return Err(format!(
+                        "{raw_text} is a Vault document; use browser_upload or vault_fill on a file input"
+                    ));
+                };
+                if sensitive {
+                    manager.record_blind_secrets(&tab_id, &redaction_tokens);
+                }
+                (
+                    value,
+                    Some(raw_text.trim().to_owned()),
+                    Some(masked_label),
+                    sensitive,
+                )
+            } else {
+                (raw_text, None, None, false)
+            };
             let mut at = serde_json::Map::new();
             if let Some(index) = index("index") {
                 at.insert("index".into(), json!(index));
@@ -578,9 +739,13 @@ async fn run(
             } else {
                 Value::Object(at)
             };
+            let focus_hint = if blind_sensitive {
+                Value::Null
+            } else {
+                json!(value)
+            };
             let prepared =
-                call_when_shown(&view, "focus", &[at.clone(), json!(value), json!(replace)])
-                    .await?;
+                call_when_shown(&view, "focus", &[at.clone(), focus_hint, json!(replace)]).await?;
             if prepared.get("isSelect") == Some(&json!(true)) {
                 let mut select_params = json!({
                     "tabId": tab_id,
@@ -590,7 +755,19 @@ async fn run(
                 if let Some(report) = params.get("report") {
                     put(&mut select_params, "report", report.clone());
                 }
-                return select_option(manager, agent_id, check, &select_params).await;
+                let mut selected = select_option(manager, agent_id, check, &select_params).await?;
+                if blind_sensitive {
+                    put(
+                        &mut selected,
+                        "value",
+                        json!(blind_masked.as_deref().unwrap_or("••••••••")),
+                    );
+                    put(&mut selected, "blindFilled", json!(true));
+                    if let Some(ref vref) = blind_ref {
+                        put(&mut selected, "vaultRef", json!(vref));
+                    }
+                }
+                return Ok(selected);
             }
             let mut form_write = None;
             if submit {
@@ -612,7 +789,8 @@ async fn run(
             if let Some(dialog) = manager.dialog(&tab_id) {
                 return Ok(json!({
                     "tabId": tab_id,
-                    "typed": value.chars().count(),
+                    "typed": if blind_sensitive { Value::Null } else { json!(value.chars().count()) },
+                    "blindFilled": blind_ref.is_some(),
                     "into": prepared.get("into").cloned().unwrap_or(Value::Null),
                     "replaced": replacing,
                     "submitted": false,
@@ -627,7 +805,12 @@ async fn run(
                     committed = call(
                         &view,
                         "commitField",
-                        &[at.clone(), json!(value), json!(replacing)],
+                        &[
+                            at.clone(),
+                            json!(value),
+                            json!(replacing),
+                            json!(blind_sensitive),
+                        ],
                     )
                     .await?;
                     native::key(&view, "Enter").await?;
@@ -640,7 +823,12 @@ async fn run(
                     committed = call(
                         &view,
                         "commitField",
-                        &[at.clone(), json!(value), json!(replacing)],
+                        &[
+                            at.clone(),
+                            json!(value),
+                            json!(replacing),
+                            json!(blind_sensitive),
+                        ],
                     )
                     .await?;
                     call_page_settle_tab(manager, &tab_id, &view).await;
@@ -651,14 +839,24 @@ async fn run(
             let mut typed = merge(
                 json!({
                     "tabId": tab_id,
-                    "typed": value.chars().count(),
+                    "typed": if blind_sensitive { Value::Null } else { json!(value.chars().count()) },
                     "into": prepared.get("into").cloned().unwrap_or(Value::Null),
                     "replaced": replacing,
                     "submitted": submit,
                 }),
                 committed,
             )?;
-            if let Some(warning) = typing_missed(&value, &typed) {
+            if let Some(ref vref) = blind_ref {
+                put(&mut typed, "blindFilled", json!(true));
+                put(&mut typed, "vaultRef", json!(vref));
+                if blind_sensitive {
+                    put(
+                        &mut typed,
+                        "value",
+                        json!(blind_masked.as_deref().unwrap_or("••••••••")),
+                    );
+                }
+            } else if let Some(warning) = typing_missed(&value, &typed) {
                 put(&mut typed, "warning", json!(warning));
             }
             if submit {
@@ -697,7 +895,7 @@ async fn run(
                 report(manager, agent_id, &tab_id, params, false).await?,
             )
         }
-        "browser.drive" => drive::run_tool(manager, agent_id, project, check, params).await,
+        "browser.drive" => drive::run_tool(manager, agent_id, project, check, vault, params).await,
         "browser.dialog" => {
             let accept = params
                 .get("accept")
@@ -2424,6 +2622,51 @@ impl BrowserManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn blind_fill_redaction_scrubs_outputs_errors_and_cleans_staged_files() {
+        assert!(is_vault_ref("vault:vlt_123.password"));
+        assert!(is_vault_ref("  vault:vlt_doc "));
+        assert!(!is_vault_ref("regular input"));
+
+        let secrets = vec![
+            "4242 4242 4242 4242".to_owned(),
+            "4242424242424242".to_owned(),
+            "s3cr3t-token!".to_owned(),
+        ];
+        let mut payload = json!({
+            "state": {
+                "elements": "[1] Card 4242 4242 4242 4242",
+                "console": ["Submitted 4242424242424242 with s3cr3t-token!"]
+            },
+            "error": "Failed typing s3cr3t-token!"
+        });
+        redact_value(&mut payload, &secrets);
+        let serialized = serde_json::to_string(&payload).unwrap_or_default();
+        assert!(!serialized.contains("4242 4242 4242 4242"));
+        assert!(!serialized.contains("4242424242424242"));
+        assert!(!serialized.contains("s3cr3t-token!"));
+
+        let err = redact_text("page rejected 4242424242424242", &secrets);
+        assert!(!err.contains("4242424242424242"));
+        assert!(err.contains("••••••••"));
+
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("nonce");
+        std::fs::create_dir_all(&nested).unwrap();
+        let staged = nested.join("passport.pdf");
+        std::fs::write(&staged, b"secret-pdf").unwrap();
+        assert!(staged.is_file());
+        {
+            let _guard = StagedFilesGuard(vec![staged.clone()]);
+        }
+        assert!(!staged.exists(), "staged document must be deleted on drop");
+        assert!(
+            !nested.exists(),
+            "empty staging directory must be removed on drop"
+        );
+    }
 
     #[test]
     fn looking_at_the_page_with_no_tab_leaves_the_desk_shut() {

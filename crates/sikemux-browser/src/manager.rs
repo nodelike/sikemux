@@ -147,6 +147,8 @@ pub(crate) struct TabFacts {
     pub(crate) stall: Option<TabStall>,
     /// Incremented whenever a top-level provisional navigation starts in this tab.
     pub(crate) nav_seq: u64,
+    /// Sensitive strings blind-filled from Vault into this tab; scrubbed from all agent readbacks.
+    pub(crate) blind_secrets: Vec<String>,
 }
 
 pub struct BrowserManager {
@@ -221,6 +223,43 @@ impl BrowserManager {
     /// The manager itself, for work that outlives the call that starts it.
     pub(crate) fn this(&self) -> Option<Arc<Self>> {
         self.me.upgrade()
+    }
+
+    pub(crate) fn record_blind_secrets(&self, tab_id: &str, tokens: &[String]) {
+        if tokens.is_empty() {
+            return;
+        }
+        let mut tabs = self.tabs.locked();
+        let secrets = &mut tabs.entry(tab_id.to_owned()).or_default().blind_secrets;
+        for token in tokens {
+            let trimmed = token.trim();
+            if trimmed.chars().count() >= 3 && !secrets.iter().any(|existing| existing == trimmed) {
+                secrets.push(trimmed.to_owned());
+            }
+        }
+        secrets.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+    }
+
+    pub(crate) fn blind_secrets_for(&self, agent_id: &str, tab_id: Option<&str>) -> Vec<String> {
+        let mut out = Vec::new();
+        let tab_ids: Vec<String> = match tab_id {
+            Some(id) => vec![id.to_owned()],
+            None => self
+                .agents
+                .locked()
+                .get(agent_id)
+                .map(|agent| agent.strip.pages.keys().cloned().collect())
+                .unwrap_or_default(),
+        };
+        let tabs = self.tabs.locked();
+        for id in tab_ids {
+            if let Some(facts) = tabs.get(&id) {
+                out.extend(facts.blind_secrets.iter().cloned());
+            }
+        }
+        out.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+        out.dedup();
+        out
     }
 
     /// A loopback address a tab can load `path` from.

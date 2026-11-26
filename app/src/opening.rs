@@ -467,18 +467,73 @@ impl Workbench {
                 Box::new(move || {
                     let agent = request.agent_id.clone().unwrap_or_default();
                     let project = request.project.clone();
+                    let check_core = core.clone();
+                    let check_agent = agent.clone();
                     let check = move |what: String, origin: String, with_queries: String| {
-                        let asked = core.request_typed::<call::CheckWebWrite>(WebWriteParams {
-                            agent: agent.clone(),
-                            project: project.clone(),
-                            what,
-                            origin,
-                            with_queries,
-                        });
+                        let asked =
+                            check_core.request_typed::<call::CheckWebWrite>(WebWriteParams {
+                                agent: check_agent.clone(),
+                                project: project.clone(),
+                                what,
+                                origin,
+                                with_queries,
+                            });
                         Box::pin(async move { asked.await?.map_or(Ok(()), Err) })
                             as Pin<Box<dyn Future<Output = Result<(), String>>>>
                     };
-                    sikemux_browser::tools::execute(&engine, &request, &check)
+                    let vault =
+                        move |reference: String, domain: String, tool: String, for_upload: bool| {
+                            let asked = core.request_typed::<call::VaultResolveBrowser>(
+                                sikemux_calls::vault::VaultResolveBrowserParams {
+                                    agent_id: agent.clone(),
+                                    reference,
+                                    domain,
+                                    tool,
+                                    for_upload,
+                                },
+                            );
+                            Box::pin(async move {
+                                let resolved = asked.await?;
+                                Ok(match resolved {
+                                    sikemux_calls::vault::VaultResolvedBrowser::Text {
+                                        value,
+                                        masked_label,
+                                        redaction_tokens,
+                                        sensitive,
+                                        ..
+                                    } => sikemux_browser::tools::VaultResolved::Text {
+                                        value,
+                                        masked_label,
+                                        redaction_tokens,
+                                        sensitive,
+                                    },
+                                    sikemux_calls::vault::VaultResolvedBrowser::File {
+                                        staged_path,
+                                        display_name,
+                                        ..
+                                    } => sikemux_browser::tools::VaultResolved::File {
+                                        staged_path: PathBuf::from(staged_path),
+                                        display_name,
+                                    },
+                                })
+                            })
+                                as Pin<
+                                    Box<
+                                        dyn Future<
+                                            Output = Result<
+                                                sikemux_browser::tools::VaultResolved,
+                                                String,
+                                            >,
+                                        >,
+                                    >,
+                                >
+                        };
+                    sikemux_browser::tools::execute_with_vault(
+                        &engine,
+                        &request,
+                        &check,
+                        Some(&vault),
+                    )
                 })
             } else {
                 return answer(Err(format!(

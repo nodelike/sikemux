@@ -207,13 +207,14 @@
         const inner = element.querySelectorAll('input[type="checkbox"], input[type="radio"], [role="switch"], [role="checkbox"]');
         return inner.length === 1 ? inner[0] : element;
     };
-    // What a field holds now, cut short; passwords never leave the page.
+    const blindElements = new WeakSet();
+    // What a field holds now, cut short; passwords and blind-filled fields never leave the page.
     const currentValue = (element) => {
         if (element.tagName === "SELECT") return compact(element.selectedOptions && element.selectedOptions[0] ? element.selectedOptions[0].textContent : element.value).slice(0, 80) || null;
         if (element.tagName !== "INPUT" && element.tagName !== "TEXTAREA") return null;
         if (["checkbox", "radio", "button", "submit", "reset", "image", "file", "hidden"].includes(element.type)) return null;
         if (!element.value) return null;
-        if (element.type === "password") return "•".repeat(Math.min(element.value.length, 12));
+        if (element.type === "password" || blindElements.has(element)) return "•".repeat(Math.min(element.value.length, 12));
         return compact(element.value).slice(0, 80);
     };
     const label = (element) =>
@@ -223,7 +224,7 @@
                 (element.labels && element.labels[0] && element.labels[0].innerText) ||
                 element.placeholder ||
                 element.innerText ||
-                element.value ||
+                (!blindElements.has(element) && element.type !== "password" && element.value) ||
                 element.title ||
                 element.alt ||
                 (isFrame(element) && element.src ? `frame from ${new URL(element.src, location.href).host}` : "") ||
@@ -1450,8 +1451,11 @@
                 selected: element.multiple ? selectedOptions : first.value,
             };
         },
-        commitField(target, expectedValue, replace) {
+        commitField(target, expectedValue, replace, blind) {
             const element = target == null ? focused() : pick(typeof target === "number" ? target : this.resolve(target));
+            if (element && blind) {
+                blindElements.add(element);
+            }
             if (
                 element &&
                 !isFrame(element) &&
@@ -1517,7 +1521,7 @@
             if (!element || isFrame(element)) return { value: null };
             const raw = "value" in element && typeof element.value === "string" ? element.value : element.innerText;
             const value = compact(raw);
-            if (element.type === "password") return { value: "•".repeat(Math.min(value.length, 12)), valueLength: value.length };
+            if (element.type === "password" || blindElements.has(element)) return { value: "•".repeat(Math.min(value.length, 12)), valueLength: value.length };
             return value.length > 400 ? { value: `…${value.slice(-400)}`, valueLength: value.length } : { value };
         },
         // A draggable element hands its drag to the system, which a synthesized

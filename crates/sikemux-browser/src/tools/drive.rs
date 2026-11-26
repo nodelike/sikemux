@@ -111,6 +111,27 @@ const DRIVE_SDK_JS: &str = r#"
                 if (p.report === undefined) p.report = "outcome";
                 return callOnTab("browser.type", p);
             },
+            fill(first, second, third) {
+                let p;
+                if (typeof first === "object" && first !== null) {
+                    if (typeof second === "string") {
+                        p = { ...first, text: second, ...(third || {}) };
+                    } else if (typeof second === "object" && second !== null) {
+                        p = { ...first, ...second };
+                    } else {
+                        p = { ...first };
+                    }
+                } else if (typeof first === "number") {
+                    p = { index: first, text: String(second ?? ""), ...(third || {}) };
+                } else if (typeof second === "string") {
+                    p = { field: String(first), text: second, ...(third || {}) };
+                } else {
+                    p = { text: String(first ?? ""), ...(typeof second === "object" && second !== null ? second : {}) };
+                }
+                if (p.replace === undefined) p.replace = true;
+                if (p.report === undefined) p.report = "outcome";
+                return callOnTab("browser.type", p);
+            },
             select(target, value, opts) {
                 let p;
                 if (typeof target === "object" && target !== null && value === undefined) {
@@ -286,6 +307,7 @@ struct LiveBackend<'a> {
     agent_id: &'a str,
     project: &'a str,
     check: &'a CheckWrite,
+    vault: Option<&'a ResolveVault>,
     allowed_sites: Value,
     upload_from: Value,
     default_tab: Option<String>,
@@ -330,6 +352,7 @@ impl<'a> DriveBackend for LiveBackend<'a> {
                         self.agent_id,
                         self.project,
                         self.check,
+                        self.vault,
                         &method,
                         &params,
                     ))
@@ -344,6 +367,12 @@ impl<'a> DriveBackend for LiveBackend<'a> {
                     .or(tab_hint.as_deref());
                 marks.extend(self.manager.mark_acting_tab(self.agent_id, acted_tab));
                 self.manager.release_acting(self.agent_id, marks);
+            }
+            let secrets = self.manager.blind_secrets_for(self.agent_id, None);
+            let mut outcome = outcome;
+            match &mut outcome {
+                Ok(val) => redact_value(val, &secrets),
+                Err(err) => *err = redact_text(err, &secrets),
             }
             outcome
         })
@@ -391,6 +420,7 @@ pub(super) async fn run_tool(
     agent_id: &str,
     project: &str,
     check: &CheckWrite,
+    vault: Option<&ResolveVault>,
     params: &Value,
 ) -> Result<Value, String> {
     let script = params
@@ -408,6 +438,7 @@ pub(super) async fn run_tool(
         agent_id,
         project,
         check,
+        vault,
         allowed_sites: params
             .get("allowedSites")
             .cloned()
@@ -1220,5 +1251,28 @@ mod tests {
         assert_eq!(out["result"]["b"]["replace"], json!(true));
         assert_eq!(out["result"]["c"]["selector"], json!("#q"));
         assert_eq!(out["result"]["c"]["text"], json!("inline"));
+    }
+
+    #[tokio::test]
+    async fn browser_drive_fill_passes_vault_ref_with_replace_true() {
+        let mut backend = MockBackend::new();
+        backend.call_delay = Duration::ZERO;
+        let script = r##"
+            const tab = browser.tab("tab-1");
+            const filled = await tab.fill("Card number", "vault:vlt_card.card_number");
+            const uploaded = await tab.upload('input[type="file"]', "vault:vlt_doc");
+            return { filled, uploaded };
+        "##;
+        let out = run_drive(&backend, script, Duration::from_secs(5)).await;
+        assert_eq!(out["ok"], json!(true), "unexpected output: {out}");
+        assert_eq!(
+            out["result"]["filled"]["text"],
+            json!("vault:vlt_card.card_number")
+        );
+        assert_eq!(out["result"]["filled"]["replace"], json!(true));
+        assert_eq!(
+            out["result"]["uploaded"]["uploaded"],
+            json!(["vault:vlt_doc"])
+        );
     }
 }
