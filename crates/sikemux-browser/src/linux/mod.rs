@@ -9,6 +9,8 @@ pub(crate) mod dialogs;
 pub(crate) mod input;
 pub(crate) mod page;
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::os::raw::c_ulong;
 use std::path::PathBuf;
@@ -24,8 +26,36 @@ use webkit2gtk::WebView;
 use wry::WebViewExtUnix;
 use x11::xlib::{self, Display};
 
-use crate::tab::{ParentView, TabSpec};
+use crate::tab::{ParentView, ProfileStore, TabSpec};
 use crate::{PageLoad, TabEvents};
+
+thread_local! {
+    static PROFILE_CONTEXTS: RefCell<HashMap<uuid::Uuid, wry::WebContext>> =
+        RefCell::new(HashMap::new());
+}
+
+fn profile_dir(uuid: uuid::Uuid) -> PathBuf {
+    sikemux_process::paths::data_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("browser-profiles")
+        .join(uuid.to_string())
+}
+
+pub fn clear_data(profile: ProfileStore) {
+    if let ProfileStore::Named(uuid) = profile {
+        let dir = profile_dir(uuid);
+        on_gtk(move || {
+            PROFILE_CONTEXTS.with(|contexts| {
+                contexts.borrow_mut().remove(&uuid);
+            });
+            let _ = std::fs::remove_dir_all(&dir);
+        });
+    }
+}
+
+pub fn remove_data_store(profile: ProfileStore) {
+    clear_data(profile);
+}
 
 /// X11 places windows with 16-bit coordinates, so a page parked any further out comes back
 /// into sight.
@@ -328,6 +358,7 @@ impl Tab {
         let (agent_id, tab_id) = (spec.agent_id.to_owned(), id.to_string());
         let (url, user_agent, size) = (spec.url.to_owned(), spec.user_agent.to_owned(), spec.size);
         let private = spec.private;
+        let store = spec.store;
         let window = NonZeroU32::new(parent.view as usize as u32)
             .ok_or("the window has no X11 id")?
             .get();
@@ -342,46 +373,60 @@ impl Tab {
             let attached = events.clone();
             let clip = Clip::new(c_ulong::from(window), parent.ground)?;
             clip.place(PARKED, PARKED, size.0, size.1);
-            let view = wry::WebViewBuilder::new()
-                .with_url(&url)
-                .with_user_agent(&user_agent)
-                .with_initialization_script(crate::recorder_script())
-                .with_incognito(private)
-                .with_focused(false)
-                .with_visible(false)
-                .with_hotkeys_zoom(true)
-                .with_bounds(wry::Rect {
-                    position: wry::dpi::LogicalPosition::new(0., 0.).into(),
-                    size: wry::dpi::LogicalSize::new(size.0, size.1).into(),
-                })
-                .with_navigation_handler(move |url| events.may_load(&url))
-                .with_on_page_load_handler(move |event, url| {
-                    load.loaded(PageLoad {
-                        started: matches!(event, wry::PageLoadEvent::Started),
-                        url,
-                        can_go_back: false,
-                        can_go_forward: false,
+            let build = |builder: wry::WebViewBuilder<'_>| {
+                builder
+                    .with_url(&url)
+                    .with_user_agent(&user_agent)
+                    .with_initialization_script(crate::recorder_script())
+                    .with_incognito(private)
+                    .with_focused(false)
+                    .with_visible(false)
+                    .with_hotkeys_zoom(true)
+                    .with_bounds(wry::Rect {
+                        position: wry::dpi::LogicalPosition::new(0., 0.).into(),
+                        size: wry::dpi::LogicalSize::new(size.0, size.1).into(),
                     })
-                })
-                .with_document_title_changed_handler(move |name| title.titled(name))
-                .with_new_window_req_handler(move |url, _| {
-                    popup.new_window(url, None);
-                    wry::NewWindowResponse::Deny
-                })
-                .with_download_started_handler(move |url, path: &mut PathBuf| {
-                    match started.download_started(url, path) {
-                        Some(chosen) => {
-                            *path = chosen;
-                            true
+                    .with_navigation_handler(move |url| events.may_load(&url))
+                    .with_on_page_load_handler(move |event, url| {
+                        load.loaded(PageLoad {
+                            started: matches!(event, wry::PageLoadEvent::Started),
+                            url,
+                            can_go_back: false,
+                            can_go_forward: false,
+                        })
+                    })
+                    .with_document_title_changed_handler(move |name| title.titled(name))
+                    .with_new_window_req_handler(move |url, _| {
+                        popup.new_window(url, None);
+                        wry::NewWindowResponse::Deny
+                    })
+                    .with_download_started_handler(move |url, path: &mut PathBuf| {
+                        match started.download_started(url, path) {
+                            Some(chosen) => {
+                                *path = chosen;
+                                true
+                            }
+                            None => false,
                         }
-                        None => false,
-                    }
-                })
-                .with_download_completed_handler(move |url, _, saved| {
-                    finished.download_finished(url, saved)
-                })
-                .build_as_child(&X11Parent(clip.window))
-                .map_err(|error| error.to_string())?;
+                    })
+                    .with_download_completed_handler(move |url, _, saved| {
+                        finished.download_finished(url, saved)
+                    })
+                    .build_as_child(&X11Parent(clip.window))
+                    .map_err(|error| error.to_string())
+            };
+            let view = match (private, store) {
+                (false, ProfileStore::Named(uuid)) => PROFILE_CONTEXTS.with(|contexts| {
+                    let mut contexts = contexts.borrow_mut();
+                    let ctx = contexts.entry(uuid).or_insert_with(|| {
+                        let dir = profile_dir(uuid);
+                        let _ = std::fs::create_dir_all(&dir);
+                        wry::WebContext::new(Some(dir))
+                    });
+                    build(wry::WebViewBuilder::new_with_web_context(ctx))
+                })?,
+                _ => build(wry::WebViewBuilder::new())?,
+            };
             // wry sizes a new child window by the screen's DPI over 96, but every later
             // placement by GTK's own scale, so the page is sized once more the later way.
             let _ = view.set_bounds(wry::Rect {

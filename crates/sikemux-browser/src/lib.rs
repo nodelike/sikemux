@@ -50,7 +50,7 @@ pub use linux::choose_page_rendering;
 pub use linux::page::give_keyboard_back;
 pub use manager::BrowserManager;
 pub use strip::TabPage;
-pub use tab::{Opener, ParentView, Tab, TabSpec};
+pub use tab::{Opener, ParentView, ProfileStore, Tab, TabProfile, TabSpec};
 #[cfg(windows)]
 pub use windows::{run_pages_on_this_thread, runtime_version};
 
@@ -151,6 +151,15 @@ pub struct BrowserTab {
     /// An alert, confirm or prompt currently blocking this tab's page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dialog: Option<PageDialog>,
+    /// The browser profile id this tab's webview runs in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+    /// Whether this tab explicitly overrides the project/space/global default profile.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub profile_override: bool,
+    /// Who applied the tab override when an agent requested a different profile (e.g. `@Wren`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_override_by: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]

@@ -118,6 +118,7 @@ fn defaults(omarchy: bool) -> Map<String, Value> {
         preferences.pane_image_follows_omarchy = true;
         preferences.pane_backdrop = PaneBackdrop::Picture;
     }
+    let preferences = within_limits(preferences);
     match serde_json::to_value(preferences) {
         Ok(Value::Object(fields)) => fields,
         _ => Map::new(),
@@ -224,7 +225,63 @@ fn within_limits(mut preferences: Preferences) -> Preferences {
     preferences.last_agent_type = preferences
         .last_agent_type
         .filter(|agent| crate::agent_catalog::agent(agent).is_some());
+    preferences.browser_profiles = browser_profiles_within_limits(preferences.browser_profiles);
+    preferences.default_browser_profile = preferences
+        .default_browser_profile
+        .filter(|id| preferences.browser_profiles.iter().any(|p| p.id == *id));
+    preferences.project_browser_profiles.retain(|project, id| {
+        !project.is_empty() && preferences.browser_profiles.iter().any(|p| p.id == *id)
+    });
     preferences
+}
+
+fn browser_profiles_within_limits(
+    profiles: Vec<sikemux_view::browser_profiles::BrowserProfile>,
+) -> Vec<sikemux_view::browser_profiles::BrowserProfile> {
+    use sikemux_view::browser_profiles::{
+        default_profile, unique_slug, BrowserProfile, MAX_BROWSER_PROFILES,
+        MAX_PROFILE_DESCRIPTION_CHARS, MAX_PROFILE_NAME_CHARS,
+    };
+    let cut = |text: &str, chars: usize| text.chars().take(chars).collect::<String>();
+    let mut seen = HashSet::new();
+    let mut out: Vec<BrowserProfile> = Vec::new();
+    for profile in profiles {
+        if profile.id.trim().is_empty() || !seen.insert(profile.id.clone()) {
+            continue;
+        }
+        if out.len() >= MAX_BROWSER_PROFILES {
+            break;
+        }
+        let name = cut(profile.name.trim(), MAX_PROFILE_NAME_CHARS);
+        let name = if name.is_empty() {
+            "Profile".to_owned()
+        } else {
+            name
+        };
+        let desired_slug = if profile.slug.trim().is_empty() {
+            name.as_str()
+        } else {
+            profile.slug.as_str()
+        };
+        let slug = unique_slug(desired_slug, &out, None);
+        out.push(BrowserProfile {
+            id: cut(profile.id.trim(), 100),
+            slug,
+            name,
+            description: cut(profile.description.trim(), MAX_PROFILE_DESCRIPTION_CHARS),
+            access: profile.access,
+            is_default_store: profile.is_default_store,
+            created_at: profile.created_at,
+        });
+    }
+    if out.is_empty() {
+        out.push(default_profile());
+    } else if !out.iter().any(|profile| profile.is_default_store) {
+        if let Some(first) = out.first_mut() {
+            first.is_default_store = true;
+        }
+    }
+    out
 }
 
 /// The narrowest and widest each rail can be, in points, as the Mac's rails are.
@@ -263,7 +320,12 @@ fn commands_within_limits(commands: Vec<CustomCommand>) -> Vec<CustomCommand> {
 /// The only way a running core changes a preference: sets it and does what follows from it.
 pub fn set(core: &Core, change: PreferenceChange) -> CoreResult<Preferences> {
     core.preferences().change(change.clone());
-    if let PreferenceChange::ProjectSort(_) | PreferenceChange::ProjectRoots(_) = change {
+    if let PreferenceChange::ProjectSort(_)
+    | PreferenceChange::ProjectRoots(_)
+    | PreferenceChange::BrowserProfiles(_)
+    | PreferenceChange::DefaultBrowserProfile(_)
+    | PreferenceChange::ProjectBrowserProfiles(_) = change
+    {
         core.changed(What::ViewNow);
     }
     (core.workspace_above().preference_changed)(core, &change)?;

@@ -5,6 +5,7 @@
 
 pub mod audit;
 pub mod backdrop;
+pub mod browser_profiles;
 pub mod calls;
 pub mod catalog;
 pub mod changed;

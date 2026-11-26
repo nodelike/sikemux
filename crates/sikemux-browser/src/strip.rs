@@ -17,6 +17,10 @@ pub struct TabPage {
     pub can_go_back: bool,
     pub can_go_forward: bool,
     pub favicon: Option<String>,
+    pub profile_id: Option<String>,
+    pub profile_store: crate::ProfileStore,
+    pub profile_override: bool,
+    pub profile_override_by: Option<String>,
 }
 
 /// Which tab is shown and in what order the strip lists them. Kept apart from
@@ -160,12 +164,13 @@ impl TabStrip {
     }
 
     /// The agent's own tab on the same site as `url`, which it goes to rather than opening
-    /// another.
-    pub fn same_site(&self, url: &Url) -> Option<String> {
+    /// another. When `profile_id` is given, only tabs in the same profile match.
+    pub fn same_site(&self, url: &Url, profile_id: Option<&str>) -> Option<String> {
         let open_on_it = |id: &&String| {
-            self.pages
-                .get(*id)
-                .is_some_and(|page| crate::address::same_site(&page.url, url.as_str()))
+            self.pages.get(*id).is_some_and(|page| {
+                crate::address::same_site(&page.url, url.as_str())
+                    && profile_id.is_none_or(|wanted| page.profile_id.as_deref() == Some(wanted))
+            })
         };
         let theirs = |id: &&String| !crate::person::has_touched(id);
         self.active
@@ -215,6 +220,9 @@ impl TabStrip {
                         local_file: None,
                         background: self.background.contains(id),
                         dialog: None,
+                        profile_id: page.profile_id.clone(),
+                        profile_override: page.profile_override,
+                        profile_override_by: page.profile_override_by.clone(),
                     })
                 })
                 .collect(),

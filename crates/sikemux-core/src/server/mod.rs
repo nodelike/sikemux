@@ -20,6 +20,7 @@ mod base;
 pub use sikemux_board::server::board;
 pub(crate) use sikemux_board::server::board_above;
 pub(crate) use sikemux_board::server::board_state;
+pub mod browser_profiles;
 pub(crate) use sikemux_workspace::server::caller;
 pub(crate) mod call_desks;
 pub mod calls;

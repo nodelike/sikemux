@@ -143,6 +143,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 id: text(space, "id")?,
                 name: text(space, "name").unwrap_or_default(),
                 icon: text(space, "icon").unwrap_or_default(),
+                browser_profile: text(space, "browserProfile"),
             })
         })
         .collect();
@@ -197,6 +198,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 calls: 0,
                 cloning: None,
                 shared: None,
+                browser_profile: None,
             })
         })
         .filter(|project| project.path.is_absolute())

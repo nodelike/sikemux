@@ -31,8 +31,8 @@ use crate::tab_events::{OpenedBy, TabListener};
 use crate::windows::page;
 use crate::{
     address, burst, documents, downloads, favicon, history, local_files, viewport, BrowserBounds,
-    BrowserDownload, BrowserSnapshot, DownloadState, PageDialog, Tab, TabSpec, TabStall, BLANK_URL,
-    PARKED_ORIGIN,
+    BrowserDownload, BrowserSnapshot, DownloadState, PageDialog, ProfileStore, Tab, TabProfile,
+    TabSpec, TabStall, BLANK_URL, PARKED_ORIGIN,
 };
 pub(crate) use page::introduce_as;
 
@@ -409,27 +409,38 @@ impl BrowserManager {
         activate: bool,
         background: bool,
     ) -> BrowserResult<String> {
+        self.open_tab_in_profile(
+            agent_id,
+            url,
+            fixed,
+            activate,
+            background,
+            TabProfile::default(),
+        )
+        .await
+    }
+
+    pub async fn open_tab_in_profile(
+        &self,
+        agent_id: &str,
+        url: Option<&str>,
+        fixed: Option<viewport::Viewport>,
+        activate: bool,
+        background: bool,
+        profile: TabProfile,
+    ) -> BrowserResult<String> {
         validate_agent_id(agent_id)?;
         let url = self.page_url(url.unwrap_or_default())?;
-        let (tab_id, _) = self.add_tab_with(agent_id, &url, None, fixed, activate, background)?;
+        let (tab_id, _) =
+            self.add_tab_in_profile(agent_id, &url, None, fixed, activate, background, profile)?;
         if !background {
             self.until_desk_answers(agent_id).await;
         }
         Ok(tab_id)
     }
 
-    /// Adds a tab at `url` to the end of the agent's strip and shows it.
-    pub(crate) fn add_tab(
-        &self,
-        agent_id: &str,
-        url: &str,
-        opened_by: Option<OpenedBy>,
-        fixed: Option<viewport::Viewport>,
-    ) -> BrowserResult<(String, Tab)> {
-        self.add_tab_with(agent_id, url, opened_by, fixed, true, false)
-    }
-
-    pub(crate) fn add_tab_with(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn add_tab_in_profile(
         &self,
         agent_id: &str,
         url: &str,
@@ -437,6 +448,7 @@ impl BrowserManager {
         fixed: Option<viewport::Viewport>,
         activate: bool,
         background: bool,
+        profile: TabProfile,
     ) -> BrowserResult<(String, Tab)> {
         validate_url(url)?;
         let parsed = Url::parse(url).map_err(|_| Error::BadArg("invalid browser url"))?;
@@ -453,7 +465,14 @@ impl BrowserManager {
             let agent = agents.entry(agent_id.to_owned()).or_default();
             agent.viewports.insert(tab_id.clone(), fixed);
         }
-        let webview = self.create_view(agent_id, &tab_id, parsed, user_agent, opened_by)?;
+        let webview = self.create_view(
+            agent_id,
+            &tab_id,
+            parsed,
+            user_agent,
+            opened_by,
+            profile.store,
+        )?;
         let already_closed = self
             .tabs
             .locked()
@@ -467,6 +486,10 @@ impl BrowserManager {
                 TabPage {
                     url: url.to_owned(),
                     loading: url != BLANK_URL && !already_closed,
+                    profile_id: profile.profile_id,
+                    profile_store: profile.store,
+                    profile_override: profile.is_override,
+                    profile_override_by: profile.override_by,
                     ..TabPage::default()
                 },
                 activate,
@@ -525,6 +548,7 @@ impl BrowserManager {
         url: Url,
         user_agent: &str,
         opened_by: Option<OpenedBy>,
+        store: ProfileStore,
     ) -> BrowserResult<Tab> {
         let parent = self.host().window().map_err(Error::Window)?;
         let size = self
@@ -550,6 +574,7 @@ impl BrowserManager {
                 size,
                 opener: opened_by.and_then(|by| by.opener),
                 private: false,
+                store,
             },
             events,
         )
@@ -561,26 +586,28 @@ impl BrowserManager {
     /// Builds an unloaded tab's view again at the address it was on. The
     /// back and forward history went with the old page.
     pub(crate) fn restore(&self, agent_id: &str, tab_id: &str) -> Option<Tab> {
-        let (url, user_agent) = {
+        let (url, user_agent, store) = {
             let mut agents = self.agents.locked();
             let agent = agents.get_mut(agent_id)?;
             if !agent.strip.unloaded.remove(tab_id) {
                 return agent.views.get(tab_id).cloned();
             }
-            let url = agent.strip.pages.get(tab_id)?.url.clone();
+            let page = agent.strip.pages.get(tab_id)?;
+            let url = page.url.clone();
+            let store = page.profile_store;
             let user_agent = agent
                 .viewports
                 .get(tab_id)
                 .and_then(|fixed| fixed.user_agent())
                 .unwrap_or_else(crate::user_agent);
-            (url, user_agent)
+            (url, user_agent, store)
         };
         let parsed = Url::parse(&url)
             .ok()
             .filter(tab_may_load)
             .or_else(|| Url::parse(BLANK_URL).ok())?;
         let blank = parsed.as_str() == BLANK_URL;
-        let view = match self.create_view(agent_id, tab_id, parsed, user_agent, None) {
+        let view = match self.create_view(agent_id, tab_id, parsed, user_agent, None, store) {
             Ok(view) => view,
             Err(error) => {
                 eprintln!("Sikemux could not reload browser tab {tab_id}: {error}");
@@ -1121,8 +1148,192 @@ impl BrowserManager {
     }
 
     pub fn same_site_tab(&self, agent_id: &str, url: &str) -> Option<String> {
+        self.same_site_tab_in_profile(agent_id, url, None)
+    }
+
+    pub fn same_site_tab_in_profile(
+        &self,
+        agent_id: &str,
+        url: &str,
+        profile_id: Option<&str>,
+    ) -> Option<String> {
         let url = Url::parse(url).ok()?;
-        self.agents.locked().get(agent_id)?.strip.same_site(&url)
+        self.agents
+            .locked()
+            .get(agent_id)?
+            .strip
+            .same_site(&url, profile_id)
+    }
+
+    pub fn tab_profile(&self, agent_id: &str, tab_id: &str) -> TabProfile {
+        self.agents
+            .locked()
+            .get(agent_id)
+            .and_then(|agent| agent.strip.pages.get(tab_id))
+            .map(|page| TabProfile {
+                profile_id: page.profile_id.clone(),
+                store: page.profile_store,
+                is_override: page.profile_override,
+                override_by: page.profile_override_by.clone(),
+            })
+            .unwrap_or_default()
+    }
+
+    /// Replaces `tab_id`'s native view in place with a fresh view backed by `profile.store`,
+    /// reloading its current URL in that profile's cookie jar.
+    pub fn switch_tab_profile(
+        &self,
+        agent_id: &str,
+        tab_id: &str,
+        profile: TabProfile,
+    ) -> BrowserResult<()> {
+        validate_agent_id(agent_id)?;
+        let (url, user_agent, old_view) = {
+            let mut agents = self.agents.locked();
+            let agent = agents
+                .get_mut(agent_id)
+                .ok_or(Error::BadArg("unknown browser agent"))?;
+            let page = agent
+                .strip
+                .pages
+                .get(tab_id)
+                .ok_or(Error::BadArg("unknown browser tab"))?;
+            let url = page.url.clone();
+            let user_agent = agent
+                .viewports
+                .get(tab_id)
+                .and_then(|fixed| fixed.user_agent())
+                .unwrap_or_else(crate::user_agent);
+            agent.strip.unloaded.remove(tab_id);
+            let old = agent.views.remove(tab_id);
+            agent.applied.remove(tab_id);
+            (url, user_agent, old)
+        };
+        if let Some(old) = old_view {
+            old.close();
+        }
+        let parsed = Url::parse(&url)
+            .ok()
+            .filter(tab_may_load)
+            .or_else(|| Url::parse(BLANK_URL).ok())
+            .ok_or(Error::BadArg("invalid browser url"))?;
+        let blank = parsed.as_str() == BLANK_URL;
+        let new_view =
+            self.create_view(agent_id, tab_id, parsed, user_agent, None, profile.store)?;
+        {
+            let mut agents = self.agents.locked();
+            let Some(agent) = agents.get_mut(agent_id) else {
+                new_view.close();
+                return Ok(());
+            };
+            if let Some(page) = agent.strip.pages.get_mut(tab_id) {
+                page.loading = !blank;
+                page.can_go_back = false;
+                page.can_go_forward = false;
+                page.profile_id = profile.profile_id;
+                page.profile_store = profile.store;
+                page.profile_override = profile.is_override;
+                page.profile_override_by = profile.override_by;
+                agent.views.insert(tab_id.to_owned(), new_view);
+            } else {
+                new_view.close();
+                return Ok(());
+            }
+        }
+        self.relayout(agent_id);
+        self.announce();
+        Ok(())
+    }
+
+    /// Reopens any open tabs bound to `deleted_profile_id` in `fallback` (typically the global
+    /// default store), so deleting a profile never leaves dangling cookie jars open.
+    pub fn migrate_tabs_from_profile(
+        &self,
+        deleted_profile_id: &str,
+        fallback: TabProfile,
+    ) -> usize {
+        let affected: Vec<(String, String)> = {
+            let agents = self.agents.locked();
+            agents
+                .iter()
+                .flat_map(|(agent_id, agent)| {
+                    agent
+                        .strip
+                        .pages
+                        .iter()
+                        .filter(|(_, page)| page.profile_id.as_deref() == Some(deleted_profile_id))
+                        .map(move |(tab_id, _)| (agent_id.clone(), tab_id.clone()))
+                })
+                .collect()
+        };
+        let mut count = 0;
+        for (agent_id, tab_id) in affected {
+            let target = TabProfile {
+                profile_id: fallback.profile_id.clone(),
+                store: fallback.store,
+                is_override: false,
+                override_by: None,
+            };
+            if self.switch_tab_profile(&agent_id, &tab_id, target).is_ok() {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Open tabs currently overriding to `profile_id`: `(agent_id, tab_id, title, override_by)`.
+    pub fn overridden_tabs_for_profile(
+        &self,
+        profile_id: &str,
+    ) -> Vec<(String, String, String, Option<String>)> {
+        let agents = self.agents.locked();
+        agents
+            .iter()
+            .flat_map(|(agent_id, agent)| {
+                agent
+                    .strip
+                    .pages
+                    .iter()
+                    .filter(|(_, page)| {
+                        page.profile_override && page.profile_id.as_deref() == Some(profile_id)
+                    })
+                    .map(move |(tab_id, page)| {
+                        let label = if page.title.is_empty() {
+                            page.url.clone()
+                        } else {
+                            page.title.clone()
+                        };
+                        (
+                            agent_id.clone(),
+                            tab_id.clone(),
+                            label,
+                            page.profile_override_by.clone(),
+                        )
+                    })
+            })
+            .collect()
+    }
+
+    pub fn clear_profile_data(&self, store: ProfileStore) {
+        #[cfg(target_os = "macos")]
+        crate::macos::clear_data(store);
+        #[cfg(target_os = "linux")]
+        crate::linux::clear_data(store);
+        #[cfg(windows)]
+        crate::windows::clear_data(store);
+        #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+        crate::no_engine::clear_data(store);
+    }
+
+    pub fn delete_profile_store(&self, store: ProfileStore) {
+        #[cfg(target_os = "macos")]
+        crate::macos::remove_data_store(store);
+        #[cfg(target_os = "linux")]
+        crate::linux::remove_data_store(store);
+        #[cfg(windows)]
+        crate::windows::remove_data_store(store);
+        #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+        crate::no_engine::remove_data_store(store);
     }
 
     /// Makes the tab the person's, so tidying up leaves it open.

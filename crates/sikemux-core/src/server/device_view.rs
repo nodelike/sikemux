@@ -300,6 +300,18 @@ impl DeviceViewCore for Core {
             project.cloning = self.clones().of(&project.id);
         }
         (self.workspaces().reaches).follow(&mut workspace.projects, &preferences.project_roots);
+        for project in &mut workspace.projects {
+            let folder = project.path.to_string_lossy();
+            project.browser_profile = Some(super::browser_profiles::resolve_for_project(
+                &preferences.browser_profiles,
+                preferences.default_browser_profile.as_deref(),
+                &preferences.project_browser_profiles,
+                &workspace.spaces,
+                Some(&folder),
+                Some(&project.name),
+                project.space.as_deref(),
+            ));
+        }
         workspace::sort_projects(
             &mut workspace.projects,
             preferences.project_sort,

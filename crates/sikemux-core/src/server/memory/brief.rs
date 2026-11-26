@@ -329,6 +329,9 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
     if !notes.is_empty() {
         sections.push(format!("{AGENT_NOTES}\n{}", notes.join("\n")));
     }
+    if let Some(profiles) = crate::server::browser_profiles::brief_line(core, &project) {
+        sections.push(profiles);
+    }
     (!sections.is_empty()).then(|| sections.join("\n\n"))
 }
 

@@ -36,6 +36,11 @@
           "description": "Keep current active tab",
           "type": "boolean"
         },
+        "profile": {
+          "description": "Browser profile slug (default: project Playbook/Space profile)",
+          "type": "string",
+          "maxLength": 64
+        },
         "go": {
           "enum": [
             "back",
@@ -295,7 +300,7 @@
       "description": "Drive tabs with async JS (parallel).",
       "properties": {
         "script": {
-          "description": "Async JS using browser.tabs/open/tab; return JSON",
+          "description": "Async JS using browser.tabs/open/tab/profiles; return JSON",
           "type": "string",
           "minLength": 1,
           "maxLength": 40000

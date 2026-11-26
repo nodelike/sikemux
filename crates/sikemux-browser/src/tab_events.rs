@@ -161,8 +161,17 @@ impl TabEvents for TabListener {
         };
         let manager = self.manager.upgrade()?;
         let fixed = manager.viewport(&self.agent_id, &self.tab_id);
+        let profile = manager.tab_profile(&self.agent_id, &self.tab_id);
         let (_, tab) = manager
-            .add_tab(&self.agent_id, &url, Some(opened_by), fixed)
+            .add_tab_in_profile(
+                &self.agent_id,
+                &url,
+                Some(opened_by),
+                fixed,
+                true,
+                false,
+                profile,
+            )
             .ok()?;
         Some(tab)
     }

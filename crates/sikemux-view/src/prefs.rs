@@ -194,6 +194,12 @@ pub struct Preferences {
     /// Settings that belong to the person, their skills and their themes follow them to every
     /// host of theirs.
     pub sync_across_hosts: bool,
+    /// Standalone account-level browser profiles.
+    pub browser_profiles: Vec<crate::browser_profiles::BrowserProfile>,
+    /// The global default browser profile id; falls back to the default store profile.
+    pub default_browser_profile: Option<String>,
+    /// Per-project Playbook browser profile pins, by project folder path -> profile id.
+    pub project_browser_profiles: BTreeMap<String, String>,
 }
 
 /// Declares `PreferenceChange`, a row for each field of `Preferences`. The compiler refuses a field
@@ -318,6 +324,9 @@ preference_changes! {
     ProjectOrder project_order: Vec<String> => Host,
     BuildRuns build_runs: u32 => Host,
     SyncAcrossHosts sync_across_hosts: bool => Host,
+    BrowserProfiles browser_profiles: Vec<crate::browser_profiles::BrowserProfile> => Person,
+    DefaultBrowserProfile default_browser_profile: Option<String> => Person,
+    ProjectBrowserProfiles project_browser_profiles: BTreeMap<String, String> => Host,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -542,6 +551,9 @@ impl Default for Preferences {
             project_order: Vec::new(),
             build_runs: 0,
             sync_across_hosts: false,
+            browser_profiles: Vec::new(),
+            default_browser_profile: None,
+            project_browser_profiles: BTreeMap::new(),
         }
     }
 }

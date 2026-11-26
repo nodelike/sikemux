@@ -49,6 +49,41 @@ impl ParentView {
 // SAFETY: only the pointer value crosses threads; it is used on the main thread alone.
 unsafe impl Send for ParentView {}
 
+/// Which native OS cookie/storage jar a browser tab uses.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ProfileStore {
+    #[default]
+    Default,
+    Named(uuid::Uuid),
+}
+
+impl ProfileStore {
+    pub fn for_profile(id: &str, is_default_store: bool) -> Self {
+        if is_default_store {
+            return Self::Default;
+        }
+        uuid::Uuid::parse_str(id)
+            .map(Self::Named)
+            .unwrap_or(Self::Default)
+    }
+
+    pub fn uuid(self) -> Option<uuid::Uuid> {
+        match self {
+            Self::Default => None,
+            Self::Named(uuid) => Some(uuid),
+        }
+    }
+}
+
+/// Profile metadata attached to a tab when opened or switched.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TabProfile {
+    pub profile_id: Option<String>,
+    pub store: ProfileStore,
+    pub is_override: bool,
+    pub override_by: Option<String>,
+}
+
 pub struct TabSpec<'a> {
     pub agent_id: &'a str,
     pub tab_id: &'a str,
@@ -60,6 +95,8 @@ pub struct TabSpec<'a> {
     pub opener: Option<Opener>,
     /// It keeps no cookies or storage, and sees none of the desk's: nothing it loads is signed in.
     pub private: bool,
+    /// The persistent profile store to isolate cookies and site storage in (ignored when `private` or `opener` is set).
+    pub store: ProfileStore,
 }
 
 /// What a page that opens a window hands over for it. A tab made from it stays linked
@@ -129,13 +166,14 @@ impl Tab {
         events: Arc<dyn TabEvents>,
     ) -> Result<Tab, String> {
         let id: Arc<str> = spec.tab_id.into();
-        let (agent_id, url, user_agent, size, opener, private) = (
+        let (agent_id, url, user_agent, size, opener, private, store) = (
             spec.agent_id.to_owned(),
             spec.url.to_owned(),
             spec.user_agent.to_owned(),
             spec.size,
             spec.opener,
             spec.private,
+            spec.store,
         );
         let tab_id = id.to_string();
         let make = move || {
@@ -154,7 +192,7 @@ impl Tab {
                 match (opener, private) {
                     (Some(opener), _) => crate::macos::Start::Opened(opener),
                     (None, true) => crate::macos::Start::Private(&url),
-                    (None, false) => crate::macos::Start::Load(&url),
+                    (None, false) => crate::macos::Start::LoadIn(&url, store),
                 },
                 &user_agent,
                 size,

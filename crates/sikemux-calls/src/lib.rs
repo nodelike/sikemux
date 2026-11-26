@@ -27,6 +27,7 @@ pub mod agent_updates;
 pub mod agent_view;
 pub mod attachments;
 pub mod board;
+pub mod browser_profiles;
 pub mod call;
 pub mod chat;
 pub mod chat_find;

@@ -90,6 +90,30 @@ pub type ResolveVault = dyn Fn(
     bool,
 ) -> Pin<Box<dyn Future<Output = Result<VaultResolved, String>>>>;
 
+#[derive(Clone, Debug)]
+pub struct AgentProfileInfo {
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+    pub description: String,
+    pub access: &'static str,
+    pub is_default: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct ResolvedAgentProfile {
+    pub tab_profile: crate::TabProfile,
+    pub slug: String,
+    pub profiles: Vec<AgentProfileInfo>,
+}
+
+/// Resolves a browser profile in the core for `(explicit_profile, target_url)` and checks access.
+pub type ResolveProfile =
+    dyn Fn(
+        Option<String>,
+        String,
+    ) -> Pin<Box<dyn Future<Output = Result<ResolvedAgentProfile, String>>>>;
+
 struct StagedFilesGuard(Vec<PathBuf>);
 
 impl Drop for StagedFilesGuard {
@@ -158,6 +182,18 @@ pub fn execute_with_vault(
     check: &CheckWrite,
     vault: Option<&ResolveVault>,
 ) -> Result<Value, String> {
+    execute_with_host(manager, request, check, vault, None, &[])
+}
+
+/// Runs a browser tool call with Vault blind-fill and core-resolved Browser Profiles.
+pub fn execute_with_host(
+    manager: &BrowserManager,
+    request: &HarnessRequest,
+    check: &CheckWrite,
+    vault: Option<&ResolveVault>,
+    resolve_profile: Option<&ResolveProfile>,
+    profiles: &[AgentProfileInfo],
+) -> Result<Value, String> {
     let agent_id = request
         .agent_id
         .as_deref()
@@ -185,6 +221,8 @@ pub fn execute_with_vault(
         &request.project,
         check,
         vault,
+        resolve_profile,
+        profiles,
         &request.method,
         &request.params,
     ));
@@ -208,7 +246,7 @@ pub fn execute_with_vault(
         if after != before && !map.contains_key("tabs") {
             map.insert(
                 "tabs".into(),
-                tabs(manager, agent_id)
+                tabs_with_profiles(manager, agent_id, profiles)
                     .get("tabs")
                     .cloned()
                     .unwrap_or_default(),
@@ -294,12 +332,15 @@ fn opened_tabs(manager: &BrowserManager, agent_id: &str, before: &[String]) -> V
         .unwrap_or_default()
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run(
     manager: &BrowserManager,
     agent_id: &str,
     project: &str,
     check: &CheckWrite,
     vault: Option<&ResolveVault>,
+    resolve_profile: Option<&ResolveProfile>,
+    profiles: &[AgentProfileInfo],
     method: &str,
     params: &Value,
 ) -> Result<Value, String> {
@@ -340,6 +381,7 @@ async fn run(
                 .page_url_within(&url, &roots)
                 .map_err(|error| error.to_string())?;
             let wanted = url.clone();
+            let explicit_profile = text("profile").filter(|value| !value.trim().is_empty());
             let explicit_bg = params.get("background").and_then(Value::as_bool);
             let mut new_tab = params.get("newTab").and_then(Value::as_bool) == Some(true);
             let started = Instant::now();
@@ -362,10 +404,38 @@ async fn run(
             } else {
                 None
             };
+            let resolved_profile = if new_tab || target_id.is_none() || explicit_profile.is_some() {
+                match resolve_profile {
+                    Some(resolver) => {
+                        Some(resolver(explicit_profile.clone(), wanted.clone()).await?)
+                    }
+                    None => None,
+                }
+            } else {
+                None
+            };
+            let active_profiles: &[AgentProfileInfo] = resolved_profile
+                .as_ref()
+                .map(|resolved| resolved.profiles.as_slice())
+                .unwrap_or(profiles);
+            if let (Some(existing_id), Some(resolved)) = (target_id.as_deref(), &resolved_profile) {
+                if explicit_profile.is_some() {
+                    let existing_profile = manager.tab_profile(agent_id, existing_id).profile_id;
+                    if existing_profile != resolved.tab_profile.profile_id {
+                        target_id = None;
+                        new_tab = true;
+                    }
+                }
+            }
             let non_stealing = explicit_bg == Some(true)
                 || (explicit_bg.is_none() && manager.active_is_yours(agent_id));
             if new_tab {
-                if let Some(tab_id) = manager.same_site_tab(agent_id, &url) {
+                let wanted_profile_id = resolved_profile
+                    .as_ref()
+                    .and_then(|resolved| resolved.tab_profile.profile_id.as_deref());
+                if let Some(tab_id) =
+                    manager.same_site_tab_in_profile(agent_id, &url, wanted_profile_id)
+                {
                     if !non_stealing {
                         manager
                             .switch_tab(agent_id, &tab_id)
@@ -387,13 +457,18 @@ async fn run(
                     Some(false) => true,
                     None => !manager.active_is_yours(agent_id),
                 };
+                let tab_profile = resolved_profile
+                    .as_ref()
+                    .map(|resolved| resolved.tab_profile.clone())
+                    .unwrap_or_default();
                 manager
-                    .open_tab_with(
+                    .open_tab_in_profile(
                         agent_id,
                         Some(&url),
                         Viewport::preset("desktop"),
                         activate,
                         background,
+                        tab_profile,
                     )
                     .await
                     .map_err(|error| error.to_string())?
@@ -462,6 +537,14 @@ async fn run(
                 Some(&wanted),
             )
             .await?;
+            attach_profile_to_result(
+                &mut result,
+                manager,
+                agent_id,
+                &tab_id,
+                active_profiles,
+                false,
+            );
             if let Some(note) = note {
                 put(&mut result, "note", json!(note));
             }
@@ -479,7 +562,11 @@ async fn run(
         }
         "browser.state" => {
             if req_tab.is_none() && resolve_tab(manager, agent_id, None).is_err() {
-                return Ok(tabs(manager, agent_id));
+                let mut result = tabs_with_profiles(manager, agent_id, profiles);
+                if profiles.len() > 1 {
+                    put(&mut result, "profiles", profiles_json(profiles));
+                }
+                return Ok(result);
             }
             let part = text_part(params)?;
             if let Some(selector) = text("selector") {
@@ -490,6 +577,7 @@ async fn run(
             let full_text = params.get("fullText").and_then(Value::as_bool) == Some(true);
             let mut result =
                 read_state(manager, agent_id, &tab_id, "full", full_text, part, true).await?;
+            attach_profile_to_result(&mut result, manager, agent_id, &tab_id, profiles, true);
             let downloads = manager.recent_downloads(agent_id);
             if !downloads.is_empty() {
                 put(&mut result, "downloads", json!(downloads));
@@ -917,7 +1005,19 @@ async fn run(
                 report(manager, agent_id, &tab_id, params, false).await?,
             )
         }
-        "browser.drive" => drive::run_tool(manager, agent_id, project, check, vault, params).await,
+        "browser.drive" => {
+            drive::run_tool(
+                manager,
+                agent_id,
+                project,
+                check,
+                vault,
+                resolve_profile,
+                profiles,
+                params,
+            )
+            .await
+        }
         "browser.dialog" => {
             let accept = params
                 .get("accept")
@@ -2146,6 +2246,49 @@ fn resolve_tab(
 }
 
 fn tabs(manager: &BrowserManager, agent_id: &str) -> Value {
+    tabs_with_profiles(manager, agent_id, &[])
+}
+
+pub(crate) fn profile_slug_of(
+    profile_id: Option<&str>,
+    profiles: &[AgentProfileInfo],
+) -> Option<String> {
+    if profiles.len() <= 1 {
+        return None;
+    }
+    profile_id
+        .and_then(|id| profiles.iter().find(|p| p.id == id))
+        .or_else(|| profiles.iter().find(|p| p.is_default))
+        .or_else(|| profiles.first())
+        .map(|profile| profile.slug.clone())
+}
+
+pub(crate) fn profiles_json(profiles: &[AgentProfileInfo]) -> Value {
+    json!(profiles
+        .iter()
+        .map(|profile| {
+            let mut entry = Map::new();
+            entry.insert("slug".into(), json!(profile.slug));
+            entry.insert("name".into(), json!(profile.name));
+            if !profile.description.is_empty() {
+                entry.insert("description".into(), json!(profile.description));
+            }
+            if profile.is_default {
+                entry.insert("default".into(), json!(true));
+            }
+            if profile.access != "standard" {
+                entry.insert("access".into(), json!(profile.access));
+            }
+            Value::Object(entry)
+        })
+        .collect::<Vec<_>>())
+}
+
+fn tabs_with_profiles(
+    manager: &BrowserManager,
+    agent_id: &str,
+    profiles: &[AgentProfileInfo],
+) -> Value {
     let snapshot = manager
         .snapshot(agent_id)
         .unwrap_or_else(|_| super::BrowserSnapshot {
@@ -2154,14 +2297,49 @@ fn tabs(manager: &BrowserManager, agent_id: &str) -> Value {
         });
     json!({
         "activeTabId": snapshot.active_tab_id,
-        "tabs": snapshot.tabs.iter().map(|tab| json!({
-            "tabId": tab.id,
-            "url": tab.url,
-            "title": tab.title,
-            "active": tab.active,
-            "loading": tab.loading,
-        })).collect::<Vec<_>>(),
+        "tabs": snapshot.tabs.iter().map(|tab| {
+            let mut obj = Map::new();
+            obj.insert("tabId".into(), json!(tab.id));
+            obj.insert("url".into(), json!(tab.url));
+            obj.insert("title".into(), json!(tab.title));
+            obj.insert("active".into(), json!(tab.active));
+            obj.insert("loading".into(), json!(tab.loading));
+            if let Some(slug) = profile_slug_of(tab.profile_id.as_deref(), profiles) {
+                obj.insert("profile".into(), json!(slug));
+            }
+            Value::Object(obj)
+        }).collect::<Vec<_>>(),
     })
+}
+
+fn attach_profile_to_result(
+    result: &mut Value,
+    manager: &BrowserManager,
+    agent_id: &str,
+    tab_id: &str,
+    profiles: &[AgentProfileInfo],
+    include_catalog: bool,
+) {
+    if profiles.len() <= 1 {
+        return;
+    }
+    let tab_profile_id = manager.tab_profile(agent_id, tab_id).profile_id;
+    if let Some(slug) = profile_slug_of(tab_profile_id.as_deref(), profiles) {
+        put(result, "profile", json!(slug));
+    }
+    if result.get("tabs").is_some() {
+        put(
+            result,
+            "tabs",
+            tabs_with_profiles(manager, agent_id, profiles)
+                .get("tabs")
+                .cloned()
+                .unwrap_or_default(),
+        );
+    }
+    if include_catalog {
+        put(result, "profiles", profiles_json(profiles));
+    }
 }
 
 async fn state(manager: &BrowserManager, agent_id: &str, tab_id: &str) -> Result<Value, String> {

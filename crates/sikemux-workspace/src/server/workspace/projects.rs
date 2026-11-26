@@ -56,6 +56,7 @@ impl Workspaces {
                 calls: 0,
                 cloning: None,
                 shared: None,
+                browser_profile: None,
             };
             check_project(&project, saved)?;
             saved.projects.push(project.clone());
@@ -224,6 +225,10 @@ impl Workspaces {
             too_long(&space.id, MAX_FIELD_CHARS)
                 || too_long(&space.name, MAX_TITLE_CHARS)
                 || too_long(&space.icon, MAX_FIELD_CHARS)
+                || space
+                    .browser_profile
+                    .as_deref()
+                    .is_some_and(|id| too_long(id, MAX_FIELD_CHARS))
         });
         if spaces.len() > MAX_SPACES || oversized {
             return Err("more spaces than the core keeps".into());

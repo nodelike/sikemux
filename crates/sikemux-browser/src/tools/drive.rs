@@ -332,6 +332,7 @@ const DRIVE_SDK_JS: &str = r##"
         let currentId = initialId || null;
         let currentUrl = (initialMeta && initialMeta.url) || "";
         let currentTitle = (initialMeta && initialMeta.title) || "";
+        let currentProfile = (initialMeta && initialMeta.profile) || null;
 
         const callOnTab = async (method, params) => {
             const payload = { ...(params || {}) };
@@ -341,6 +342,7 @@ const DRIVE_SDK_JS: &str = r##"
                 if (typeof res.tabId === "string" && res.tabId) currentId = res.tabId;
                 if (typeof res.url === "string") currentUrl = res.url;
                 if (typeof res.title === "string") currentTitle = res.title;
+                if (typeof res.profile === "string" && res.profile) currentProfile = res.profile;
             }
             return res;
         };
@@ -349,6 +351,7 @@ const DRIVE_SDK_JS: &str = r##"
             get id() { return currentId; },
             get url() { return currentUrl; },
             get title() { return currentTitle; },
+            get profile() { return currentProfile; },
             goto(urlOrOpts, opts) {
                 const p = typeof urlOrOpts === "string" ? { url: urlOrOpts, ...(opts || {}) } : { ...(urlOrOpts || {}) };
                 if (typeof p.url !== "string" && typeof p.go !== "string") {
@@ -544,12 +547,15 @@ const DRIVE_SDK_JS: &str = r##"
         tabs() {
             return JSON.parse(__sikemuxTabs());
         },
+        profiles() {
+            return JSON.parse(__sikemuxProfiles());
+        },
         async open(url, opts) {
             const p = typeof url === "string"
                 ? { url, newTab: true, ...(opts || {}) }
                 : { newTab: true, ...(url || {}), ...(opts || {}) };
             if (typeof p.url !== "string" || !p.url) {
-                throw new Error('browser.open requires url: browser.open(url, opts?) or browser.open({ url, background?, waitFor? })');
+                throw new Error('browser.open requires url: browser.open(url, opts?) or browser.open({ url, profile?, background?, waitFor? })');
             }
             if (p.report === undefined) p.report = "outcome";
             const res = await invoke("browser.navigate", p);
@@ -566,7 +572,7 @@ const DRIVE_SDK_JS: &str = r##"
                 return Reflect.get(target, prop, receiver);
             }
             return () => {
-                throw new TypeError(`browser.${prop} is not a method. Valid browser methods: tabs(), open(url, opts?), tab(id?)`);
+                throw new TypeError(`browser.${prop} is not a method. Valid browser methods: tabs(), profiles(), open(url, opts?), tab(id?)`);
             };
         },
     });
@@ -607,6 +613,10 @@ pub(crate) trait DriveBackend {
     ) -> Pin<Box<dyn Future<Output = Result<Value, String>> + 'a>>;
 
     fn tabs(&self) -> Value;
+
+    fn profiles(&self) -> Value {
+        json!([])
+    }
 }
 
 struct LiveBackend<'a> {
@@ -615,6 +625,8 @@ struct LiveBackend<'a> {
     project: &'a str,
     check: &'a CheckWrite,
     vault: Option<&'a ResolveVault>,
+    resolve_profile: Option<&'a ResolveProfile>,
+    profiles: &'a [AgentProfileInfo],
     allowed_sites: Value,
     upload_from: Value,
     default_tab: Option<String>,
@@ -660,6 +672,8 @@ impl<'a> DriveBackend for LiveBackend<'a> {
                         self.project,
                         self.check,
                         self.vault,
+                        self.resolve_profile,
+                        self.profiles,
                         &method,
                         &params,
                     ))
@@ -710,24 +724,40 @@ impl<'a> DriveBackend for LiveBackend<'a> {
         json!(snapshot
             .tabs
             .iter()
-            .map(|tab| json!({
-                "id": tab.id,
-                "title": tab.title,
-                "url": tab.url,
-                "active": tab.active,
-                "loading": tab.loading,
-                "yours": yours.contains(&tab.id),
-            }))
+            .map(|tab| {
+                let mut obj = Map::new();
+                obj.insert("id".into(), json!(tab.id));
+                obj.insert("title".into(), json!(tab.title));
+                obj.insert("url".into(), json!(tab.url));
+                obj.insert("active".into(), json!(tab.active));
+                obj.insert("loading".into(), json!(tab.loading));
+                obj.insert("yours".into(), json!(yours.contains(&tab.id)));
+                if let Some(slug) = profile_slug_of(tab.profile_id.as_deref(), self.profiles) {
+                    obj.insert("profile".into(), json!(slug));
+                }
+                Value::Object(obj)
+            })
             .collect::<Vec<_>>())
+    }
+
+    fn profiles(&self) -> Value {
+        if self.profiles.len() <= 1 {
+            json!([])
+        } else {
+            profiles_json(self.profiles)
+        }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn run_tool(
     manager: &BrowserManager,
     agent_id: &str,
     project: &str,
     check: &CheckWrite,
     vault: Option<&ResolveVault>,
+    resolve_profile: Option<&ResolveProfile>,
+    profiles: &[AgentProfileInfo],
     params: &Value,
 ) -> Result<Value, String> {
     let script = params
@@ -746,6 +776,8 @@ pub(super) async fn run_tool(
         project,
         check,
         vault,
+        resolve_profile,
+        profiles,
         allowed_sites: params
             .get("allowedSites")
             .cloned()
@@ -913,6 +945,8 @@ pub(crate) async fn run_drive(
     let (req_tx, mut req_rx) = mpsc::unbounded_channel::<InvokeRequest>();
     let tabs_snapshot = Arc::new(Mutex::new(backend.tabs()));
     let tabs_for_js = Arc::clone(&tabs_snapshot);
+    let profiles_for_js =
+        serde_json::to_string(&backend.profiles()).unwrap_or_else(|_| "[]".to_owned());
     let timers: Arc<Mutex<std::collections::HashMap<u64, oneshot::Sender<()>>>> =
         Arc::new(Mutex::new(std::collections::HashMap::new()));
     let timers_for_js = Arc::clone(&timers);
@@ -969,6 +1003,15 @@ pub(crate) async fn run_drive(
                 globals
                     .set("__sikemuxTabs", tabs_fn)
                     .map_err(|e| format!("could not set tabs: {e}"))?;
+
+                let profiles_json_str = profiles_for_js.clone();
+                let profiles_fn = Function::new(ctx.clone(), move || -> String {
+                    profiles_json_str.clone()
+                })
+                .map_err(|e| format!("could not register profiles: {e}"))?;
+                globals
+                    .set("__sikemuxProfiles", profiles_fn)
+                    .map_err(|e| format!("could not set profiles: {e}"))?;
 
                 let parse_url_fn = Function::new(
                     ctx.clone(),

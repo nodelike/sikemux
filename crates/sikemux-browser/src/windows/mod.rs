@@ -37,7 +37,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
 };
 
-use crate::tab::{ParentView, TabSpec};
+use crate::tab::{ParentView, ProfileStore, TabSpec};
 use crate::{DocumentEvent, PageLoad, TabEvents, TabStall, PARKED_ORIGIN};
 pub use ui::run_pages_on_this_thread;
 use ui::{on_ui, OnUi};
@@ -388,7 +388,19 @@ struct Opening {
     user_agent: String,
     size: (f64, f64),
     private: bool,
+    store: ProfileStore,
     events: Arc<dyn TabEvents>,
+}
+
+pub fn clear_data(profile: ProfileStore) {
+    if let (ProfileStore::Named(uuid), Some(root)) = (profile, profile_folder()) {
+        let dir = root.join("EBWebView").join(format!("p-{}", uuid.simple()));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+pub fn remove_data_store(profile: ProfileStore) {
+    clear_data(profile);
 }
 
 impl Tab {
@@ -417,6 +429,7 @@ impl Tab {
             user_agent: spec.user_agent.to_owned(),
             size: spec.size,
             private: spec.private,
+            store: spec.store,
             events,
         });
         on_ui(move || {
@@ -553,6 +566,10 @@ fn make_controller(
             .CreateCoreWebView2ControllerOptions()
             .map_err(|error| error.message())?;
         let _ = options.SetIsInPrivateModeEnabled(opening.private);
+        if let ProfileStore::Named(uuid) = opening.store {
+            let name = HSTRING::from(format!("p-{}", uuid.simple()));
+            let _ = options.SetProfileName(&name);
+        }
         if let (Some([r, g, b]), Ok(colored)) = (
             opening.parent.ground,
             options.cast::<ICoreWebView2ControllerOptions3>(),

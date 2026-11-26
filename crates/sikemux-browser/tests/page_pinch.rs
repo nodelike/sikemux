@@ -112,6 +112,7 @@ mod mac {
                 size: (SIZE.width, SIZE.height),
                 opener: None,
                 private: true,
+                store: sikemux_browser::ProfileStore::Default,
             },
             Arc::new(Anything),
         )

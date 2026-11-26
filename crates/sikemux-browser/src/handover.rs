@@ -36,6 +36,14 @@ struct SavedTab {
     /// The person's tab, which tidying up after the agent leaves open.
     #[serde(default)]
     yours: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    profile_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    profile_store_uuid: Option<String>,
+    #[serde(default)]
+    profile_override: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    profile_override_by: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -95,6 +103,10 @@ impl BrowserManager {
                             all_widths: agent.all_widths.contains(id),
                             local_file: self.local_files.path_of(&page.url),
                             yours: agent.strip.yours(id),
+                            profile_id: page.profile_id.clone(),
+                            profile_store_uuid: page.profile_store.uuid().map(|u| u.to_string()),
+                            profile_override: page.profile_override,
+                            profile_override_by: page.profile_override_by.clone(),
                         })
                     })
                     .collect(),
@@ -143,12 +155,22 @@ impl BrowserManager {
                 if let Some(fixed) = tab.viewport.as_ref().and_then(SavedViewport::viewport) {
                     agent.viewports.insert(tab.id.clone(), fixed);
                 }
+                let profile_store = tab
+                    .profile_store_uuid
+                    .as_deref()
+                    .and_then(|raw| uuid::Uuid::parse_str(raw).ok())
+                    .map(crate::ProfileStore::Named)
+                    .unwrap_or(crate::ProfileStore::Default);
                 agent.strip.insert(
                     tab.id.clone(),
                     TabPage {
                         title: tab.title,
                         url,
                         favicon: tab.favicon,
+                        profile_id: tab.profile_id,
+                        profile_store,
+                        profile_override: tab.profile_override,
+                        profile_override_by: tab.profile_override_by,
                         ..TabPage::default()
                     },
                 );

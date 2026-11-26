@@ -44,6 +44,7 @@ impl Preview {
                 size,
                 opener: None,
                 private,
+                store: crate::ProfileStore::Default,
             },
             events.clone(),
         )?;

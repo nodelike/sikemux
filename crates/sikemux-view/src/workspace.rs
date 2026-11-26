@@ -94,6 +94,10 @@ pub struct ProjectInfo {
     /// The org its board is shared with. The core fills it in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared: Option<crate::teammates::SharedOrg>,
+    /// The project's resolved browser profile (Playbook pin -> Space default -> Global default).
+    /// The core fills it in; clients only read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_profile: Option<crate::browser_profiles::ResolvedBrowserProfile>,
 }
 
 /// A clone the core is making of a project's repository, as git last said.
@@ -308,6 +312,9 @@ pub struct SpaceInfo {
     /// Empty when the person removed it.
     #[serde(default)]
     pub icon: String,
+    /// Optional default browser profile id for projects in this space.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_profile: Option<String>,
 }
 
 /// A saved chat kept at the top of the list, open or closed.

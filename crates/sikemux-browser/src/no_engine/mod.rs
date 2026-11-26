@@ -90,3 +90,7 @@ impl Tab {
 pub fn answer(_tab_id: &str, _accept: bool, _text: Option<&str>) -> Result<(), String> {
     Err(NOT_HERE.into())
 }
+
+pub fn clear_data(_profile: crate::ProfileStore) {}
+
+pub fn remove_data_store(_profile: crate::ProfileStore) {}

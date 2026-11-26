@@ -64,6 +64,7 @@ fn project() -> ProjectInfo {
         calls: 0,
         cloning: None,
         shared: None,
+        browser_profile: None,
     }
 }
 

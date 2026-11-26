@@ -393,4 +393,11 @@ crate::calls! {
     "tasks" Tasks (crate::tasks::ProjectParams) -> crate::tasks::TaskList;
     "plugin" Plugin (crate::plugins::PluginCall) -> crate::plugins::PluginOutcome;
     "chatFind" ChatFind (crate::chat_find::FindParams) -> crate::chat_find::FindAnswer;
+    "browserProfiles" BrowserProfiles (crate::params::NoParams) -> crate::browser_profiles::BrowserProfilesView;
+    "browserProfileUpsert" BrowserProfileUpsert (crate::browser_profiles::BrowserProfileUpsertParams) -> crate::browser_profiles::BrowserProfileUpsertAnswer;
+    "browserProfileDelete" BrowserProfileDelete (crate::browser_profiles::BrowserProfileDeleteParams) -> crate::browser_profiles::BrowserProfileDeleteAnswer;
+    "browserProfileSetGlobal" BrowserProfileSetGlobal (crate::browser_profiles::BrowserProfileSetGlobalParams) -> crate::browser_profiles::BrowserProfilesView;
+    "browserProfileSetSpace" BrowserProfileSetSpace (crate::browser_profiles::BrowserProfileSetSpaceParams) -> crate::browser_profiles::BrowserProfileSetSpaceAnswer;
+    "browserProfileSetProject" BrowserProfileSetProject (crate::browser_profiles::BrowserProfileSetProjectParams) -> ();
+    "browserProfileResolve" BrowserProfileResolve (crate::browser_profiles::BrowserProfileResolveParams) -> crate::browser_profiles::BrowserProfileResolveAnswer;
 }

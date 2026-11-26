@@ -58,7 +58,7 @@ pub use frame::*;
 pub use scripts::{call_async, evaluate};
 pub use shortcuts::*;
 pub use snapshot::*;
-pub use store::save_cookies;
+pub use store::{clear_data, remove_data_store, save_cookies};
 
 use crate::burst::Burst;
 use crate::documents::DocumentEvent;
@@ -248,6 +248,7 @@ impl Parent<'_> {
 
 pub enum Start<'a> {
     Load(&'a str),
+    LoadIn(&'a str, crate::ProfileStore),
     /// Loads it in a store of its own that keeps nothing, apart from every signed-in tab.
     Private(&'a str),
     /// The window another page opened, which WebKit loads itself and keeps linked to that page.
@@ -269,9 +270,13 @@ pub fn open(
 ) -> Retained<WKWebView> {
     let mtm = parent.view.mtm();
     let (configuration, url) = match start {
-        Start::Load(url) => (tab_configuration(mtm), Some(url)),
+        Start::Load(url) => (
+            tab_configuration(mtm, crate::ProfileStore::Default),
+            Some(url),
+        ),
+        Start::LoadIn(url, profile) => (tab_configuration(mtm, profile), Some(url)),
         Start::Private(url) => {
-            let configuration = tab_configuration(mtm);
+            let configuration = tab_configuration(mtm, crate::ProfileStore::Default);
             // SAFETY: main thread, as `mtm` proves; the configuration is fresh and only ours.
             unsafe {
                 configuration.setWebsiteDataStore(
@@ -351,10 +356,19 @@ pub fn open(
 
 /// What a tab's page is made with: the recorder in every document, and the preferences
 /// tabs browse with.
-fn tab_configuration(mtm: MainThreadMarker) -> Retained<WKWebViewConfiguration> {
+fn tab_configuration(
+    mtm: MainThreadMarker,
+    profile: crate::ProfileStore,
+) -> Retained<WKWebViewConfiguration> {
     // SAFETY: main thread, as `mtm` proves; the configuration is fresh and only ours.
     let configuration = unsafe { WKWebViewConfiguration::new(mtm) };
-    store::prepare(mtm);
+    let store = store::prepare(mtm, profile);
+    if profile != crate::ProfileStore::Default {
+        // SAFETY: main thread, fresh configuration owned here.
+        unsafe {
+            configuration.setWebsiteDataStore(&store);
+        }
+    }
     let yes = NSNumber::numberWithBool(true);
     // SAFETY: main thread, and every value set is one WebKit reads with that type.
     unsafe {
