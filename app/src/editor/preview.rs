@@ -9,8 +9,8 @@ use std::rc::Rc;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, div, img, point, px, AnyElement, App, AppContext, ClipboardItem, Context, Entity,
-    FocusHandle, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding,
+    actions, canvas, div, img, point, px, AnyElement, App, AppContext, ClipboardItem, Context,
+    Entity, FocusHandle, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding,
     MouseButton, ParentElement, Pixels, RenderOnce, ScrollHandle, SharedString,
     StatefulInteractiveElement, Styled, StyledImage, Subscription, Window,
 };
@@ -179,14 +179,10 @@ impl RenderOnce for Body {
         let pen = (self.select).pen(style, &self.markdown, self.found.as_deref());
         let id = SharedString::from(format!("markdown-{}", self.path.display()));
         let focus = self.focus.clone();
-        let (pressed, dragged, released, copied) = (
-            self.select.clone(),
-            self.select.clone(),
-            self.select.clone(),
-            self.select,
-        );
+        let (pressed, followed, copied) = (self.select.clone(), self.select.clone(), self.select);
+        let scroll = self.scroll.clone();
         let (markdown, copying) = (self.markdown.clone(), self.markdown.clone());
-        div()
+        let pages = div()
             .id(id.clone())
             .size_full()
             .overflow_y_scroll()
@@ -197,12 +193,6 @@ impl RenderOnce for Body {
                 pressed.press(event, &markdown);
                 window.refresh();
             })
-            .on_mouse_move(move |event, window, _| {
-                if dragged.drag(event) {
-                    window.refresh();
-                }
-            })
-            .on_mouse_up(MouseButton::Left, move |_, _, _| released.release())
             .on_action(move |_: &Copy, _, cx| {
                 if let Some(text) = copied.selected_text(&copying) {
                     cx.write_to_clipboard(ClipboardItem::new_string(text));
@@ -215,7 +205,15 @@ impl RenderOnce for Body {
                     .px(px(28.))
                     .py(px(PAD_Y))
                     .child(pen.markdown(id, &self.markdown, window, cx)),
+            );
+        div().relative().size_full().child(pages).child(
+            canvas(
+                |_, _, _| (),
+                move |bounds, _, window, _| followed.follow(bounds, &scroll, window),
             )
+            .absolute()
+            .inset_0(),
+        )
     }
 }
 

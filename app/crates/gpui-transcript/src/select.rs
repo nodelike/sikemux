@@ -2,7 +2,10 @@ use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use std::rc::Rc;
 
-use gpui::{MouseDownEvent, MouseMoveEvent, Pixels, Point, SharedString, TextLayout};
+use gpui::{
+    px, Bounds, DispatchPhase, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
+    Point, ScrollHandle, SharedString, TextLayout, Window,
+};
 
 use crate::draw::LayoutBudget;
 use crate::find::DocFind;
@@ -49,6 +52,22 @@ impl Selecting {
             .position(|held| std::ptr::eq(*held, doc))
             .unwrap_or(self.docs.len())
     }
+}
+
+/// The most a selection dragged past an edge scrolls in one step.
+const MOST_EDGE_STEP: f32 = 60.;
+
+/// How far to scroll toward a pointer at `at`, past `low` or `high`, as a selection is dragged:
+/// negative toward `low`, none while it is between them.
+pub(crate) fn edge_step(at: Pixels, low: Pixels, high: Pixels) -> Pixels {
+    let past = if at < low {
+        at - low
+    } else if at > high {
+        at - high
+    } else {
+        Pixels::ZERO
+    };
+    px(f32::from(past).clamp(-MOST_EDGE_STEP, MOST_EDGE_STEP))
 }
 
 /// A text as it was last placed, for finding what the pointer is over.
@@ -247,23 +266,45 @@ impl DocSelect {
         self.dragging.set(true);
     }
 
-    /// Moves the selection's free end to the text nearest the pointer; whether it moved.
-    pub fn drag(&self, event: &MouseMoveEvent) -> bool {
-        if !self.dragging.get() || !event.dragging() {
-            return false;
+    /// While a selection is dragged, called as each frame is painted: follows the pointer
+    /// anywhere in the window, and scrolls `scroll` a step while the pointer is above or below
+    /// `view`, until the button is let go.
+    pub fn follow(&self, view: Bounds<Pixels>, scroll: &ScrollHandle, window: &mut Window) {
+        if !self.dragging.get() {
+            return;
         }
-        let spot = spot_at(&self.shown.borrow(), event.position);
-        match (spot, self.ends.borrow_mut().as_mut()) {
-            (Some(spot), Some((_, head))) => {
+        let pointer = window.mouse_position();
+        let step = edge_step(pointer.y, view.top(), view.bottom());
+        if step != Pixels::ZERO {
+            let (was, room) = (scroll.offset(), scroll.max_offset());
+            let y = (was.y - step).clamp(-room.y, Pixels::ZERO);
+            scroll.set_offset(Point::new(was.x, y));
+            window.request_animation_frame();
+        }
+        let inside = Point::new(
+            pointer.x,
+            pointer.y.clamp(view.top(), view.bottom() - px(1.)),
+        );
+        let spot = spot_at(&self.shown.borrow(), inside);
+        if let (Some(spot), Some((_, head))) = (spot, self.ends.borrow_mut().as_mut()) {
+            if *head != spot {
                 *head = spot;
-                true
+                window.refresh();
             }
-            _ => false,
         }
-    }
-
-    pub fn release(&self) {
-        self.dragging.set(false);
+        let moved = self.dragging.clone();
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, _| {
+            if phase == DispatchPhase::Capture && moved.get() {
+                moved.set(event.dragging());
+                window.refresh();
+            }
+        });
+        let released = self.dragging.clone();
+        window.on_mouse_event(move |event: &MouseUpEvent, phase, _, _| {
+            if phase == DispatchPhase::Capture && event.button == MouseButton::Left {
+                released.set(false);
+            }
+        });
     }
 
     pub fn selected_text(&self, doc: &Markdown) -> Option<String> {

@@ -16,7 +16,7 @@ use crate::draw::{LayoutBudget, Pen, Style};
 use crate::find::{ranges_in, FoundChanged, Hit, Query};
 use crate::markdown::{Markdown, Passage};
 use crate::select::{
-    picked, spot_at, word_at, Key, Mark, Place, RowHit, Selecting, Shown, Span, Spot,
+    edge_step, picked, spot_at, word_at, Key, Mark, Place, RowHit, Selecting, Shown, Span, Spot,
 };
 
 actions!(transcript, [Copy]);
@@ -182,10 +182,8 @@ const SETTLE: Duration = Duration::from_millis(350);
 /// The most frames spent bringing a place found into view.
 const MOST_CHASE_STEPS: u8 = 8;
 
-/// How often a selection dragged past the top or bottom scrolls the view, and the most it
-/// scrolls each time.
+/// How often a selection dragged past the top or bottom scrolls the view.
 const EDGE_TICK: Duration = Duration::from_millis(16);
-const MOST_EDGE_STEP: f32 = 60.;
 /// Room kept above a place brought into view, under the find bar drawn over the rows, and below.
 const ROOM_ABOVE: Pixels = px(96.);
 const ROOM_BELOW: Pixels = px(40.);
@@ -971,7 +969,7 @@ impl<R: Row> Transcript<R> {
         }
         self.pointer = event.position;
         self.move_head();
-        if self.past_edge() != Pixels::ZERO && !self.edge_scrolling {
+        if self.edge_step() != Pixels::ZERO && !self.edge_scrolling {
             self.edge_scrolling = true;
             cx.spawn(async move |this, cx| {
                 while this
@@ -986,17 +984,9 @@ impl<R: Row> Transcript<R> {
         cx.notify();
     }
 
-    /// How far the pointer is above the view, as negative, or below it.
-    fn past_edge(&self) -> Pixels {
+    fn edge_step(&self) -> Pixels {
         let view = self.list.viewport_bounds();
-        let y = self.pointer.y;
-        if y < view.top() {
-            y - view.top()
-        } else if y > view.bottom() {
-            y - view.bottom()
-        } else {
-            Pixels::ZERO
-        }
+        edge_step(self.pointer.y, view.top(), view.bottom())
     }
 
     fn move_head(&mut self) {
@@ -1013,13 +1003,12 @@ impl<R: Row> Transcript<R> {
 
     /// Scrolls one step toward a pointer held past the top or bottom. Answers whether to go on.
     fn scroll_toward_pointer(&mut self, cx: &mut Context<Self>) -> bool {
-        let past = f32::from(self.past_edge());
-        if !self.dragging || past == 0. {
+        let step = self.edge_step();
+        if !self.dragging || step == Pixels::ZERO {
             self.edge_scrolling = false;
             return false;
         }
-        self.list
-            .scroll_by(px(past.clamp(-MOST_EDGE_STEP, MOST_EDGE_STEP)));
+        self.list.scroll_by(step);
         self.move_head();
         cx.notify();
         true
@@ -1084,6 +1073,9 @@ impl<R: Row> Render for Transcript<R> {
         }
         self.chase(window);
         self.fade_lit(window, cx);
+        if self.dragging {
+            self.move_head();
+        }
         self.shown.borrow_mut().clear();
         self.drawn = None;
         let span = self.span();
