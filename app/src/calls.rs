@@ -85,6 +85,9 @@ const PICTURE_RETRY_AFTER: Duration = Duration::from_secs(30);
 #[derive(Default)]
 pub struct Cards {
     held: HashMap<String, Held>,
+    /// The options chosen on each call the person touched; the rest show their asker's pick.
+    chosen: HashMap<String, Vec<String>>,
+    sending: HashSet<String>,
     /// The calls this window told their core it drew.
     seen: HashSet<String>,
     /// The call picked in the popover, shown open there and answered by its agent's chat; with
@@ -102,10 +105,7 @@ pub struct Cards {
 }
 
 struct Held {
-    /// The options chosen, until the person touches the rows the asker's pick.
-    chosen: Option<Vec<String>>,
     field: Entity<InputState>,
-    sending: bool,
     /// What runs on a yes shows.
     action_open: bool,
     _typed: Subscription,
@@ -118,8 +118,8 @@ impl EventEmitter<GoWith> for Cards {}
 
 impl Cards {
     fn chosen(&self, call: &PersonCall) -> Vec<String> {
-        match self.held.get(&call.id).and_then(|held| held.chosen.clone()) {
-            Some(chosen) => chosen,
+        match self.chosen.get(&call.id) {
+            Some(chosen) => chosen.clone(),
             None => call.pick.iter().cloned().collect(),
         }
     }
@@ -133,7 +133,7 @@ impl Cards {
     /// row, and the arrows move the chosen row. Says whether it took it.
     fn press(&mut self, call: &PersonCall, press: Press, cx: &mut Context<Self>) -> bool {
         let count = call.options.len();
-        if count == 0 || !self.held.contains_key(&call.id) {
+        if count == 0 {
             return false;
         }
         let position = |id: &String| call.options.iter().position(|option| &option.id == id);
@@ -147,15 +147,9 @@ impl Cards {
         let Some(option) = call.options.get(at) else {
             return false;
         };
-        self.set_chosen(call, vec![option.id.clone()], cx);
-        true
-    }
-
-    fn set_chosen(&mut self, call: &PersonCall, chosen: Vec<String>, cx: &mut Context<Self>) {
-        if let Some(held) = self.held.get_mut(&call.id) {
-            held.chosen = Some(chosen);
-        }
+        self.chosen.insert(call.id.clone(), vec![option.id.clone()]);
         cx.notify();
+        true
     }
 
     fn action_open(&self, id: &str) -> bool {
@@ -163,16 +157,21 @@ impl Cards {
     }
 
     fn sending(&self, id: &str) -> bool {
-        self.held.get(id).is_some_and(|held| held.sending)
+        self.sending.contains(id)
     }
 
     /// Chooses an option, or clears the one chosen.
     fn choose(&mut self, call: &PersonCall, option: &str, cx: &mut Context<Self>) {
+        self.toggle(call, option);
+        cx.notify();
+    }
+
+    fn toggle(&mut self, call: &PersonCall, option: &str) {
         let chosen = match self.chosen(call).iter().any(|id| id == option) {
             true => Vec::new(),
             false => vec![option.to_owned()],
         };
-        self.set_chosen(call, chosen, cx);
+        self.chosen.insert(call.id.clone(), chosen);
     }
 
     /// The card's field, made the first time the card draws.
@@ -198,9 +197,7 @@ impl Cards {
         self.held.insert(
             call.id.clone(),
             Held {
-                chosen: None,
                 field: field.clone(),
-                sending: false,
                 action_open: false,
                 _typed: typed,
             },
@@ -366,6 +363,8 @@ impl Cards {
     /// Lets go of what was held for calls no longer open anywhere.
     pub(crate) fn keep(&mut self, open: &HashSet<&str>) {
         self.held.retain(|id, _| open.contains(id.as_str()));
+        self.chosen.retain(|id, _| open.contains(id.as_str()));
+        self.sending.retain(|id| open.contains(id.as_str()));
         self.seen.retain(|id| open.contains(id.as_str()));
         if self.opened.as_deref().is_some_and(|id| !open.contains(id)) {
             self.opened = None;
@@ -672,9 +671,7 @@ impl Workbench {
             return;
         }
         cards.update(cx, |cards, cx| {
-            if let Some(held) = cards.held.get_mut(&id) {
-                held.sending = true;
-            }
+            cards.sending.insert(id.clone());
             cx.notify();
         });
         let asked = Target::new(&self.asks, place).request_typed::<call::AnswerCall>(params);
@@ -683,9 +680,7 @@ impl Workbench {
             bench
                 .update(cx, |bench, cx| {
                     bench.calls.update(cx, |cards, cx| {
-                        if let Some(held) = cards.held.get_mut(&id) {
-                            held.sending = false;
-                        }
+                        cards.sending.remove(&id);
                         cx.notify();
                     });
                     if let Some(error) = failed {
@@ -1962,5 +1957,34 @@ mod tests {
         assert_eq!(ids("hazamada"), ["github"]);
         assert_eq!(ids("rui"), ["nexus"]);
         assert_eq!(ids("chief"), ["github", "nexus"]);
+    }
+
+    #[test]
+    fn a_choice_tapped_on_the_asks_page_is_kept_without_a_card_field() {
+        let gate: PersonCall = serde_json::from_value(serde_json::json!({
+            "id": "gate",
+            "project": "/sikemux",
+            "kind": "production",
+            "asker": { "agentId": "worker", "name": "worker", "cli": "claude" },
+            "question": "Change Production with this work?",
+            "options": [
+                { "id": "allow", "label": "Change Production" },
+                { "id": "refuse", "label": "Not now" },
+            ],
+            "action": "deploy --prod",
+            "canHandBack": false,
+            "state": "open",
+            "raisedAt": 1,
+        }))
+        .unwrap();
+        let mut cards = Cards::default();
+        assert!(cards.held_field(&gate.id).is_none());
+        assert!(cards.chosen(&gate).is_empty());
+
+        cards.toggle(&gate, "allow");
+        assert_eq!(cards.chosen(&gate), ["allow"]);
+
+        cards.toggle(&gate, "allow");
+        assert!(cards.chosen(&gate).is_empty());
     }
 }
