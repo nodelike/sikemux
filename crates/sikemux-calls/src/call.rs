@@ -239,6 +239,17 @@ crate::calls! {
     "orgVaultLetIn" OrgVaultLetIn (crate::vault::OrgLetIn) -> crate::vault::OrgLetInAnswer;
     "vaultRecoverySaved" VaultRecoverySaved (crate::params::NoParams) -> ();
     "vaultShowRecovery" VaultShowRecovery (crate::params::NoParams) -> ();
+    "vaultList" VaultList (Option<crate::vault::VaultListParams>) -> Vec<crate::vault::VaultEntrySummary>;
+    "vaultGet" VaultGet (crate::vault::VaultGetParams) -> crate::vault::VaultEntryDetail;
+    "vaultUpsert" VaultUpsert (crate::vault::VaultUpsertParams) -> crate::vault::VaultEntrySummary;
+    "vaultDelete" VaultDelete (crate::vault::VaultDeleteParams) -> ();
+    "vaultAuditLog" VaultAuditLog (Option<crate::vault::VaultAuditLogParams>) -> Vec<crate::vault::VaultAuditEntry>;
+    "vaultRequests" VaultRequests (Option<crate::vault::VaultRequestsParams>) -> Vec<crate::vault::VaultPendingRequest>;
+    "vaultRequestSubmit" VaultRequestSubmit (crate::vault::VaultRequestSubmitParams) -> crate::vault::VaultEntrySummary;
+    "vaultRequestCancel" VaultRequestCancel (crate::vault::VaultRequestCancelParams) -> ();
+    "vaultApprovals" VaultApprovals (Option<crate::vault::VaultApprovalsParams>) -> Vec<crate::vault::VaultPendingApproval>;
+    "vaultApprovalAnswer" VaultApprovalAnswer (crate::vault::VaultApprovalAnswerParams) -> ();
+    "vaultResolveBrowser" VaultResolveBrowser (crate::vault::VaultResolveBrowserParams) -> crate::vault::VaultResolvedBrowser;
     "setPreference" SetPreference (sikemux_view::prefs::PreferenceChange) -> sikemux_view::prefs::Preferences;
     "newTerminal" NewTerminal (crate::spare::NewTerminal) -> String;
     "showTerminals" ShowTerminals (crate::params::NoParams) -> ();

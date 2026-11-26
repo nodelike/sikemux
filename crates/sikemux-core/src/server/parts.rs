@@ -18,9 +18,9 @@ use tokio::sync::Notify;
 use super::{streams, themes, ServerConfig};
 
 use super::{
-    chief, device_view, finished, git, goal_summary, goals, harness, hooks, host_stats, hosts,
-    inbox, layout, lifecycle, line, memory, mods, now, outside, pictures, pins, remote_image,
-    session_watch, settling, spare, stalls, tasks, tools, triggers, updates, Core,
+    agent_vault, chief, device_view, finished, git, goal_summary, goals, harness, hooks,
+    host_stats, hosts, inbox, layout, lifecycle, line, memory, mods, now, outside, pictures, pins,
+    remote_image, session_watch, settling, spare, stalls, tasks, tools, triggers, updates, Core,
 };
 
 pub(crate) struct Fields {
@@ -66,6 +66,7 @@ pub(crate) struct Fields {
     pub(super) now: now::Now,
     pub(super) finishing: finished::Finishing,
     pub(super) peer: super::peer::Peer,
+    pub(super) agent_vault: agent_vault::AgentVault,
 }
 
 pub(crate) trait Parts {
@@ -105,6 +106,7 @@ pub(crate) trait Parts {
     fn now(&self) -> &now::Now;
     fn finishing(&self) -> &finished::Finishing;
     fn peer(&self) -> &super::peer::Peer;
+    fn agent_vault(&self) -> &agent_vault::AgentVault;
 }
 
 impl Parts for Core {
@@ -251,11 +253,15 @@ impl Parts for Core {
     fn peer(&self) -> &super::peer::Peer {
         &self.kept::<Fields>().peer
     }
+
+    fn agent_vault(&self) -> &agent_vault::AgentVault {
+        &self.kept::<Fields>().agent_vault
+    }
 }
 
 /// Walking every part of the core.
 pub(crate) trait PartCore {
-    fn parts(&self) -> [&dyn Part; 42];
+    fn parts(&self) -> [&dyn Part; 43];
 
     /// Every feature's tasks, to end when the core stops.
     fn start_parts(self: &Arc<Self>) -> Vec<JoinHandle<()>>;
@@ -267,7 +273,7 @@ pub(crate) trait PartCore {
 }
 
 impl PartCore for Core {
-    fn parts(&self) -> [&dyn Part; 42] {
+    fn parts(&self) -> [&dyn Part; 43] {
         [
             self.harness(),
             self.outside(),
@@ -278,6 +284,7 @@ impl PartCore for Core {
             self.triggers(),
             self.pictures(),
             self.peer(),
+            self.agent_vault(),
             self.waits(),
             self.inbox(),
             self.collisions(),

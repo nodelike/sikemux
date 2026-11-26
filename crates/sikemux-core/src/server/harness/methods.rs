@@ -63,6 +63,8 @@ const METHODS: &[Method] = &[
     acting("board."),
     acting("memory."),
     acting("mod."),
+    on_desk("vault.fill", "fill from Vault"),
+    acting("vault."),
     plumbing(acting(COMMIT_FOOTER_METHOD)),
     plumbing(acting(COMMIT_MADE_METHOD)),
     plumbing(acting(GIT_GUARD_METHOD)),

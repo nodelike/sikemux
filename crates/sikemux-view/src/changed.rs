@@ -66,6 +66,8 @@ pub enum Topic {
     Stopping,
     /// How busy this host is, for its page, while a client shows it.
     HostStats,
+    /// Agentic Vault entries, pending first-entry cards, fill approvals, or audit entries changed.
+    Vault,
     /// A topic from a newer core, which a client skips.
     #[serde(other)]
     Unknown,

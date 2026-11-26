@@ -166,3 +166,453 @@ pub struct OrgEntryParams {
     pub org: String,
     pub id: String,
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VaultCategory {
+    #[default]
+    Details,
+    Secrets,
+    Payments,
+    Documents,
+}
+
+impl VaultCategory {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Details => "details",
+            Self::Secrets => "secrets",
+            Self::Payments => "payments",
+            Self::Documents => "documents",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum VaultScope {
+    #[default]
+    Personal,
+    #[serde(rename_all = "camelCase")]
+    Org {
+        org_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        org_name: Option<String>,
+    },
+}
+
+impl VaultScope {
+    pub fn key(&self) -> String {
+        match self {
+            Self::Personal => "personal".to_owned(),
+            Self::Org { org_id, .. } => format!("org:{org_id}"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum VaultSource {
+    #[default]
+    Sikemux,
+    #[serde(rename_all = "camelCase")]
+    OnePassword { reference: String },
+}
+
+impl VaultSource {
+    pub fn kind_str(&self) -> &'static str {
+        match self {
+            Self::Sikemux => "sikemux",
+            Self::OnePassword { .. } => "1password",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VaultDeliveryMode {
+    #[default]
+    BlindFill,
+    DirectEnv,
+    PrivateTempFile,
+}
+
+impl VaultDeliveryMode {
+    pub fn badge(self) -> &'static str {
+        match self {
+            Self::BlindFill => "Host blind-fill (never exposed to agents)",
+            Self::DirectEnv => "Direct process env (never printed to chat)",
+            Self::PrivateTempFile => "Temporary private file (0600, auto-deleted after use)",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VaultFieldKind {
+    #[default]
+    Text,
+    Email,
+    Phone,
+    Address,
+    Secret,
+    Password,
+    Totp,
+    CardNumber,
+    Expiry,
+    Cvc,
+    TaxId,
+    AccountNumber,
+    Document,
+    Url,
+}
+
+impl VaultFieldKind {
+    pub fn is_inherently_sensitive(self) -> bool {
+        matches!(
+            self,
+            Self::Secret
+                | Self::Password
+                | Self::Totp
+                | Self::CardNumber
+                | Self::Cvc
+                | Self::TaxId
+                | Self::AccountNumber
+                | Self::Document
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultFieldInput {
+    pub key: String,
+    pub label: String,
+    #[serde(default)]
+    pub kind: VaultFieldKind,
+    #[serde(default)]
+    pub sensitive: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op_ref: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultFieldSummary {
+    pub key: String,
+    pub label: String,
+    pub kind: VaultFieldKind,
+    pub sensitive: bool,
+    pub has_value: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub masked_hint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op_ref: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultFieldRevealed {
+    pub key: String,
+    pub label: String,
+    pub kind: VaultFieldKind,
+    pub sensitive: bool,
+    pub masked: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op_ref: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultDocumentInput {
+    pub filename: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_base64: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultDocumentSummary {
+    pub filename: String,
+    pub mime_type: String,
+    pub byte_len: u64,
+    pub sha256_prefix: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultEntrySummary {
+    pub id: String,
+    pub title: String,
+    pub category: VaultCategory,
+    pub scope: VaultScope,
+    pub source: VaultSource,
+    pub delivery_mode: VaultDeliveryMode,
+    pub delivery_note: String,
+    #[serde(default)]
+    pub domains: Vec<String>,
+    #[serde(default)]
+    pub approved_domains: Vec<String>,
+    #[serde(default)]
+    pub require_approval: bool,
+    #[serde(default)]
+    pub fields: Vec<VaultFieldSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document: Option<VaultDocumentSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    pub created_at: u64,
+    pub updated_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used_at: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultEntryDetail {
+    pub summary: VaultEntrySummary,
+    pub revealed: bool,
+    pub fields: Vec<VaultFieldRevealed>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultListParams {
+    #[serde(default)]
+    pub category: Option<VaultCategory>,
+    #[serde(default)]
+    pub scope: Option<VaultScope>,
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultGetParams {
+    pub id: String,
+    #[serde(default)]
+    pub reveal: bool,
+    #[serde(default)]
+    pub resolve_external: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultUpsertParams {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub title: String,
+    pub category: VaultCategory,
+    #[serde(default)]
+    pub scope: VaultScope,
+    #[serde(default)]
+    pub source: VaultSource,
+    #[serde(default)]
+    pub delivery_mode: Option<VaultDeliveryMode>,
+    #[serde(default)]
+    pub domains: Vec<String>,
+    #[serde(default)]
+    pub require_approval: bool,
+    #[serde(default)]
+    pub fields: Vec<VaultFieldInput>,
+    #[serde(default)]
+    pub document: Option<VaultDocumentInput>,
+    #[serde(default)]
+    pub subtitle: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultDeleteParams {
+    pub id: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VaultAuditStatus {
+    Filled,
+    Uploaded,
+    Approved,
+    Denied,
+    Failed,
+    Created,
+    Updated,
+    Deleted,
+    Revealed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultAuditEntry {
+    pub id: String,
+    pub entry_id: String,
+    pub entry_title: String,
+    pub category: VaultCategory,
+    #[serde(default)]
+    pub field_keys: Vec<String>,
+    pub actor: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    pub tool: String,
+    pub delivery_mode: VaultDeliveryMode,
+    pub status: VaultAuditStatus,
+    pub at: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultAuditLogParams {
+    #[serde(default)]
+    pub entry_id: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultRequestedField {
+    pub key: String,
+    pub label: String,
+    #[serde(default)]
+    pub kind: VaultFieldKind,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub sensitive: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultPendingRequest {
+    pub id: String,
+    pub agent_id: String,
+    pub agent_name: String,
+    pub project: String,
+    pub category: VaultCategory,
+    pub scope: VaultScope,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(default)]
+    pub fields: Vec<VaultRequestedField>,
+    pub created_at: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultRequestsParams {
+    #[serde(default)]
+    pub agent_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultRequestSubmitParams {
+    pub request_id: String,
+    #[serde(default)]
+    pub existing_entry_id: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub scope: Option<VaultScope>,
+    #[serde(default)]
+    pub source: VaultSource,
+    #[serde(default)]
+    pub domains: Vec<String>,
+    #[serde(default)]
+    pub require_approval: bool,
+    #[serde(default)]
+    pub fields: Vec<VaultFieldInput>,
+    #[serde(default)]
+    pub document: Option<VaultDocumentInput>,
+    #[serde(default)]
+    pub approve_domain: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultRequestCancelParams {
+    pub request_id: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultPendingApproval {
+    pub id: String,
+    pub agent_id: String,
+    pub agent_name: String,
+    pub entry_id: String,
+    pub entry_title: String,
+    pub category: VaultCategory,
+    pub field_keys: Vec<String>,
+    pub domain: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub masked_summary: Option<String>,
+    pub requires_biometric: bool,
+    pub reason: String,
+    pub created_at: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultApprovalsParams {
+    #[serde(default)]
+    pub agent_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultApprovalAnswerParams {
+    pub id: String,
+    pub approved: bool,
+    #[serde(default)]
+    pub remember_domain: bool,
+    #[serde(default)]
+    pub ephemeral_values: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultResolveBrowserParams {
+    pub agent_id: String,
+    pub reference: String,
+    pub domain: String,
+    pub tool: String,
+    #[serde(default)]
+    pub for_upload: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum VaultResolvedBrowser {
+    #[serde(rename_all = "camelCase")]
+    Text {
+        value: String,
+        masked_label: String,
+        redaction_tokens: Vec<String>,
+        sensitive: bool,
+        delivery_mode: VaultDeliveryMode,
+    },
+    #[serde(rename_all = "camelCase")]
+    File {
+        staged_path: String,
+        display_name: String,
+        delivery_mode: VaultDeliveryMode,
+    },
+}

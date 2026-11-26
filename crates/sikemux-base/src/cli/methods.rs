@@ -87,4 +87,7 @@ pub const HARNESS_METHODS: &[&str] = &[
     "app.console",
     "theme.read",
     "theme.set",
+    "vault.list",
+    "vault.request",
+    "vault.fill",
 ];

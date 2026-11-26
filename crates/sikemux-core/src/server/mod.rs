@@ -11,6 +11,7 @@ pub(crate) use sikemux_repo::server::agent_now;
 pub mod agent_sign_in;
 pub(crate) mod agent_stop;
 pub mod agent_updates;
+pub mod agent_vault;
 pub mod agent_view;
 mod approvals;
 pub use sikemux_workspace::server::attachments;
@@ -578,6 +579,7 @@ impl ServerCore for Core {
                     now: now::Now::new(data_dir),
                     finishing: finished::Finishing::default(),
                     peer: peer::Peer::new(data_dir),
+                    agent_vault: agent_vault::AgentVault::new(data_dir),
                 }) as sikemux_kernel::Parts,
             ]
         });

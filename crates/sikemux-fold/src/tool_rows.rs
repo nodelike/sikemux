@@ -939,6 +939,44 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "vault_list",
+        Spec {
+            verb: "list",
+            kind: "read",
+            icon: "search",
+            target: &["{category} in vault", "vault"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
+        "vault_request",
+        Spec {
+            verb: "ask",
+            kind: "think",
+            icon: "message",
+            target: &["for {title}", "for {category}"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
+        "vault_fill",
+        Spec {
+            verb: "fill",
+            kind: "edit",
+            icon: "text",
+            target: &[
+                "into {field}",
+                "into {selector}",
+                "into element {index}",
+                "{ref}",
+            ],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
         "aws_profiles",
         Spec {
             verb: "list",

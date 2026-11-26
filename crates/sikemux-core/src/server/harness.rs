@@ -764,6 +764,9 @@ async fn dispatch(
                 .await
                 .map_err(|error| error.to_string())
         }
+        "vault.list" => super::agent_vault::tool_list(core, &request),
+        "vault.request" => super::agent_vault::tool_request(core, &request).await,
+        "vault.fill" => super::agent_vault::tool_fill(core, request).await,
         _ => forward(core, request).await,
     }
 }
