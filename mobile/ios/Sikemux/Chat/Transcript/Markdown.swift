@@ -118,6 +118,9 @@ struct Inline {
     func string(_ element: MdElement) -> AttributedString {
         switch element {
         case .code(let code):
+            if code.v.hasPrefix("@"), let parts = crew?.split(code.v), parts.count == 1, parts[0].agent != nil {
+                return named(code.v)
+            }
             return chip(code.v)
         case .strong(let strong):
             var run = string(strong.c)

@@ -21,7 +21,7 @@ import { FileRef, hostImagePath, LinkedImage, namesFile } from './FileRef';
 import { ImageViewerHost } from './ImageViewer';
 import type { Fading } from './reveal';
 import { WhyChipsContext, WhyChipText } from './WhyChip';
-import { NamedWords } from '@/devices/Crew';
+import { CodeNaming, NamedWords } from '@/devices/Crew';
 
 type Table = Extract<MdElement, { t: 'table' }>;
 
@@ -127,11 +127,7 @@ function inline(node: MdNode, key: number, ink: Ink): ReactNode {
     }
     case 'code':
       if ('found' in node) return <FoundIn key={key} code={node as FoundCode} styles={styles} />;
-      return (
-        <Text key={key} style={styles.chip}>
-          {node.v}
-        </Text>
-      );
+      return <CodeNaming key={key} code={node.v} size={15} style={styles.chip} />;
     case 'strong':
       return (
         <Text key={key} style={styles.bold}>

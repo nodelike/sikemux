@@ -1,5 +1,5 @@
 import { createContext, Fragment, useContext, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
 import { router } from 'expo-router';
 
 import type { AgentFace as Face, DeviceView, NamedAgent, TurnState } from '@shared/wire.generated';
@@ -182,6 +182,15 @@ export function NamedWords({ text, size }: { text: string; size: number }) {
   return parts.map((part, index) =>
     typeof part === 'string' ? <Fragment key={index}>{part}</Fragment> : <NamedChip key={index} agent={part} size={size} />,
   );
+}
+
+/** Inline code that is one agent's `@name` and nothing else, drawn as its chip; other code as `style` draws it. */
+export function CodeNaming({ code, size, style }: { code: string; size: number; style: StyleProp<TextStyle> }) {
+  const crew = useCrew();
+  const parts = code.startsWith('@') ? splitNamed(code, crew) : [code];
+  const [only] = parts;
+  if (parts.length === 1 && typeof only !== 'string') return <NamedChip agent={only} size={size} />;
+  return <Text style={style}>{code}</Text>;
 }
 
 /** An agent's chip outside prose, as the Mac's turn line and header draw it: its mark and name on a grey lift. */
