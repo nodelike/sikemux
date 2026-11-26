@@ -36,7 +36,7 @@ mod tests;
 mod tools;
 
 pub(crate) use gate::with_reason;
-pub use gate::{explain_held, gate_answered, key_of, take_back, FROM_NOW_ON};
+pub use gate::{explain_held, gate_answered, key_of, take_back, ALWAYS, FROM_NOW_ON};
 pub use hold::{allow, refuse};
 pub use tools::{check_tool, ended, tool_ran};
 
@@ -44,8 +44,8 @@ use crate::cli::protocol::HarnessRequest;
 use crate::git::Git;
 use crate::ship::{Lands, Looks, Ship, Target};
 use gate::{
-    call_for, checkout_of, gate, names_its_own, owned_here, passes, releases_on_tags,
-    same_repository, tag_places, Asking,
+    call_for, checkout_of, gate, may_stop_asking, names_its_own, owned_here, passes,
+    releases_on_tags, same_repository, tag_places, Asking,
 };
 use hold::hold;
 use sikemux_calls::board::Landing;
@@ -801,6 +801,7 @@ pub(super) fn check_call(
         ship,
         cwd,
         merging,
+        exact,
         plain,
         judged,
         ..
@@ -868,12 +869,14 @@ pub(super) fn check_call(
                 }
                 return Ok(deploy(Some(yes.id), None));
             }
+            let routine = plain.filter(|_| places::judge::routine(&gated, &ship));
             let asking = Asking {
+                always: routine.is_none() && may_stop_asking(core, &project, &gated, &ship, exact),
                 place: &gated,
                 key,
                 once,
                 attempt,
-                routine: plain.filter(|_| places::judge::routine(&gated, &ship)),
+                routine,
             };
             gate(core, agent_id, &project, ship, cwd, asking, judged.why)
         }

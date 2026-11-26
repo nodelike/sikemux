@@ -136,19 +136,44 @@ fn refused(call: &PersonCall) -> bool {
 /// The option of a routine change's call that says yes, and stops asking for such changes.
 pub const FROM_NOW_ON: &str = "allowFromNowOn";
 
+/// The option of a call that says yes, and stops asking for any change at its place.
+pub const ALWAYS: &str = "allowAlways";
+
 fn said_yes(option: Option<&str>) -> bool {
-    matches!(option, Some(person_calls::HOLD_ALLOW | FROM_NOW_ON))
+    matches!(
+        option,
+        Some(person_calls::HOLD_ALLOW | FROM_NOW_ON | ALWAYS)
+    )
 }
 
 /// What a gate asks the person about: the place, the key its answer is kept under, and whether
-/// a yes covers the action once. Only a routine change offers to stop asking, for the repository
-/// it goes through.
+/// a yes covers the action once. A routine change offers to stop asking for the repository it
+/// goes through; where `always`, the call offers to stop asking at the place altogether.
 pub(super) struct Asking<'a> {
     pub(super) place: &'a places::Place,
     pub(super) key: String,
     pub(super) once: bool,
     pub(super) routine: Option<String>,
+    pub(super) always: bool,
     pub(super) attempt: Option<Attempt>,
+}
+
+/// Whether an ask about `ship` at `place` may offer to stop asking there: the project keeps the
+/// place, so its level can be set, and the action is neither a tag nor a push that does more
+/// than send commits (`rewrites`), which ask however often they recur.
+pub(super) fn may_stop_asking(
+    core: &Core,
+    project: &str,
+    place: &places::Place,
+    ship: &Ship,
+    rewrites: bool,
+) -> bool {
+    let tag = matches!(
+        ship.target.as_ref().map(Target::bare),
+        Some(Target::Tag { .. })
+    );
+    let kept = core.places().of(project).places;
+    !tag && !rewrites && (kept.iter()).any(|kept| kept.shown.id == place.shown.id)
 }
 
 /// The call that puts a change of `ship` to the production place `place` to the person, which
@@ -243,6 +268,18 @@ pub(super) fn call_for(
                     ..option(
                         FROM_NOW_ON,
                         format!("Change {}, and from now on just tell me", place.name()),
+                    )
+                }),
+            asking
+                .filter(|asking| asking.always)
+                .map(|_| CallOption {
+                    detail: Some(format!(
+                        "Agents change {} without asking from now on, and you're told each time. Set it back to Mine on the Playbook's Places.",
+                        place.name()
+                    )),
+                    ..option(
+                        ALWAYS,
+                        format!("Change {}, and always allow changes there", place.name()),
                     )
                 }),
             Some(option(person_calls::HOLD_REFUSE, "Not now".to_owned())),
@@ -721,11 +758,19 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
         sikemux_view::calls::CallClient::Device { .. } => "a paired phone".to_owned(),
         _ => "Sikemux".to_owned(),
     });
-    if option.as_deref() == Some(FROM_NOW_ON) {
-        let repository = (call.place.as_ref()).and_then(|place| place.repository.as_deref());
-        if let (Some(place), Some(repository)) = (place_of(core, call), repository) {
-            places::just_tell(core, &call.project, place, repository, from);
+    match option.as_deref() {
+        Some(FROM_NOW_ON) => {
+            let repository = (call.place.as_ref()).and_then(|place| place.repository.as_deref());
+            if let (Some(place), Some(repository)) = (place_of(core, call), repository) {
+                places::just_tell(core, &call.project, place, repository, from);
+            }
         }
+        Some(ALWAYS) => {
+            if let Some(place) = &call.place {
+                places::always_tell(core, &call.project, &place.id, from);
+            }
+        }
+        _ => {}
     }
     let asked = call.question.lines().next().unwrap_or_default();
     let place = (call.place.as_ref()).map_or("the place", |place| place.name.as_str());
@@ -733,6 +778,10 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
     let mut text = match option.as_deref() {
         Some(FROM_NOW_ON) => format!(
             "The person said yes on the call \"{}\", and to just tell them from now on. Run `{action}` again now.",
+            asked
+        ),
+        Some(ALWAYS) => format!(
+            "The person said yes on the call \"{}\", and to let changes to {place} run from now on, telling them of each. Run `{action}` again now.",
             asked
         ),
         _ if said_yes(option.as_deref()) && once => format!(
