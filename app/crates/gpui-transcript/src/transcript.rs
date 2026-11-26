@@ -8,7 +8,8 @@ use gpui::{
     actions, canvas, div, list, px, AnyElement, AnyView, App, ClipboardItem, Context,
     DispatchPhase, ElementId, EventEmitter, FocusHandle, FollowMode, InteractiveElement,
     IntoElement, KeyBinding, ListAlignment, ListOffset, ListState, MouseButton, MouseDownEvent,
-    MouseMoveEvent, ParentElement, Pixels, Point, Render, SharedString, Styled, Window,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Render, SharedString, Styled,
+    Window,
 };
 
 use crate::draw::{LayoutBudget, Pen, Style};
@@ -117,6 +118,9 @@ pub struct Transcript<R: Row> {
     focus: FocusHandle,
     ends: Option<(Spot, Spot)>,
     dragging: bool,
+    /// Where the pointer was last seen while dragging a selection, in or out of the view.
+    pointer: Point<Pixels>,
+    edge_scrolling: bool,
     /// The reader scrolled up from the latest rows.
     away: bool,
     shown: Rc<RefCell<Vec<Shown>>>,
@@ -177,6 +181,11 @@ const SETTLE: Duration = Duration::from_millis(350);
 
 /// The most frames spent bringing a place found into view.
 const MOST_CHASE_STEPS: u8 = 8;
+
+/// How often a selection dragged past the top or bottom scrolls the view, and the most it
+/// scrolls each time.
+const EDGE_TICK: Duration = Duration::from_millis(16);
+const MOST_EDGE_STEP: f32 = 60.;
 /// Room kept above a place brought into view, under the find bar drawn over the rows, and below.
 const ROOM_ABOVE: Pixels = px(96.);
 const ROOM_BELOW: Pixels = px(40.);
@@ -232,6 +241,8 @@ impl<R: Row> Transcript<R> {
             focus: cx.focus_handle(),
             ends: None,
             dragging: false,
+            pointer: Point::default(),
+            edge_scrolling: false,
             away: false,
             shown: Rc::default(),
             query: None,
@@ -948,23 +959,70 @@ impl<R: Row> Transcript<R> {
         texts.get((*n as usize).checked_sub(1)?).cloned()
     }
 
-    /// Moves the selection's free end, scrolling when the pointer is past the top or bottom.
+    /// Moves the selection's free end, and keeps scrolling while the pointer is past the top
+    /// or bottom.
     fn drag(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) {
-        if !self.dragging || !event.dragging() {
+        if !self.dragging {
             return;
         }
-        let view = self.list.viewport_bounds();
-        let (y, top, bottom) = (event.position.y, view.top(), view.bottom());
-        if y < top || y > bottom {
-            self.list
-                .scroll_by(if y < top { y - top } else { y - bottom });
+        if !event.dragging() {
+            self.dragging = false;
+            return;
         }
-        let inside = Point::new(event.position.x, y.clamp(top, bottom - px(1.)));
+        self.pointer = event.position;
+        self.move_head();
+        if self.past_edge() != Pixels::ZERO && !self.edge_scrolling {
+            self.edge_scrolling = true;
+            cx.spawn(async move |this, cx| {
+                while this
+                    .update(cx, |this, cx| this.scroll_toward_pointer(cx))
+                    .unwrap_or(false)
+                {
+                    cx.background_executor().timer(EDGE_TICK).await;
+                }
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    /// How far the pointer is above the view, as negative, or below it.
+    fn past_edge(&self) -> Pixels {
+        let view = self.list.viewport_bounds();
+        let y = self.pointer.y;
+        if y < view.top() {
+            y - view.top()
+        } else if y > view.bottom() {
+            y - view.bottom()
+        } else {
+            Pixels::ZERO
+        }
+    }
+
+    fn move_head(&mut self) {
+        let view = self.list.viewport_bounds();
+        let inside = Point::new(
+            self.pointer.x,
+            self.pointer.y.clamp(view.top(), view.bottom() - px(1.)),
+        );
         let spot = spot_at(&self.shown.borrow(), inside);
         if let (Some(spot), Some((_, head))) = (spot, self.ends.as_mut()) {
             *head = spot;
         }
+    }
+
+    /// Scrolls one step toward a pointer held past the top or bottom. Answers whether to go on.
+    fn scroll_toward_pointer(&mut self, cx: &mut Context<Self>) -> bool {
+        let past = f32::from(self.past_edge());
+        if !self.dragging || past == 0. {
+            self.edge_scrolling = false;
+            return false;
+        }
+        self.list
+            .scroll_by(px(past.clamp(-MOST_EDGE_STEP, MOST_EDGE_STEP)));
+        self.move_head();
         cx.notify();
+        true
     }
 
     fn copy(&mut self, cx: &mut Context<Self>) {
@@ -1045,6 +1103,32 @@ impl<R: Row> Render for Transcript<R> {
             canvas(
                 |_, _, _| (),
                 move |_, _, window, _| window.on_mouse_event(moved),
+            )
+            .absolute()
+        });
+        let follow_drag = self.dragging.then(|| {
+            let this = this.downgrade();
+            canvas(
+                |_, _, _| (),
+                move |_, _, window, _| {
+                    let moved = this.clone();
+                    window.on_mouse_event(
+                        move |event: &MouseMoveEvent, phase, _: &mut Window, cx: &mut App| {
+                            if phase == DispatchPhase::Capture {
+                                let _ = moved.update(cx, |this, cx| this.drag(event, cx));
+                            }
+                        },
+                    );
+                    let released = this.clone();
+                    window.on_mouse_event(
+                        move |event: &MouseUpEvent, phase, _: &mut Window, cx: &mut App| {
+                            if phase == DispatchPhase::Capture && event.button == MouseButton::Left
+                            {
+                                let _ = released.update(cx, |this, _| this.dragging = false);
+                            }
+                        },
+                    );
+                },
             )
             .absolute()
         });
@@ -1151,15 +1235,11 @@ impl<R: Row> Render for Transcript<R> {
                 MouseButton::Left,
                 cx.listener(|this, event, window, cx| this.press(event, window, cx)),
             )
-            .on_mouse_move(cx.listener(|this, event, _, cx| this.drag(event, cx)))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _, _, _| this.dragging = false),
-            )
             .key_context(CONTEXT)
             .on_action(cx.listener(|this, _: &Copy, _, cx| this.copy(cx)))
             .child(rows.size_full())
             .children(watch)
+            .children(follow_drag)
             .on_children_prepainted(move |_, window, cx| {
                 let moved = moved.clone();
                 window.defer(cx, move |window, cx| {
