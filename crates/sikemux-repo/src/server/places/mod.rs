@@ -275,6 +275,26 @@ pub fn just_tell(core: &Core, project: &str, place: Place, repository: &str, fro
     });
 }
 
+/// The person said on a call to let agents make every change to the place `id` from now on and
+/// tell them of each, as its level "tell me" does. A place that no longer asks is left as it is.
+pub fn always_tell(core: &Core, project: &str, id: &str, from: Option<String>) {
+    let _ = tapped(core, project, |kept| {
+        let confirmed = kept.confirmed.is_some();
+        let place = (kept.places.iter_mut())
+            .find(|place| place.shown.id == id)
+            .filter(|place| place.asks(confirmed));
+        if let Some(place) = place {
+            place.shown.was = Some(Level::Mine);
+            place.shown.level = Level::TellMe;
+            place.routine_only = false;
+            place.just_tell.clear();
+            place.shown.said_by = Some(by_tap());
+            place.shown.said_from = from;
+        }
+        Ok(())
+    });
+}
+
 /// A production call the gate raised was answered: the place counts it.
 pub fn call_answered(core: &Core, call: &PersonCall) {
     let (Some(place), Some(answer)) = (&call.place, &call.answer) else {

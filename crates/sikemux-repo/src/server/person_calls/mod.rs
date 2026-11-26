@@ -867,7 +867,7 @@ impl PersonCalls {
 /// Whether answering `option` lets what the call holds run.
 fn allows(kept: &Kept, option: &str) -> bool {
     kept.yes.as_deref() == Some(option)
-        || (kept.yes.is_some() && option == super::ship::FROM_NOW_ON)
+        || (kept.yes.is_some() && matches!(option, super::ship::FROM_NOW_ON | super::ship::ALWAYS))
 }
 
 /// Whether `source` raised the call, first or since.
