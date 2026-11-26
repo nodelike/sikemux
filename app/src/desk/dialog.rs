@@ -23,6 +23,7 @@ pub(crate) struct PromptField {
 
 /// Keeps a text input per open `prompt` dialog and drops inputs once dialogs close.
 pub(super) fn sync(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+    ui::forget_spots(|| "page-dialog".into());
     let wanted: Vec<(String, String, String)> = bench
         .desks
         .read(cx)
