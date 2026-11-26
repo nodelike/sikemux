@@ -1,12 +1,14 @@
-//! Keeps tabs signed in. WebKit's tracking prevention clears what sites keep in
-//! page storage after a week, and cookies only reach disk a few seconds after a
-//! site sets them, so a crash in between brings back a session the site has
-//! already replaced.
+//! Keeps tabs signed in, as far as WebKit allows. Its tracking prevention clears
+//! what sites keep in page storage after a week, which is switched off here. It
+//! still clears everything of a host it classes as a tracker, which is not. Cookies
+//! only reach disk a few seconds after a site sets them, so a crash in between
+//! brings back a session the site has already replaced.
 
 use std::cell::{Cell, OnceCell};
 use std::time::Duration;
 
 use dispatch2::{DispatchQueue, DispatchTime};
+use objc2_foundation::NSUserDefaults;
 use objc2_web_kit::{WKHTTPCookieStore, WKHTTPCookieStoreObserver, WKWebsiteDataStore};
 
 use super::*;
@@ -74,22 +76,16 @@ pub(super) fn prepare(mtm: MainThreadMarker) {
     });
 }
 
-/// Tracking prevention stays on, since WebKit only keeps the `Partitioned` cookies an
-/// embedded frame sets while it is, and a claude.ai artifact's frame loads nothing
-/// without them. Only its clearing of page storage after a week is switched off, which
-/// WebKit reads from this default when it first sets the store up.
+/// Tracking prevention stays on, since WebKit drops an embedded frame's `Partitioned`
+/// cookies without it. This turns off only its weekly clearing of page storage.
 fn keep_page_storage() {
     let key = NSString::from_str("WebKitExperimentalIsFirstPartyWebsiteDataRemovalDisabled");
     let yes = NSNumber::numberWithBool(true);
-    // SAFETY: Foundation's documented calls with the types they take; a registered
-    // default lasts for this run only and is never written to disk.
-    unsafe {
-        let defaults: Retained<NSDictionary> =
-            msg_send![objc2::class!(NSDictionary), dictionaryWithObject: &*yes, forKey: &*key];
-        let standard: Retained<NSObject> =
-            msg_send![objc2::class!(NSUserDefaults), standardUserDefaults];
-        let _: () = msg_send![&*standard, registerDefaults: &*defaults];
-    }
+    let defaults: Retained<NSDictionary<NSString, AnyObject>> =
+        NSDictionary::from_slices(&[&*key], &[&*yes]);
+    // SAFETY: the dictionary maps a string to an NSNumber, as defaults take. A
+    // registered default lasts for this run only.
+    unsafe { NSUserDefaults::standardUserDefaults().registerDefaults(&defaults) };
 }
 
 /// Asks WebKit to write every cookie to disk now. It goes on without waiting, so it
