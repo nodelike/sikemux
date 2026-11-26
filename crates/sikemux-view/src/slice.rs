@@ -423,6 +423,15 @@ pub struct Decision {
     /// person's own decisions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub holder: Option<String>,
+    /// Always carried in Tier 1 briefs and handoffs regardless of recency.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
+    /// Earlier decision id this decision replaces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supersedes: Option<u64>,
+    /// Newer decision id that replaced this decision; superseded decisions stay out of active briefs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_by: Option<u64>,
 }
 
 impl Decision {

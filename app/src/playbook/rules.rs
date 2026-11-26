@@ -515,6 +515,8 @@ fn update(project: &str, id: u64) -> MemoryUpdateParams {
         not_now: false,
         kept: false,
         words: None,
+        pinned: None,
+        supersedes: None,
     }
 }
 
@@ -677,6 +679,8 @@ pub(crate) fn restore(
                     goal: None,
                     sensitive: false,
                     store: line.store,
+                    pinned: false,
+                    supersedes: None,
                 },
             });
             bench.report(asked, failed, back, cx);

@@ -50,6 +50,15 @@ pub struct MemoryRule {
     /// Who last moved it between the person's store and a project's, when, and from where.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved: Option<Moved>,
+    /// Always carried in Tier 1 briefs regardless of recency or cap.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
+    /// Earlier rule id this rule replaces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supersedes: Option<u64>,
+    /// Newer rule id that replaced this rule; superseded rules stay out of active briefs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_by: Option<u64>,
 }
 
 /// The person moved an entry between their own store and a project's.
@@ -86,6 +95,15 @@ pub struct Knowledge {
     /// Who last moved it between the person's store and a project's, when, and from where.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved: Option<Moved>,
+    /// Always carried in Tier 1 briefs regardless of recency or cap.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
+    /// Earlier rule id this rule replaces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supersedes: Option<u64>,
+    /// Newer rule id that replaced this rule; superseded rules stay out of active briefs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_by: Option<u64>,
 }
 
 /// What the core can test about knowledge by itself.

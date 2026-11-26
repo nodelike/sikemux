@@ -318,6 +318,8 @@ pub(super) fn chat_above() -> ChatAbove {
         board_standing_since: board::goal::standing_since,
         memory_after_compaction: memory::after_compaction,
         memory_for_chat: memory::for_chat,
+        memory_revision: memory::revision,
+        memory_delta: memory::delta_since,
         questions_ask_for_dialog: questions::ask_for_dialog,
         turn_state_now: turn_state::now,
         agent_accounts_turn_ended: agent_accounts::turn_ended,
@@ -518,6 +520,7 @@ pub(super) fn board_above() -> BoardAbove {
     BoardAbove {
         person_name: memory::moving::first_name,
         memory_brief: memory::brief,
+        memory_decision_changed: memory::decision_changed,
         messages_from_board: |core, to, text, note| {
             Box::pin(messages::from_board(core, to, text, note))
         },

@@ -43,6 +43,8 @@ pub struct BoardAbove {
     /// Knowledge is picked by the words of `task`, a lead's own, when given, and
     /// of the agent's card.
     pub memory_brief: fn(&Core, &str, Option<&str>) -> Option<String>,
+    /// Records a project decision change so memory deltas and search indexes stay fresh.
+    pub memory_decision_changed: fn(&Core, &str, String),
     /// Hands an agent a note from the board about its cards, with a line for the app.
     pub messages_from_board: for<'a> fn(&'a Arc<Core>, String, String, String) -> Told<'a>,
     /// Hands an agent a trigger's note, reopening it when it has closed and waking it when it

@@ -567,6 +567,10 @@ pub struct DecideParams {
     pub why: Option<String>,
     #[serde(default)]
     pub retire: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supersedes: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]

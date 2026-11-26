@@ -596,6 +596,10 @@ pub async fn run<B: Backend>(
             }
             let supports_instructions = B::supports_instructions(&launch);
             let brief = supports_instructions.then(|| chat.brief()).flatten();
+            let start_rev = chat
+                .core
+                .upgrade()
+                .map_or(0, |core| (core.chat_above().memory_revision)(&core));
             let reaching_provider = chat.with_model_token(&launch)?;
             let started = tokio::time::timeout(
                 super::super::START_TIMEOUT,
@@ -617,9 +621,19 @@ pub async fn run<B: Backend>(
             if let Some(core) = chat.core.upgrade() {
                 core.workspaces().note_moved(chat.agent_id(), false);
                 if supports_instructions {
-                    core.chats()
-                        .sessions
-                        .pin_brief(chat.agent_id(), &opened.session_id, brief);
+                    let pin_rev = match chat.seen_mem_rev() {
+                        0 => {
+                            chat.set_seen_mem_rev(start_rev);
+                            start_rev
+                        }
+                        rev => rev,
+                    };
+                    core.chats().sessions.pin_brief(
+                        chat.agent_id(),
+                        &opened.session_id,
+                        brief,
+                        pin_rev,
+                    );
                 }
                 if fresh_after_resume && chat.has_answered() {
                     if let Some(context) = handoff::for_fresh_session(&core, &chat) {
@@ -902,6 +916,7 @@ impl<B: Backend> Running<'_, B> {
                 side(self.footing().model),
             )
         });
+        let brief_rev = (core.chat_above().memory_revision)(&core);
         let brief = rotation::brief(&core, &self.chat);
         if !rotation::pays(&core, &self.chat, reason, &brief.whole) {
             rotation::stays(&self.chat, self.footing());
@@ -935,6 +950,7 @@ impl<B: Backend> Running<'_, B> {
             }
         };
         self.sink.loaded();
+        self.chat.set_seen_mem_rev(brief_rev);
         if B::supports_instructions(self.launch) {
             let rotated_brief =
                 (!brief.instructions.is_empty()).then(|| brief.instructions.clone());
@@ -943,6 +959,7 @@ impl<B: Backend> Running<'_, B> {
                 self.chat.agent_id(),
                 &opened.session_id,
                 rotated_brief,
+                brief_rev,
             );
         }
         let from = std::mem::replace(&mut self.state.session_id, opened.session_id);
@@ -1040,6 +1057,7 @@ impl<B: Backend> Running<'_, B> {
     async fn send(&mut self, mut replay: Replay) {
         self.state.turn += 1;
         self.chat.begin_turn();
+        let mut pending_mem_rev: Option<(u64, u64)> = None;
         if !crate::server::chat::prompt::is_command(&replay.text) {
             if let Some(core) = self.chat.core.upgrade() {
                 let handoffs = &core.chats().handoffs;
@@ -1066,6 +1084,23 @@ impl<B: Backend> Running<'_, B> {
                         .context
                         .extend(cap::after_compaction_context(&core, &self.chat));
                 }
+                let seen = self.chat.seen_mem_rev();
+                if seen > 0 {
+                    let project = core.workspaces().project_of(&self.chat.launch.cwd);
+                    let (now_rev, delta) = (core.chat_above().memory_delta)(&core, &project, seen);
+                    if let Some(delta_text) = delta {
+                        replay
+                            .context
+                            .push(crate::sessions::for_agent::sikemux_context(
+                                "memory-delta",
+                                "Memory updates since session start",
+                                &delta_text,
+                            ));
+                        pending_mem_rev = Some((seen, now_rev));
+                    } else if now_rev > seen {
+                        self.chat.set_seen_mem_rev(now_rev);
+                    }
+                }
                 replay
                     .context
                     .extend((core.chat_above().turn_digest)(&core, self.chat.agent_id()).await);
@@ -1077,14 +1112,27 @@ impl<B: Backend> Running<'_, B> {
             && replay.context.len() < MAX_CONTEXT_ITEMS
             && !crate::server::chat::prompt::is_command(&replay.text);
         if carries {
-            replay
-                .context
-                .extend(self.chat.take_brief().map(brief_context));
+            if let Some(brief) = self.chat.take_brief() {
+                if let Some(core) = self.chat.core.upgrade() {
+                    let now_rev = (core.chat_above().memory_revision)(&core);
+                    if self.chat.seen_mem_rev() == 0 {
+                        self.chat.set_seen_mem_rev(now_rev);
+                    }
+                }
+                replay.context.push(brief_context(brief));
+            }
         }
         let prompt_res = self
             .backend
             .prompt(self.state.turn, Prompt::from(&replay))
             .await;
+        if let Some((old_rev, new_rev)) = pending_mem_rev {
+            if prompt_res.is_ok() {
+                self.chat.set_seen_mem_rev(new_rev);
+            } else {
+                self.chat.set_seen_mem_rev(old_rev);
+            }
+        }
         if let Some(core) = self.chat.core.upgrade() {
             (core.chat_above().turn_digest_result)(&core, self.chat.agent_id(), prompt_res.is_ok());
         }

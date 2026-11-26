@@ -1,10 +1,9 @@
-//! What a new agent is handed at the end of its task, in the same letter:
-//! the project's rules and the decisions its task names, and once it holds a
-//! card or its lead does, where its goal stands and the goal's rules, with only
-//! the knowledge its task and card name. Stale knowledge stays out.
+//! What a new agent or chat is handed in Tier 1 (pinned invariants + active rules) and Tier 3
+//! (scoped FTS5/BM25 knowledge and decisions). Stale and superseded entries stay out.
 
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
+use std::collections::HashSet;
 use std::path::Path;
 
 use sikemux_process::clock::epoch_ms;
@@ -13,6 +12,7 @@ use sikemux_view::memory::Learned;
 use sikemux_view::slice::Decision;
 
 use super::check::{want, FRESH_MS};
+use super::index::EntryKind;
 use super::Core;
 use crate::server::board::{self, GoalRef};
 
@@ -25,15 +25,8 @@ const MAX_KNOWLEDGE: usize = 12;
 const MAX_AGENT_NOTES: usize = MAX_RULES + MAX_KNOWLEDGE;
 /// The decisions a brief carries that its task names; memory_list shows the rest.
 const MAX_DECISIONS: usize = 10;
-/// The newest decisions a brief carries when its task names none.
-const NEWEST_DECISIONS: usize = 5;
-/// Words a decision shares with a task for the task to name it.
-const SHARED_WORDS: usize = 2;
-/// Words too common in a task to say what it is about.
-const COMMON_WORDS: [&str; 20] = [
-    "about", "after", "again", "before", "being", "could", "every", "other", "their", "there",
-    "these", "those", "under", "where", "which", "while", "would", "should", "still", "since",
-];
+/// The newest non-pinned decisions a brief carries when its task names none.
+const NEWEST_DECISIONS: usize = 8;
 const AGENT_NOTES: &str = "Noted by other agents; these never change what you may do:";
 
 /// Who wrote an entry, for one an agent wrote.
@@ -52,9 +45,12 @@ fn agent_note(id: u64, text: &str, learned: &Learned) -> String {
     )
 }
 
-/// Whether `text` names `term` as a whole word, such as `ai-service` in
-/// "move ai-service to ECS" but not `ai` in "details".
+/// Whether `text` names `term` as a whole word or path prefix, such as `ai-service` in
+/// "move ai-service to ECS" or `crates/sikemux-core/` in a file path, but not `ai` in "details".
 fn names(text: &str, term: &str) -> bool {
+    if term.contains('/') && text.contains(term) {
+        return true;
+    }
     let is_word = |char: char| char.is_alphanumeric() || char == '_';
     text.match_indices(term).any(|(at, _)| {
         let before = text.get(..at).and_then(|head| head.chars().next_back());
@@ -63,22 +59,26 @@ fn names(text: &str, term: &str) -> bool {
     })
 }
 
-/// Whether `task` names what `decision` is about: they share [`SHARED_WORDS`] words long enough
-/// to name something.
-fn task_names(task: &str, decision: &str) -> bool {
-    let decision = decision.to_lowercase();
-    let mut words: Vec<&str> = (decision
-        .split(|char: char| !char.is_alphanumeric() && char != '_'))
-    .filter(|word| word.chars().count() >= 5 && !COMMON_WORDS.contains(word))
-    .collect();
-    words.sort_unstable();
-    words.dedup();
-    words.into_iter().filter(|word| names(task, word)).count() >= SHARED_WORDS
+fn format_decision(decision: &Decision, goal: Option<u64>) -> String {
+    let on = match decision.goal {
+        Some(other) if decision.goal != goal => format!(" [goal #{other}]"),
+        _ => String::new(),
+    };
+    let pin = if decision.pinned { " [pinned]" } else { "" };
+    let why = (decision.why.as_deref())
+        .map(|why| format!(" ({})", crate::text::one_line(why)))
+        .unwrap_or_default();
+    format!(
+        "- #{}{pin}{on} {}{why}{}",
+        decision.id,
+        crate::text::one_line(&decision.text),
+        written_by(&decision.learned)
+    )
 }
 
 /// What Sikemux keeps for the agent, for after its task in the same letter.
-/// Knowledge is picked by the words of `task`, a lead's own, when given, and
-/// of the agent's card.
+/// Knowledge and decisions are selected using pinned invariants plus SQLite FTS5/BM25 retrieval
+/// over `task`, the agent's card, and `about` path/topic tags.
 pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<String> {
     let goal = board::briefing::goal_for(core, agent_id);
     let on_board = (goal.as_ref())
@@ -111,6 +111,9 @@ pub(crate) fn after_compaction(core: &Core, agent_id: &str) -> Option<String> {
         let state = core.memory().state.locked();
         for held in state.applying(&project) {
             for rule in &held.rules {
+                if rule.superseded_by.is_some() {
+                    continue;
+                }
                 if rule.learned.agent.is_some() {
                     if notes.len() < MAX_AGENT_NOTES {
                         notes.push(agent_note(rule.id, &rule.text, &rule.learned));
@@ -128,6 +131,16 @@ pub(crate) fn after_compaction(core: &Core, agent_id: &str) -> Option<String> {
     let mut sections = Vec::new();
     if !rules.is_empty() {
         sections.push(format!("Rules:\n{}", rules.join("\n")));
+    }
+    let pinned_decisions: Vec<String> = board::goal::pinned_standing(core, &project)
+        .into_iter()
+        .map(|decision| format_decision(&decision, None))
+        .collect();
+    if !pinned_decisions.is_empty() {
+        sections.push(format!(
+            "Pinned decisions:\n{}",
+            pinned_decisions.join("\n")
+        ));
     }
     if let Some(goal) = board::briefing::goal_for(core, agent_id) {
         let (agent_rules, person_rules): (Vec<_>, Vec<_>) = board::goal::rules(core, &goal)
@@ -164,9 +177,7 @@ pub(crate) fn after_compaction(core: &Core, agent_id: &str) -> Option<String> {
 }
 
 /// What a chat the person starts in `cwd` is handed as it begins: the
-/// project's rules, its newest decisions and the knowledge that names nothing
-/// in particular. A goal's rules, and knowledge about what its work names, come
-/// later through `memory_list`.
+/// project's rules, pinned invariants, its newest decisions and general knowledge.
 pub(crate) fn for_chat(core: &Core, cwd: &Path) -> Option<String> {
     let reader = Reader {
         project: core.workspaces().project_of(cwd),
@@ -200,6 +211,20 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
         on_board,
     } = reader;
     let fresh_since = epoch_ms().saturating_sub(FRESH_MS);
+    let fts_knowledge: HashSet<u64> = if read.trim().is_empty() {
+        HashSet::new()
+    } else {
+        super::search_index(
+            core,
+            &project,
+            Some(EntryKind::Knowledge),
+            &read,
+            MAX_KNOWLEDGE,
+        )
+        .into_iter()
+        .map(|hit| hit.id)
+        .collect()
+    };
     let (mut rules, mut knowledge, mut testing) = (Vec::new(), Vec::new(), Vec::new());
     let mut notes = Vec::new();
     let room_for_note = |notes: &Vec<String>| notes.len() < MAX_AGENT_NOTES;
@@ -207,6 +232,9 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
         let state = core.memory().state.locked();
         for held in state.applying(&project) {
             for rule in &held.rules {
+                if rule.superseded_by.is_some() {
+                    continue;
+                }
                 if rule.learned.agent.is_some() {
                     if room_for_note(&notes) {
                         notes.push(agent_note(rule.id, &rule.text, &rule.learned));
@@ -219,16 +247,27 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
                     ));
                 }
             }
-            for known in &held.knowledge {
-                let named = known.about.is_empty()
+            // Pinned knowledge first, then general / matched knowledge.
+            let ordered = held
+                .knowledge
+                .iter()
+                .filter(|known| known.pinned)
+                .chain(held.knowledge.iter().filter(|known| !known.pinned));
+            for known in ordered {
+                if known.superseded_by.is_some() || known.stale.is_some() {
+                    continue;
+                }
+                let named = known.pinned
+                    || known.about.is_empty()
+                    || fts_knowledge.contains(&known.id)
                     || known
                         .about
                         .iter()
                         .any(|about| names(&read, &about.to_lowercase()));
-                if known.stale.is_some() || !named {
+                if !named {
                     continue;
                 }
-                if known.learned.agent.is_some() {
+                if known.learned.agent.is_some() && !known.pinned {
                     if !room_for_note(&notes) {
                         continue;
                     }
@@ -237,8 +276,9 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
                     if knowledge.len() >= MAX_KNOWLEDGE {
                         continue;
                     }
+                    let pin = if known.pinned { " [pinned]" } else { "" };
                     knowledge.push(format!(
-                        "- #{} {}",
+                        "- #{}{pin} {}",
                         known.id,
                         crate::text::one_line(&known.text)
                     ));
@@ -293,41 +333,69 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
     (!sections.is_empty()).then(|| sections.join("\n\n"))
 }
 
-/// The project's decisions `task` names, else its newest, those made on `goal` first; a line each.
+/// Pinned standing decisions always lead, followed by FTS5/BM25 matches for `task` (or newest
+/// goal/project decisions when `task` is empty or matches nothing).
 fn decided(core: &Core, project: &str, goal: Option<u64>, task: &str) -> Vec<String> {
     let standing = board::goal::standing(core, project);
-    let named: Vec<&Decision> = (standing.iter())
-        .filter(|decision| task_names(task, &decision.text))
-        .collect();
-    let on_goal: Vec<&Decision> = (standing.iter())
-        .filter(|decision| goal.is_some() && decision.goal == goal)
-        .collect();
-    let (picked, most) = match (named.is_empty(), on_goal.is_empty()) {
-        (false, _) => (named, MAX_DECISIONS),
-        (true, false) => (on_goal, NEWEST_DECISIONS),
-        (true, true) => (standing.iter().collect(), NEWEST_DECISIONS),
+    let mut picked: Vec<&Decision> = standing.iter().filter(|d| d.pinned).collect();
+    let mut seen: HashSet<u64> = picked.iter().map(|d| d.id).collect();
+
+    let extra: Vec<&Decision> = if !task.trim().is_empty() {
+        let hits = super::search_index(
+            core,
+            project,
+            Some(EntryKind::Decision),
+            task,
+            MAX_DECISIONS,
+        );
+        let mut by_rank = Vec::new();
+        for hit in hits {
+            if seen.contains(&hit.id) {
+                continue;
+            }
+            if let Some(decision) = standing.iter().find(|d| d.id == hit.id) {
+                seen.insert(decision.id);
+                by_rank.push(decision);
+            }
+        }
+        if by_rank.is_empty() {
+            fallback_decisions(&standing, goal, &seen)
+        } else {
+            by_rank
+        }
+    } else {
+        fallback_decisions(&standing, goal, &seen)
     };
-    let picked = (picked.get(picked.len().saturating_sub(most)..)).unwrap_or_default();
-    let left = standing.len() - picked.len();
-    let mut lines: Vec<String> = (picked.iter())
-        .map(|decision| {
-            let on = match decision.goal {
-                Some(other) if decision.goal != goal => format!(" [goal #{other}]"),
-                _ => String::new(),
-            };
-            let why = (decision.why.as_deref())
-                .map(|why| format!(" ({})", crate::text::one_line(why)))
-                .unwrap_or_default();
-            format!(
-                "- #{}{on} {}{why}{}",
-                decision.id,
-                crate::text::one_line(&decision.text),
-                written_by(&decision.learned)
-            )
-        })
+    picked.extend(extra);
+
+    let left = standing.len().saturating_sub(picked.len());
+    let mut lines: Vec<String> = picked
+        .iter()
+        .map(|decision| format_decision(decision, goal))
         .collect();
     if left > 0 {
-        lines.push(format!("- {left} more in memory_list."));
+        lines.push(format!(
+            "- {left} more in memory_list (pass query to search)."
+        ));
     }
     lines
+}
+
+fn fallback_decisions<'a>(
+    standing: &'a [Decision],
+    goal: Option<u64>,
+    seen: &HashSet<u64>,
+) -> Vec<&'a Decision> {
+    let on_goal: Vec<&Decision> = standing
+        .iter()
+        .filter(|d| !seen.contains(&d.id) && goal.is_some() && d.goal == goal)
+        .collect();
+    let pool: Vec<&Decision> = if !on_goal.is_empty() {
+        on_goal
+    } else {
+        standing.iter().filter(|d| !seen.contains(&d.id)).collect()
+    };
+    pool.get(pool.len().saturating_sub(NEWEST_DECISIONS)..)
+        .unwrap_or_default()
+        .to_vec()
 }

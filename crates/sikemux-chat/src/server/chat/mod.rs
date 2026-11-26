@@ -411,6 +411,7 @@ pub struct Chat {
     chief: AtomicBool,
     pub rotation: rotation::State,
     streamed_at: AtomicU64,
+    seen_mem_rev: AtomicU64,
     open_tools: Mutex<HashSet<String>>,
 }
 
@@ -468,6 +469,14 @@ impl Chat {
 
     pub fn set_brief(&self, brief: Option<String>) {
         *self.brief.locked() = brief;
+    }
+
+    pub fn seen_mem_rev(&self) -> u64 {
+        self.seen_mem_rev.load(Ordering::Acquire)
+    }
+
+    pub fn set_seen_mem_rev(&self, rev: u64) {
+        self.seen_mem_rev.store(rev, Ordering::Release);
     }
 
     pub fn keep_task(&self, task: &str) {

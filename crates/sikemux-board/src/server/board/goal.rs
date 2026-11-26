@@ -109,7 +109,8 @@ impl Decided {
     }
 
     pub fn standing(&self) -> impl Iterator<Item = &Decision> {
-        (self.decisions.iter()).filter(|decision| decision.retired.is_none())
+        (self.decisions.iter())
+            .filter(|decision| decision.retired.is_none() && decision.superseded_by.is_none())
     }
 
     /// Decision `id`, made on `goal`. Decisions kept before the project had one list may share
@@ -213,13 +214,28 @@ impl<'a> Said<'a> {
 }
 
 /// The project's decisions still standing that were made since `since`, newest first, at
-/// most `most`.
+/// most `most`. Pinned standing decisions are always included ahead of recent ones.
 pub fn standing_since(core: &Core, project: &str, since: u64, most: usize) -> Vec<Decision> {
-    let mut decisions = standing(core, project);
-    decisions.retain(|decision| decision.learned.at >= since);
-    decisions.reverse();
-    decisions.truncate(most);
-    decisions
+    let all = standing(core, project);
+    let mut pinned: Vec<Decision> = all.iter().filter(|d| d.pinned).cloned().collect();
+    pinned.reverse();
+    let mut recent: Vec<Decision> = all
+        .into_iter()
+        .filter(|d| !d.pinned && d.learned.at >= since)
+        .collect();
+    recent.reverse();
+    let mut out = pinned;
+    out.extend(recent);
+    out.truncate(most);
+    out
+}
+
+/// The project's pinned standing decisions, oldest first.
+pub fn pinned_standing(core: &Core, project: &str) -> Vec<Decision> {
+    standing(core, project)
+        .into_iter()
+        .filter(|decision| decision.pinned)
+        .collect()
 }
 
 /// The project's decisions that still stand, oldest first.
@@ -312,11 +328,15 @@ pub enum Change {
     New {
         text: String,
         why: Option<String>,
+        pinned: bool,
+        supersedes: Option<u64>,
     },
     Correct {
         id: u64,
         text: Option<String>,
         why: Option<String>,
+        pinned: Option<bool>,
+        supersedes: Option<u64>,
     },
     Retire {
         id: u64,
@@ -332,13 +352,25 @@ impl Change {
     }
 
     /// Reads what is asked of a goal's decisions or rules; only a decision
-    /// has a `why`.
+    /// has a `why`, `pinned`, or `supersedes`.
     pub fn of(
         list: List,
         id: Option<u64>,
         text: Option<&str>,
         why: Option<&str>,
         retire: bool,
+    ) -> Result<Self, String> {
+        Self::of_with(list, id, text, why, retire, None, None)
+    }
+
+    pub fn of_with(
+        list: List,
+        id: Option<u64>,
+        text: Option<&str>,
+        why: Option<&str>,
+        retire: bool,
+        pinned: Option<bool>,
+        supersedes: Option<u64>,
     ) -> Result<Self, String> {
         if !matches!(list, List::Decisions) && why.is_some() {
             return Err("Only a decision has a why".into());
@@ -349,14 +381,27 @@ impl Change {
         let why = why
             .map(|why| to_keep(why, "why", MAX_TEXT_CHARS))
             .transpose()?;
-        match (id, text, why, retire) {
-            (None, _, _, true) => Err("Say which one to retire".into()),
-            (None, Some(text), why, false) => Ok(Change::New { text, why }),
-            (None, None, _, false) => Err("Say it, as text".into()),
-            (Some(id), None, None, true) => Ok(Change::Retire { id }),
-            (Some(_), _, _, true) => Err("Retire it, or correct it, not both".into()),
-            (Some(_), None, None, false) => Err("Say what changes: its text or retire".into()),
-            (Some(id), text, why, false) => Ok(Change::Correct { id, text, why }),
+        match (id, text, why, retire, pinned, supersedes) {
+            (None, _, _, true, _, _) => Err("Say which one to retire".into()),
+            (None, Some(text), why, false, pinned, supersedes) => Ok(Change::New {
+                text,
+                why,
+                pinned: pinned.unwrap_or(false),
+                supersedes,
+            }),
+            (None, None, _, false, _, _) => Err("Say it, as text".into()),
+            (Some(id), None, None, true, None, None) => Ok(Change::Retire { id }),
+            (Some(_), _, _, true, _, _) => Err("Retire it, or correct it, not both".into()),
+            (Some(_), None, None, false, None, None) => {
+                Err("Say what changes: its text, pinned, supersedes or retire".into())
+            }
+            (Some(id), text, why, false, pinned, supersedes) => Ok(Change::Correct {
+                id,
+                text,
+                why,
+                pinned,
+                supersedes,
+            }),
         }
     }
 }
@@ -430,11 +475,26 @@ pub fn change(
         }
     }
     let mut decided = None;
+    let mut delta_note: Option<String> = None;
     let said = match (list, goal) {
         (List::Decisions, _) => {
             let whose = goal.map_or("The project's".to_owned(), |goal| format!("Goal #{goal}'s"));
             match change {
-                Change::New { text, why } => {
+                Change::New {
+                    text,
+                    why,
+                    pinned,
+                    supersedes,
+                } => {
+                    if let Some(old_id) = supersedes {
+                        if board.decided.find(None, old_id).is_none()
+                            && !board.decided.decisions.iter().any(|d| d.id == old_id)
+                        {
+                            return Err(format!(
+                                "Cannot supersede decision #{old_id}: no such decision exists"
+                            ));
+                        }
+                    }
                     let (decision, dropped) = board.decided.add(Decision {
                         id: 0,
                         goal,
@@ -446,8 +506,26 @@ pub fn change(
                         retired: None,
                         restored: None,
                         asked: None,
+                        pinned,
+                        supersedes,
+                        superseded_by: None,
                     });
                     let id = decision.id;
+                    if let Some(old_id) = supersedes.filter(|old| *old != id) {
+                        for old in &mut board.decided.decisions {
+                            if old.id == old_id {
+                                old.superseded_by = Some(id);
+                            }
+                        }
+                    }
+                    let pin_tag = if pinned { " [pinned]" } else { "" };
+                    let sup_tag = supersedes
+                        .map(|old| format!(" (supersedes #{old})"))
+                        .unwrap_or_default();
+                    delta_note = Some(format!(
+                        "Decision #{id}{pin_tag}: {}{sup_tag}",
+                        crate::text::one_line(&decision.text)
+                    ));
                     decided = decision.holder.is_some().then_some(decision);
                     let on = goal.map_or("for the project".to_owned(), |goal| {
                         format!("on goal #{goal}")
@@ -455,9 +533,59 @@ pub fn change(
                     let dropped = dropped_note::<Decision>(dropped, "The project", MAX_DECISIONS);
                     format!("Decision #{id} is kept {on}.{dropped}")
                 }
-                change => {
-                    let decision = change.id().and_then(|id| board.decided.find(goal, id));
-                    apply(decision, &whose, change, by)?
+                Change::Correct {
+                    id,
+                    text,
+                    why,
+                    pinned,
+                    supersedes,
+                } => {
+                    if let Some(old_id) = supersedes {
+                        if old_id == id {
+                            return Err(format!("Decision #{id} cannot supersede itself"));
+                        }
+                        if !board.decided.decisions.iter().any(|d| d.id == old_id) {
+                            return Err(format!(
+                                "Cannot supersede decision #{old_id}: no such decision exists"
+                            ));
+                        }
+                    }
+                    let decision = board.decided.find(goal, id).ok_or_else(|| {
+                        let owner = whose.strip_suffix("'s").unwrap_or(&whose);
+                        format!("{owner} has no decision #{id}")
+                    })?;
+                    if decision.retired.is_some() {
+                        return Err(format!(
+                            "{whose} decision #{id} was retired; add it again instead"
+                        ));
+                    }
+                    if text.is_some() || why.is_some() {
+                        decision.correct(text, why, by);
+                    }
+                    if let Some(pin) = pinned {
+                        decision.pinned = pin;
+                    }
+                    if let Some(old_id) = supersedes {
+                        decision.supersedes = Some(old_id);
+                    }
+                    let updated_text = crate::text::one_line(&decision.text);
+                    let pin_tag = if decision.pinned { " [pinned]" } else { "" };
+                    if let Some(old_id) = supersedes {
+                        for old in &mut board.decided.decisions {
+                            if old.id == old_id {
+                                old.superseded_by = Some(id);
+                            }
+                        }
+                    }
+                    delta_note = Some(format!("Decision #{id} updated{pin_tag}: {updated_text}"));
+                    format!("{whose} decision #{id} is corrected.")
+                }
+                change @ Change::Retire { .. } => {
+                    let id = change.id().unwrap_or(0);
+                    let decision = board.decided.find(goal, id);
+                    let res = apply(decision, &whose, change, by)?;
+                    delta_note = Some(format!("Decision #{id} retired."));
+                    res
                 }
             }
         }
@@ -493,6 +621,9 @@ pub fn change(
     };
     core.boards().save(&mut state, project);
     drop(state);
+    if let Some(note) = delta_note {
+        (core.board_above().memory_decision_changed)(core, project, note);
+    }
     if let Some(decision) = decided {
         (core.board_above().chief_decided)(core, project, goal, &decision);
     }
@@ -513,6 +644,12 @@ struct ToolDecide {
     /// Not a decision of a goal: where the project deploys, for the person to accept.
     #[serde(default)]
     environments: Option<Vec<Value>>,
+    /// Keep this decision pinned in Tier 1 briefs regardless of recency.
+    #[serde(default)]
+    pinned: Option<bool>,
+    /// Earlier decision id this decision replaces and retires from active briefs.
+    #[serde(default)]
+    supersedes: Option<u64>,
 }
 
 /// `decide`: records, corrects or retires a decision of the project, tagged with the goal
@@ -534,12 +671,14 @@ pub async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
                 why,
             )?);
         }
-        let deciding = Change::of(
+        let deciding = Change::of_with(
             List::Decisions,
             given.decision,
             given.text.as_deref(),
             given.why.as_deref(),
             given.retire,
+            given.pinned,
+            given.supersedes,
         )?;
         let goal = goal_of(&core, &agent);
         let answers = (core.chats().get(&agent))
@@ -616,12 +755,14 @@ pub async fn person_decide(core: &Arc<Core>, params: DecideParams) -> Result<Pro
     let core = core.clone();
     blocking(move || {
         let project = project_at(&core, &params.project)?;
-        let deciding = Change::of(
+        let deciding = Change::of_with(
             List::Decisions,
             params.decision,
             params.text.as_deref(),
             params.why.as_deref(),
             params.retire,
+            params.pinned,
+            params.supersedes,
         )?;
         let by = learned(&core, None);
         change(
@@ -672,9 +813,21 @@ pub fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>, u64)>
         restored: None,
         asked: (settled.asked).map(|asked| clipped(&asked, MAX_TEXT_CHARS)),
         holder: Some(settled.holder),
+        pinned: false,
+        supersedes: None,
+        superseded_by: None,
     });
     core.boards().save(&mut state, &project);
     drop(state);
+    (core.board_above().memory_decision_changed)(
+        core,
+        &project,
+        format!(
+            "Decision #{}: {}",
+            decision.id,
+            crate::text::one_line(&decision.text)
+        ),
+    );
     (core.board_above().chief_decided)(core, &project, goal, &decision);
     Some((goal, decision.id))
 }
@@ -773,6 +926,11 @@ pub async fn overrule(core: &Arc<Core>, params: OverruleParams) -> Result<Projec
             );
         }
     }
+    (core.board_above().memory_decision_changed)(
+        core,
+        &project,
+        format!("Decision #{} overruled by the person.", decision.id),
+    );
     (core.board_above().chief_overruled)(core, &project, goal, (decision.id, &decision.text), told);
     Ok(view)
 }
@@ -826,6 +984,11 @@ pub async fn undo_overrule(
     let Some((overrule, text)) = undone else {
         return Ok(view);
     };
+    (core.board_above().memory_decision_changed)(
+        core,
+        &project,
+        format!("Decision #{id} restored: {}", crate::text::one_line(&text)),
+    );
     (core.board_above().chief_overrule_undone)(core, &project, goal, (id, &text), overrule).await;
     Ok(view)
 }

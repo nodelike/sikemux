@@ -14,8 +14,9 @@ pub use sikemux_calls::memory::{
     KeepSeededParams, MemoryEntryParams, MemoryParams, MemoryUpdateParams,
 };
 pub use sikemux_calls::memory::{MemoryAddParams, NewMemory};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -40,6 +41,7 @@ use crate::text::to_keep;
 
 mod brief;
 mod check;
+pub(crate) mod index;
 pub(crate) mod moving;
 mod now_check;
 mod org;
@@ -73,6 +75,19 @@ const MAX_ABOUT: usize = 12;
 const MAX_ABOUT_CHARS: usize = 200;
 const MAX_CHECK_CHARS: usize = 1000;
 const NOT_SHARED: &str = "This project is not shared with an org";
+const MAX_CHANGES: usize = 128;
+const MAX_DELTA_LINES: usize = 12;
+const MAX_DELTA_CHARS: usize = 1_400;
+const DEFAULT_RULES_LIMIT: usize = 50;
+const DEFAULT_KNOWLEDGE_LIMIT: usize = 25;
+const DEFAULT_DECISIONS_LIMIT: usize = 20;
+
+struct MemoryChange {
+    rev: u64,
+    /// `None` for personal store changes (apply to every project).
+    project: Option<String>,
+    line: String,
+}
 
 /// What one store keeps. Kept even once empty, so `next` never goes back.
 #[derive(Clone, Serialize, Deserialize)]
@@ -345,6 +360,12 @@ pub(crate) struct Memory {
     org_sync: Arc<tokio::sync::Notify>,
     /// What this host's owner or admin answered of entries waiting on an org's list.
     answers: Mutex<waiting::Answers>,
+    /// Monotonic memory revision incremented whenever rules, knowledge, or decisions change.
+    rev: AtomicU64,
+    /// Recent compact change log used to emit cache-safe `memory-delta` updates mid-session.
+    changes: Mutex<VecDeque<MemoryChange>>,
+    /// In-memory SQLite FTS5/BM25 index over Rules, Knowledge, and Standing Decisions.
+    index: index::MemoryIndex,
 }
 
 impl Memory {
@@ -374,7 +395,24 @@ impl Memory {
             told_renumbered: Mutex::default(),
             org_sync: Arc::default(),
             answers: Mutex::default(),
+            rev: AtomicU64::new(1),
+            changes: Mutex::default(),
+            index: index::MemoryIndex::default(),
         }
+    }
+
+    pub(crate) fn revision(&self) -> u64 {
+        self.rev.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn record_change(&self, project: Option<String>, line: String) -> u64 {
+        let rev = self.rev.fetch_add(1, Ordering::AcqRel) + 1;
+        let mut changes = self.changes.locked();
+        changes.push_back(MemoryChange { rev, project, line });
+        while changes.len() > MAX_CHANGES {
+            changes.pop_front();
+        }
+        rev
     }
 
     /// Hands the store's file to be written on a thread of its own, and
@@ -538,6 +576,130 @@ fn woke(core: &Arc<Core>) {
     settle(core);
 }
 
+/// Current global memory revision counter (rules, knowledge, and project decisions).
+pub(crate) fn revision(core: &Core) -> u64 {
+    core.memory().revision()
+}
+
+/// Records a decision change from the board so cache-safe mid-session deltas and FTS5 indexes
+/// advance automatically.
+pub(crate) fn decision_changed(core: &Core, project: &str, line: String) {
+    let key = core.memory().state.locked().key_of(project);
+    core.memory().record_change(Some(key), line);
+}
+
+/// Returns `(current_rev, delta)` for `project` since `since_rev`, emitting only the lines that
+/// changed mid-session so the pinned system prompt stays byte-identical for prompt-cache hits.
+pub(crate) fn delta_since(core: &Core, project: &str, since_rev: u64) -> (u64, Option<String>) {
+    let now = core.memory().revision();
+    if since_rev == 0 || since_rev >= now {
+        return (now, None);
+    }
+    let key = core.memory().state.locked().key_of(project);
+    let lines: Vec<String> = {
+        let changes = core.memory().changes.locked();
+        changes
+            .iter()
+            .filter(|change| {
+                change.rev > since_rev
+                    && change
+                        .project
+                        .as_deref()
+                        .is_none_or(|owner| owner == key || owner == project)
+            })
+            .map(|change| format!("- {}", change.line))
+            .collect()
+    };
+    if lines.is_empty() {
+        return (now, None);
+    }
+    let mut kept = Vec::new();
+    let mut chars = 0usize;
+    for line in lines.iter().rev().take(MAX_DELTA_LINES).rev() {
+        let len = line.chars().count() + 1;
+        if chars + len > MAX_DELTA_CHARS && !kept.is_empty() {
+            break;
+        }
+        chars += len;
+        kept.push(line.as_str());
+    }
+    let omitted = lines.len().saturating_sub(kept.len());
+    let mut text = format!(
+        "Memory updates since your session started (rev #{since_rev} -> #{now}):\n{}",
+        kept.join("\n")
+    );
+    if omitted > 0 {
+        text.push_str(&format!(
+            "\n- ({omitted} older updates omitted; call memory_list to inspect)"
+        ));
+    }
+    (now, Some(text))
+}
+
+/// Runs a ranked SQLite FTS5 / BM25 search over active rules, fresh knowledge, and standing
+/// decisions for `project`.
+pub(crate) fn search_index(
+    core: &Core,
+    project: &str,
+    kind: Option<index::EntryKind>,
+    query: &str,
+    limit: usize,
+) -> Vec<index::SearchHit> {
+    let rev = core.memory().revision();
+    let key = core.memory().state.locked().key_of(project);
+    core.memory().index.search(
+        &key,
+        rev,
+        || collect_index_docs(core, project),
+        kind,
+        query,
+        limit,
+    )
+}
+
+fn collect_index_docs(core: &Core, project: &str) -> Vec<index::IndexedDoc> {
+    let mut docs = Vec::new();
+    {
+        let state = core.memory().state.locked();
+        for held in state.applying(project) {
+            for rule in &held.rules {
+                if rule.superseded_by.is_some() {
+                    continue;
+                }
+                docs.push(index::IndexedDoc {
+                    kind: index::EntryKind::Rule,
+                    id: rule.id,
+                    text: rule.text.clone(),
+                    about: String::new(),
+                    why: String::new(),
+                });
+            }
+            for known in &held.knowledge {
+                if known.superseded_by.is_some() || known.stale.is_some() {
+                    continue;
+                }
+                docs.push(index::IndexedDoc {
+                    kind: index::EntryKind::Knowledge,
+                    id: known.id,
+                    text: known.text.clone(),
+                    about: known.about.join(" "),
+                    why: String::new(),
+                });
+            }
+        }
+    }
+    for decision in goal::standing(core, project) {
+        docs.push(index::IndexedDoc {
+            kind: index::EntryKind::Decision,
+            id: decision.id,
+            text: decision.says(),
+            about: String::new(),
+            why: decision.why.unwrap_or_default(),
+        });
+    }
+    docs
+}
+
 /// Clients read what is kept again, and the inbox moves when knowledge went
 /// stale or holds again.
 fn tell_clients(core: &Core, stale_moved: bool) {
@@ -652,12 +814,66 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
         return Err(format!("Sikemux already keeps that, as #{id}"));
     }
     let id = state.next_id(&key);
+    let mut superseded_keys: Vec<String> = Vec::new();
+    let supersedes_target = match &new {
+        NewMemory::Rule { supersedes, .. } | NewMemory::Knowledge { supersedes, .. } => *supersedes,
+    };
+    if let Some(old_id) = supersedes_target {
+        let applying_keys: Vec<String> = state
+            .applying(project)
+            .map(|held| held.key.clone())
+            .collect();
+        let mut found = false;
+        for candidate_key in applying_keys {
+            if let Some(candidate) = state.held.get_mut(&candidate_key) {
+                match &new {
+                    NewMemory::Rule { .. } => {
+                        if let Some(old_rule) =
+                            candidate.rules.iter_mut().find(|rule| rule.id == old_id)
+                        {
+                            old_rule.superseded_by = Some(id);
+                            found = true;
+                            if candidate_key != key {
+                                superseded_keys.push(candidate_key);
+                            }
+                            break;
+                        }
+                    }
+                    NewMemory::Knowledge { .. } => {
+                        if let Some(old_known) = candidate
+                            .knowledge
+                            .iter_mut()
+                            .find(|known| known.id == old_id)
+                        {
+                            old_known.superseded_by = Some(id);
+                            found = true;
+                            if candidate_key != key {
+                                superseded_keys.push(candidate_key);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if !found {
+            return Err(format!(
+                "Cannot supersede #{old_id}: no matching entry exists in this project's memory"
+            ));
+        }
+    }
     let held = state
         .held
         .get_mut(&key)
         .ok_or("the store went while it was being written to")?;
-    match new {
-        NewMemory::Rule { sensitive, .. } => {
+    let (delta_kind, delta_text, delta_pin) = match new {
+        NewMemory::Rule {
+            sensitive,
+            pinned,
+            supersedes,
+            ..
+        } => {
+            let line_text = crate::text::one_line(&text);
             held.rules.push(MemoryRule {
                 id,
                 text,
@@ -665,33 +881,58 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
                 learned,
                 was: None,
                 moved: None,
+                pinned,
+                supersedes,
+                superseded_by: None,
             });
+            ("Rule", line_text, pinned)
         }
         NewMemory::Knowledge {
             about,
             sensitive,
             check,
+            pinned,
+            supersedes,
             ..
-        } => held.knowledge.push(Knowledge {
-            id,
-            text,
-            about: abouts(about)?,
-            sensitive,
-            check: check.map(checked_check).transpose()?,
-            learned,
-            was: None,
-            checked: None,
-            stale: None,
-            moved: None,
-        }),
-    }
+        } => {
+            let line_text = crate::text::one_line(&text);
+            held.knowledge.push(Knowledge {
+                id,
+                text,
+                about: abouts(about)?,
+                sensitive,
+                check: check.map(checked_check).transpose()?,
+                learned,
+                was: None,
+                checked: None,
+                stale: None,
+                moved: None,
+                pinned,
+                supersedes,
+                superseded_by: None,
+            });
+            ("Knowledge", line_text, pinned)
+        }
+    };
     if let Some(full) = org::too_big(held) {
         held.rules.retain(|rule| rule.id != id);
         held.knowledge.retain(|known| known.id != id);
         return Err(full);
     }
+    for other_key in &superseded_keys {
+        core.memory().save(&mut state, other_key);
+    }
     core.memory().save(&mut state, &key);
+    let change_scope = (store != Store::Personal).then(|| key.clone());
     drop(state);
+    let pin_tag = if delta_pin { " [pinned]" } else { "" };
+    let sup_tag = supersedes_target
+        .map(|old| format!(" (supersedes #{old})"))
+        .unwrap_or_default();
+    core.memory().record_change(
+        change_scope,
+        format!("{delta_kind} #{id}{pin_tag}: {delta_text}{sup_tag}"),
+    );
     tell_clients(core, false);
     Ok(id)
 }
@@ -705,6 +946,7 @@ fn keep(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<
             goal: Some(card),
             sensitive,
             store,
+            ..
         } => {
             if sensitive || store == Store::Personal {
                 return Err("A goal's rule shows on its card and belongs to its project; keep sensitive or personal rules without goal".into());
@@ -787,7 +1029,12 @@ fn change(
             return Err(refused);
         }
     }
-    let only_id = saying == 0 && about.is_none() && check.is_none() && !update.drop_check;
+    let only_id = saying == 0
+        && about.is_none()
+        && check.is_none()
+        && !update.drop_check
+        && update.pinned.is_none()
+        && update.supersedes.is_none();
     if now_check::is_set_aside(core, project, id) {
         return match only_id {
             true => now_check::bring_back_asked(core, project, id, &by),
@@ -840,74 +1087,67 @@ fn change(
         .ok_or("the store went while it was being changed")?;
     let store = held.store;
     let mut stale_moved = false;
+    let mut delta_line: Option<String> = None;
     let (mut line, mut back, mut undone_already, mut removed_from) = (None, None, None, None);
+    let mut superseded_old: Option<(bool, u64)> = None;
     if let Some(rule) = held.rules.iter_mut().find(|rule| rule.id == id) {
         let rule_change =
             wrong.is_none() && about.is_none() && check.is_none() && !update.drop_check;
-        if !rule_change || saying == 0 {
+        if !rule_change || (saying == 0 && update.pinned.is_none() && update.supersedes.is_none()) {
             return Err(format!(
-                "#{id} is a rule: correct it with text, or retire it"
+                "#{id} is a rule: correct it with text, pin/unpin it, supersede another, or retire it"
             ));
         }
-        let agent = (by.agent.clone()).filter(|_| rule.learned.agent.is_none());
-        match (text, agent) {
-            (Some(text), Some(agent)) if note_id.is_none() => {
-                let was = std::mem::replace(&mut rule.text, text);
-                let mut learned = by;
-                learned.with = (learned.agent.take()).map(|agent| sikemux_view::memory::SaidTo {
-                    agent,
-                    name: learned.name.take(),
-                });
-                rule.learned = moving::reworded(&rule.learned, learned);
-                line = Some((
-                    now_check::line(core, project, store, rule, &agent, None, Some(was.clone())),
-                    agent,
-                ));
-                rule.was = Some(was);
+        if let Some(pin) = update.pinned {
+            rule.pinned = pin;
+        }
+        if let Some(old_id) = update.supersedes {
+            if old_id == id {
+                return Err(format!("Rule #{id} cannot supersede itself"));
             }
-            (Some(text), Some(agent)) => {
-                let at = (held.rules.iter().position(|rule| rule.id == id))
-                    .ok_or("the rule went while it was being changed")?;
-                let rule = held.rules.remove(at);
-                line = Some((
-                    now_check::line(core, project, store, &rule, &agent, None, None),
-                    agent.clone(),
-                ));
-                held.set_aside.push(now_check::SetAside {
-                    rule,
-                    commit: None,
-                    at: sikemux_process::clock::epoch_ms(),
-                    by: agent,
-                });
-                held.rules.push(MemoryRule {
-                    id: note_id.unwrap_or(id),
-                    text,
-                    sensitive: false,
-                    learned: by,
-                    was: None,
-                    moved: None,
-                });
-            }
-            (Some(text), None) => {
-                let flat = crate::text::one_line(&text);
-                let put_back = (rule.was.clone()).filter(|was| crate::text::one_line(was) == flat);
-                let was = std::mem::replace(&mut rule.text, put_back.clone().unwrap_or(text));
-                let changed_by = (rule.learned.with.as_ref()).map(|with| with.agent.clone());
-                if put_back.is_none() && flat == crate::text::one_line(&was) {
-                    undone_already = Some(flat);
+            rule.supersedes = Some(old_id);
+            superseded_old = Some((true, old_id));
+        }
+        if saying == 0 {
+            let pin_tag = if rule.pinned { " [pinned]" } else { "" };
+            delta_line = Some(format!(
+                "Rule #{id} updated{pin_tag}: {}",
+                crate::text::one_line(&rule.text)
+            ));
+        } else {
+            let agent = (by.agent.clone()).filter(|_| rule.learned.agent.is_none());
+            match (text, agent) {
+                (Some(text), Some(agent)) if note_id.is_none() => {
+                    let was = std::mem::replace(&mut rule.text, text);
+                    let mut learned = by;
+                    learned.with =
+                        (learned.agent.take()).map(|agent| sikemux_view::memory::SaidTo {
+                            agent,
+                            name: learned.name.take(),
+                        });
+                    rule.learned = moving::reworded(&rule.learned, learned);
+                    line = Some((
+                        now_check::line(
+                            core,
+                            project,
+                            store,
+                            rule,
+                            &agent,
+                            None,
+                            Some(was.clone()),
+                        ),
+                        agent,
+                    ));
+                    delta_line = Some(format!(
+                        "Rule #{id} updated: {}",
+                        crate::text::one_line(&rule.text)
+                    ));
+                    rule.was = Some(was);
                 }
-                back = put_back.and(changed_by);
-                rule.learned = moving::reworded(&rule.learned, by);
-                rule.was = Some(was);
-            }
-            (None, agent) => {
-                let at = (held.rules.iter().position(|rule| rule.id == id))
-                    .ok_or("the rule went while it was being changed")?;
-                let rule = held.rules.remove(at);
-                let kept_in_chat = (rule.learned.with.as_ref())
-                    .filter(|_| by.agent.is_none() && rule.was.is_none())
-                    .map(|with| with.agent.clone());
-                if let Some(agent) = agent {
+                (Some(text), Some(agent)) => {
+                    let at = (held.rules.iter().position(|rule| rule.id == id))
+                        .ok_or("the rule went while it was being changed")?;
+                    let rule = held.rules.remove(at);
                     line = Some((
                         now_check::line(core, project, store, &rule, &agent, None, None),
                         agent.clone(),
@@ -918,16 +1158,76 @@ fn change(
                         at: sikemux_process::clock::epoch_ms(),
                         by: agent,
                     });
-                } else if let Some(agent) = kept_in_chat {
-                    held.removed
-                        .push(removed::Removed::of(&agent, project, &rule));
-                    removed_from = Some(agent);
+                    let kept_id = note_id.unwrap_or(id);
+                    delta_line = Some(format!("Rule #{kept_id}: {}", crate::text::one_line(&text)));
+                    held.rules.push(MemoryRule {
+                        id: kept_id,
+                        text,
+                        sensitive: false,
+                        learned: by,
+                        was: None,
+                        moved: None,
+                        pinned: update.pinned.unwrap_or(false),
+                        supersedes: update.supersedes,
+                        superseded_by: None,
+                    });
+                }
+                (Some(text), None) => {
+                    let flat = crate::text::one_line(&text);
+                    let put_back =
+                        (rule.was.clone()).filter(|was| crate::text::one_line(was) == flat);
+                    let was = std::mem::replace(&mut rule.text, put_back.clone().unwrap_or(text));
+                    let changed_by = (rule.learned.with.as_ref()).map(|with| with.agent.clone());
+                    if put_back.is_none() && flat == crate::text::one_line(&was) {
+                        undone_already = Some(flat);
+                    }
+                    back = put_back.and(changed_by);
+                    rule.learned = moving::reworded(&rule.learned, by);
+                    delta_line = Some(format!(
+                        "Rule #{id} updated: {}",
+                        crate::text::one_line(&rule.text)
+                    ));
+                    rule.was = Some(was);
+                }
+                (None, agent) => {
+                    let at = (held.rules.iter().position(|rule| rule.id == id))
+                        .ok_or("the rule went while it was being changed")?;
+                    let rule = held.rules.remove(at);
+                    let kept_in_chat = (rule.learned.with.as_ref())
+                        .filter(|_| by.agent.is_none() && rule.was.is_none())
+                        .map(|with| with.agent.clone());
+                    delta_line = Some(format!("Rule #{id} retired."));
+                    if let Some(agent) = agent {
+                        line = Some((
+                            now_check::line(core, project, store, &rule, &agent, None, None),
+                            agent.clone(),
+                        ));
+                        held.set_aside.push(now_check::SetAside {
+                            rule,
+                            commit: None,
+                            at: sikemux_process::clock::epoch_ms(),
+                            by: agent,
+                        });
+                    } else if let Some(agent) = kept_in_chat {
+                        held.removed
+                            .push(removed::Removed::of(&agent, project, &rule));
+                        removed_from = Some(agent);
+                    }
                 }
             }
         }
     } else if let Some(known) = held.knowledge.iter_mut().find(|known| known.id == id) {
-        if saying == 0 && about.is_none() && check.is_none() && !update.drop_check {
-            return Err("Say what changes: text, wrong, retire, about, check or dropCheck".into());
+        if saying == 0
+            && about.is_none()
+            && check.is_none()
+            && !update.drop_check
+            && update.pinned.is_none()
+            && update.supersedes.is_none()
+        {
+            return Err(
+                "Say what changes: text, wrong, retire, about, check, dropCheck, pinned or supersedes"
+                    .into(),
+            );
         }
         let was_stale = known.stale.is_some();
         if let Some(text) = text {
@@ -942,6 +1242,16 @@ fn change(
         if let Some(about) = about {
             known.about = about;
         }
+        if let Some(pin) = update.pinned {
+            known.pinned = pin;
+        }
+        if let Some(old_id) = update.supersedes {
+            if old_id == id {
+                return Err(format!("Knowledge #{id} cannot supersede itself"));
+            }
+            known.supersedes = Some(old_id);
+            superseded_old = Some((false, old_id));
+        }
         if check.is_some() || update.drop_check {
             if matches!(known.stale, Some(Stale::Failed { .. })) {
                 known.stale = None;
@@ -951,8 +1261,42 @@ fn change(
         }
         let is_stale = known.stale.is_some() && !update.retire;
         stale_moved = was_stale != is_stale;
+        let known_text = crate::text::one_line(&known.text);
         if update.retire {
             held.knowledge.retain(|known| known.id != id);
+            delta_line = Some(format!("Knowledge #{id} retired."));
+        } else {
+            let pin_tag = if known.pinned { " [pinned]" } else { "" };
+            delta_line = Some(format!("Knowledge #{id} updated{pin_tag}: {known_text}"));
+        }
+    }
+    if let Some((is_rule, old_id)) = superseded_old {
+        let applying_keys: Vec<String> = state
+            .applying(project)
+            .map(|held| held.key.clone())
+            .collect();
+        for candidate_key in applying_keys {
+            if let Some(candidate) = state.held.get_mut(&candidate_key) {
+                let marked = if is_rule {
+                    candidate
+                        .rules
+                        .iter_mut()
+                        .find(|rule| rule.id == old_id)
+                        .map(|rule| rule.superseded_by = Some(id))
+                        .is_some()
+                } else {
+                    candidate
+                        .knowledge
+                        .iter_mut()
+                        .find(|known| known.id == old_id)
+                        .map(|known| known.superseded_by = Some(id))
+                        .is_some()
+                };
+                if marked && candidate_key != key {
+                    core.memory().save(&mut state, &candidate_key);
+                    break;
+                }
+            }
         }
     }
     if update.retire {
@@ -962,7 +1306,11 @@ fn change(
         waiting::recheck(held);
     }
     core.memory().save(&mut state, &key);
+    let change_scope = (store != Store::Personal).then(|| key.clone());
     drop(state);
+    if let Some(delta) = delta_line {
+        core.memory().record_change(change_scope, delta);
+    }
     tell_clients(core, stale_moved);
     if let Some((line, agent)) = line {
         crate::server::chief::rule_changed(core, line, &agent);
@@ -997,14 +1345,16 @@ fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
         .applying(project)
         .map(|held| {
             let rules: Vec<ListedRule> = (held.rules.iter())
-                .filter(|rule| shows_sensitive || !rule.sensitive)
+                .filter(|rule| rule.superseded_by.is_none() && (shows_sensitive || !rule.sensitive))
                 .map(|rule| ListedRule {
                     stays: promote::stays(rule, held.store, &file),
                     rule: rule.clone(),
                 })
                 .collect();
             let knowledge: Vec<Knowledge> = (held.knowledge.iter())
-                .filter(|known| shows_sensitive || !known.sensitive)
+                .filter(|known| {
+                    known.superseded_by.is_none() && (shows_sensitive || !known.sensitive)
+                })
                 .cloned()
                 .collect();
             StoreMemory {
@@ -1080,7 +1430,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
         for rule in held
             .rules
             .iter()
-            .filter(|rule| shows_sensitive || !rule.sensitive)
+            .filter(|rule| rule.superseded_by.is_none() && (shows_sensitive || !rule.sensitive))
         {
             let kept = Entry {
                 id: rule.id,
@@ -1110,7 +1460,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
         for known in held
             .knowledge
             .iter()
-            .filter(|known| shows_sensitive || !known.sensitive)
+            .filter(|known| known.superseded_by.is_none() && (shows_sensitive || !known.sensitive))
         {
             notes.push(Entry {
                 id: known.id,
@@ -1216,6 +1566,10 @@ enum ToolAdd {
         yours: bool,
         #[serde(default)]
         person: bool,
+        #[serde(default)]
+        pinned: bool,
+        #[serde(default)]
+        supersedes: Option<u64>,
     },
     Knowledge {
         text: String,
@@ -1226,6 +1580,10 @@ enum ToolAdd {
         check: Option<MemoryCheck>,
         #[serde(default)]
         yours: bool,
+        #[serde(default)]
+        pinned: bool,
+        #[serde(default)]
+        supersedes: Option<u64>,
     },
 }
 
@@ -1243,6 +1601,10 @@ struct ToolUpdate {
     check: Option<MemoryCheck>,
     #[serde(default)]
     drop_check: bool,
+    #[serde(default)]
+    pinned: Option<bool>,
+    #[serde(default)]
+    supersedes: Option<u64>,
 }
 
 /// The goal card the agent's live card sits under.
@@ -1278,6 +1640,8 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 goal: false,
                 sensitive,
                 yours,
+                pinned,
+                supersedes,
             } if said_by_person(&core, &agent, &text) => {
                 by.with = (by.agent.take()).map(|agent| sikemux_view::memory::SaidTo {
                     agent,
@@ -1292,6 +1656,8 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                         goal: None,
                         sensitive,
                         store: store_of(yours),
+                        pinned,
+                        supersedes,
                     },
                     by,
                 )?;
@@ -1308,6 +1674,8 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 goal,
                 sensitive,
                 yours,
+                pinned,
+                supersedes,
                 ..
             } => {
                 let goal = goal.then(|| goal_card(&core, &agent)).transpose()?;
@@ -1317,6 +1685,8 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                     goal,
                     sensitive,
                     store: store_of(yours),
+                    pinned,
+                    supersedes,
                 };
                 (rule, said, Vec::new())
             }
@@ -1326,6 +1696,8 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 sensitive,
                 check,
                 yours,
+                pinned,
+                supersedes,
             } => {
                 let (said, paths) = (text.clone(), about.clone());
                 let knowledge = NewMemory::Knowledge {
@@ -1334,6 +1706,8 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                     sensitive,
                     check,
                     store: store_of(yours),
+                    pinned,
+                    supersedes,
                 };
                 (knowledge, said, paths)
             }
@@ -1373,10 +1747,10 @@ fn about_code(text: &str, about: &[String]) -> bool {
 }
 
 /// Filler words excluded when matching terse person corrections against distilled rules.
-const PROVENANCE_STOP_WORDS: [&str; 30] = [
+const PROVENANCE_STOP_WORDS: [&str; 34] = [
     "the", "and", "for", "not", "but", "with", "that", "this", "from", "have", "been", "were",
     "they", "them", "their", "your", "you", "are", "was", "will", "can", "all", "just", "now",
-    "use", "only", "also", "bruv", "please", "yes",
+    "use", "only", "also", "bruv", "please", "yes", "should", "via", "say", "what",
 ];
 
 fn content_words(text: &str) -> HashSet<String> {
@@ -1386,24 +1760,40 @@ fn content_words(text: &str) -> HashSet<String> {
         .collect()
 }
 
+fn long_words(text: &str) -> HashSet<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|word| word.chars().count() >= 4)
+        .map(str::to_lowercase)
+        .collect()
+}
+
 /// Whether what the person said in this turn supports keeping `rule` as the person's own rule.
-/// Accepts both verbatim phrasing (at least half the rule's content words appeared in the person's
-/// turn) and terse corrections (e.g. "Bruv neon bruv, not fable" distilled into a full policy
-/// sentence, where at least half the person's content words appear in the rule).
+/// Accepts both verbatim phrasing (at least half the rule's 4+ char words appeared in the person's
+/// turn) and terse corrections (<= 6 content words, e.g. "Bruv neon bruv, not fable" distilled
+/// into a clear policy sentence, where at least half of the person's content words appear in the
+/// rule). Rejects long turns where the agent appends unasked examples or unrelated words.
 fn words_match_person_turn(said: &[String], rule: &str) -> bool {
     if said.is_empty() {
         return false;
     }
-    let said_words = content_words(&said.join("\n"));
-    let rule_words = content_words(rule);
-    if rule_words.is_empty() || said_words.is_empty() {
+    let joined = said.join("\n");
+    let (said_long, rule_long) = (long_words(&joined), long_words(rule));
+    let held_long = rule_long
+        .iter()
+        .filter(|word| said_long.contains(*word))
+        .count();
+    if !rule_long.is_empty() && held_long * 2 >= rule_long.len() {
+        return true;
+    }
+    let (said_short, rule_short) = (content_words(&joined), content_words(rule));
+    if said_short.is_empty() || rule_short.is_empty() || said_short.len() > 6 {
         return false;
     }
-    let held = rule_words
+    let held_short = rule_short
         .iter()
-        .filter(|word| said_words.contains(*word))
+        .filter(|word| said_short.contains(*word))
         .count();
-    held >= 1 && (held * 2 >= rule_words.len() || held * 2 >= said_words.len() || held >= 2)
+    held_short >= 1 && held_short * 2 >= said_short.len()
 }
 
 /// Whether what the person said in this turn, as the chat's record has it, grounds `rule`, so an
@@ -1540,6 +1930,8 @@ pub(crate) async fn tool_update(
             about: given.about,
             check: given.check,
             drop_check: given.drop_check,
+            pinned: given.pinned,
+            supersedes: given.supersedes,
         };
         amend(&core, &project, update, learned(&core, Some(&agent)))?;
         Ok(match (said_again, corrected) {
@@ -1618,7 +2010,8 @@ fn trim_with_limit(
 }
 
 /// `memory_list`: rules, knowledge, decisions and goal rules kept for the agent's project,
-/// optionally narrowed by `kind`, `query` and `limit`.
+/// ranked with SQLite FTS5/BM25 when `query` is given, and bounded by default so large projects
+/// never truncate the output.
 pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent = crate::server::caller::agent_of(request, "memory_list")?;
     let project = crate::server::caller::project_of(core, request);
@@ -1632,19 +2025,62 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
             "kind must be one of rules, knowledge, decisions, goal, all (got {kind})"
         ));
     }
+    let scope = request
+        .params
+        .get("scope")
+        .and_then(Value::as_str)
+        .unwrap_or("all");
+    if !matches!(scope, "all" | "project" | "personal" | "org") {
+        return Err(format!(
+            "scope must be one of all, project, personal, org (got {scope})"
+        ));
+    }
+    let pinned_only = request
+        .params
+        .get("pinned")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let include_superseded = request
+        .params
+        .get("includeSuperseded")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let about_filter = request
+        .params
+        .get("about")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .map(str::to_ascii_lowercase);
     let query = request
         .params
         .get("query")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|q| !q.is_empty())
-        .map(str::to_ascii_lowercase);
-    let query_ref = query.as_deref();
-    let limit = request
+        .map(str::to_owned);
+    let query_lower = query.as_deref().map(str::to_ascii_lowercase);
+    let query_ref = query_lower.as_deref();
+    let explicit_limit = request
         .params
         .get("limit")
         .and_then(Value::as_u64)
-        .map(|n| (n as usize).clamp(1, 500));
+        .map(|n| (n as usize).clamp(1, 200));
+
+    let fts_ranks: HashMap<(index::EntryKind, u64), usize> = match query.as_deref() {
+        Some(raw) => search_index(core, &project, None, raw, 250)
+            .into_iter()
+            .enumerate()
+            .map(|(rank, hit)| ((hit.kind, hit.id), rank))
+            .collect(),
+        None => HashMap::new(),
+    };
+    let matches_scope = |store: Store| match scope {
+        "project" => store == Store::Project,
+        "personal" => store == Store::Personal,
+        "org" => store == Store::Org,
+        _ => true,
+    };
 
     let want_rules = matches!(kind, "all" | "rules");
     let want_knowledge = matches!(kind, "all" | "knowledge");
@@ -1655,13 +2091,28 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
     let mut totals = serde_json::Map::new();
 
     if want_rules || want_knowledge {
+        type RankedEntry = (usize, bool, u64, Value);
         let state = core.memory().state.locked();
-        let (mut rules, mut knowledge) = (Vec::new(), Vec::new());
+        let (mut rules, mut knowledge): (Vec<RankedEntry>, Vec<RankedEntry>) =
+            (Vec::new(), Vec::new());
         for held in state.applying(&project) {
+            if !matches_scope(held.store) {
+                continue;
+            }
             let yours = held.store == Store::Personal;
             if want_rules {
                 for rule in &held.rules {
-                    if !matches_query(query_ref, &[&rule.text]) {
+                    if !include_superseded && rule.superseded_by.is_some() {
+                        continue;
+                    }
+                    if pinned_only && !rule.pinned {
+                        continue;
+                    }
+                    let fts_rank = fts_ranks.get(&(index::EntryKind::Rule, rule.id)).copied();
+                    if query_ref.is_some()
+                        && fts_rank.is_none()
+                        && !matches_query(query_ref, &[&rule.text])
+                    {
                         continue;
                     }
                     let mut entry = serde_json::Map::new();
@@ -1678,18 +2129,54 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
                     if rule.sensitive {
                         entry.insert("sensitive".into(), json!(true));
                     }
-                    rules.push(Value::Object(entry));
+                    if rule.pinned {
+                        entry.insert("pinned".into(), json!(true));
+                    }
+                    if let Some(old) = rule.supersedes {
+                        entry.insert("supersedes".into(), json!(old));
+                    }
+                    if let Some(by) = rule.superseded_by {
+                        entry.insert("supersededBy".into(), json!(by));
+                    }
+                    rules.push((
+                        fts_rank.unwrap_or(usize::MAX),
+                        rule.pinned,
+                        rule.learned.at,
+                        Value::Object(entry),
+                    ));
                 }
             }
             if want_knowledge {
                 for known in &held.knowledge {
+                    if !include_superseded && known.superseded_by.is_some() {
+                        continue;
+                    }
+                    if pinned_only && !known.pinned {
+                        continue;
+                    }
+                    if let Some(about_q) = about_filter.as_deref() {
+                        let matched = known.about.iter().any(|tag| {
+                            let tag = tag.to_ascii_lowercase();
+                            tag.contains(about_q) || about_q.contains(&tag)
+                        });
+                        if !matched {
+                            continue;
+                        }
+                    }
+                    let fts_rank = fts_ranks
+                        .get(&(index::EntryKind::Knowledge, known.id))
+                        .copied();
                     let about_matched = query_ref.is_some_and(|q| {
                         known
                             .about
                             .iter()
                             .any(|tag| tag.to_ascii_lowercase().contains(q))
                     });
-                    if !about_matched && !matches_query(query_ref, &[&known.text]) {
+                    if query_ref.is_some()
+                        && fts_rank.is_none()
+                        && !about_matched
+                        && !matches_query(query_ref, &[&known.text])
+                    {
                         continue;
                     }
                     let stale = known.stale.as_ref().map(|stale| match stale {
@@ -1719,14 +2206,35 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
                     if known.sensitive {
                         entry.insert("sensitive".into(), json!(true));
                     }
-                    knowledge.push(Value::Object(entry));
+                    if known.pinned {
+                        entry.insert("pinned".into(), json!(true));
+                    }
+                    if let Some(old) = known.supersedes {
+                        entry.insert("supersedes".into(), json!(old));
+                    }
+                    if let Some(by) = known.superseded_by {
+                        entry.insert("supersededBy".into(), json!(by));
+                    }
+                    knowledge.push((
+                        fts_rank.unwrap_or(usize::MAX),
+                        known.pinned,
+                        known.learned.at,
+                        Value::Object(entry),
+                    ));
                 }
             }
         }
         drop(state);
 
         if want_rules {
-            if let Some(total) = trim_with_limit(&mut rules, limit, false) {
+            if query_ref.is_some() {
+                rules.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)).then(b.2.cmp(&a.2)));
+            } else {
+                rules.sort_by_key(|a| std::cmp::Reverse(a.1));
+            }
+            let mut rules: Vec<Value> = rules.into_iter().map(|(_, _, _, v)| v).collect();
+            let rules_limit = explicit_limit.unwrap_or(DEFAULT_RULES_LIMIT);
+            if let Some(total) = trim_with_limit(&mut rules, Some(rules_limit), false) {
                 totals.insert("rules".into(), json!(total));
             }
             listed.insert("rules".into(), Value::Array(rules));
@@ -1754,7 +2262,14 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
             }
         }
         if want_knowledge {
-            if let Some(total) = trim_with_limit(&mut knowledge, limit, false) {
+            if query_ref.is_some() {
+                knowledge.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)).then(b.2.cmp(&a.2)));
+            } else {
+                knowledge.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)));
+            }
+            let mut knowledge: Vec<Value> = knowledge.into_iter().map(|(_, _, _, v)| v).collect();
+            let knowledge_limit = explicit_limit.unwrap_or(DEFAULT_KNOWLEDGE_LIMIT);
+            if let Some(total) = trim_with_limit(&mut knowledge, Some(knowledge_limit), false) {
                 totals.insert("knowledge".into(), json!(total));
             }
             listed.insert("knowledge".into(), Value::Array(knowledge));
@@ -1762,9 +2277,13 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
     }
 
     if want_decisions {
-        let mut decisions: Vec<Value> = goal::standing(core, &project)
+        let mut decisions: Vec<(usize, bool, u64, Value)> = goal::standing(core, &project)
             .into_iter()
-            .filter(|decision| {
+            .filter(|decision| !pinned_only || decision.pinned)
+            .filter_map(|decision| {
+                let fts_rank = fts_ranks
+                    .get(&(index::EntryKind::Decision, decision.id))
+                    .copied();
                 let mut fields: Vec<&str> = vec![&decision.text];
                 if let Some(why) = &decision.why {
                     fields.push(why);
@@ -1772,9 +2291,9 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
                 if let Some(asked) = &decision.asked {
                     fields.push(asked);
                 }
-                matches_query(query_ref, &fields)
-            })
-            .map(|decision| {
+                if query_ref.is_some() && fts_rank.is_none() && !matches_query(query_ref, &fields) {
+                    return None;
+                }
                 let mut entry = serde_json::Map::new();
                 entry.insert("id".into(), json!(decision.id));
                 if let Some(goal) = decision.goal {
@@ -1798,10 +2317,28 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
                 if let Some(holder) = decision.holder {
                     entry.insert("holder".into(), json!(holder));
                 }
-                Value::Object(entry)
+                if decision.pinned {
+                    entry.insert("pinned".into(), json!(true));
+                }
+                if let Some(old) = decision.supersedes {
+                    entry.insert("supersedes".into(), json!(old));
+                }
+                Some((
+                    fts_rank.unwrap_or(usize::MAX),
+                    decision.pinned,
+                    decision.learned.at,
+                    Value::Object(entry),
+                ))
             })
             .collect();
-        if let Some(total) = trim_with_limit(&mut decisions, limit, true) {
+        if query_ref.is_some() {
+            decisions.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)).then(b.2.cmp(&a.2)));
+        } else {
+            decisions.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)));
+        }
+        let mut decisions: Vec<Value> = decisions.into_iter().map(|(_, _, _, v)| v).collect();
+        let decisions_limit = explicit_limit.unwrap_or(DEFAULT_DECISIONS_LIMIT);
+        if let Some(total) = trim_with_limit(&mut decisions, Some(decisions_limit), false) {
             totals.insert("decisions".into(), json!(total));
         }
         listed.insert("decisions".into(), Value::Array(decisions));
@@ -1827,7 +2364,7 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
                     Value::Object(entry)
                 })
                 .collect();
-            if let Some(total) = trim_with_limit(&mut rules, limit, false) {
+            if let Some(total) = trim_with_limit(&mut rules, explicit_limit, false) {
                 totals.insert("goalRules".into(), json!(total));
             }
             listed.insert("goal".into(), json!({ "card": goal.card, "rules": rules }));
@@ -1836,6 +2373,10 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
 
     if !totals.is_empty() {
         listed.insert("total".into(), Value::Object(totals));
+        listed.insert(
+            "hint".into(),
+            json!("Pass query (full-text BM25 search), pinned: true, about, or limit to inspect more."),
+        );
     }
 
     Ok(Value::Object(listed))
@@ -1869,6 +2410,8 @@ pub(crate) fn keep_persons_rule(core: &Core, project: &str, text: String) -> Res
         goal: None,
         sensitive: false,
         store: Store::Project,
+        pinned: false,
+        supersedes: None,
     };
     add(core, project, rule, learned(core, None))
 }
@@ -1896,6 +2439,8 @@ pub(crate) fn retire_persons_rule(
         not_now: false,
         kept: false,
         words: None,
+        pinned: None,
+        supersedes: None,
     };
     change(core, project, update, learned(core, None))
 }
@@ -2022,5 +2567,43 @@ mod tests {
             &["ok sounds good".to_owned()],
             "Always add emojis to commit messages.",
         ));
+        assert!(!words_match_person_turn(
+            &["tool memory.add kind rule person true text In pi, commit messages say what changed in the present tense".to_owned()],
+            "In pi, commit messages say what changed in the present tense (e.g. document RemoteWatcher, allow scripts to declare tools/console).",
+        ));
+    }
+
+    #[test]
+    fn memory_delta_tracks_project_and_personal_changes_without_duplication() {
+        let mem = Memory::new(None);
+        let r0 = mem.revision();
+        assert_eq!(r0, 1);
+
+        let r1 = mem.record_change(
+            Some("proj-a".to_owned()),
+            "Rule #1 [pinned]: Use Gemini 4 Neon for consults.".to_owned(),
+        );
+        let r2 = mem.record_change(
+            Some("proj-b".to_owned()),
+            "Rule #2: Other project rule.".to_owned(),
+        );
+        let r3 = mem.record_change(None, "Rule #3: Personal cross-project rule.".to_owned());
+        assert_eq!(r1, 2);
+        assert_eq!(r2, 3);
+        assert_eq!(r3, 4);
+
+        let changes = mem.changes.locked();
+        let for_a: Vec<&str> = changes
+            .iter()
+            .filter(|c| c.rev > r0 && c.project.as_deref().is_none_or(|owner| owner == "proj-a"))
+            .map(|c| c.line.as_str())
+            .collect();
+        assert_eq!(
+            for_a,
+            vec![
+                "Rule #1 [pinned]: Use Gemini 4 Neon for consults.",
+                "Rule #3: Personal cross-project rule."
+            ]
+        );
     }
 }

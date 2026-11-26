@@ -36,6 +36,12 @@ pub struct MemoryUpdateParams {
     /// now under its number has others.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub words: Option<String>,
+    /// Pins or unpins the entry in Tier 1 briefs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
+    /// Marks an earlier entry as superseded by this one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supersedes: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -75,6 +81,10 @@ pub enum NewMemory {
         sensitive: bool,
         #[serde(default)]
         store: Store,
+        #[serde(default)]
+        pinned: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        supersedes: Option<u64>,
     },
     Knowledge {
         text: String,
@@ -83,6 +93,10 @@ pub enum NewMemory {
         check: Option<MemoryCheck>,
         #[serde(default)]
         store: Store,
+        #[serde(default)]
+        pinned: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        supersedes: Option<u64>,
     },
 }
 

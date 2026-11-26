@@ -277,8 +277,11 @@ pub fn start(
     let pinned = resume_id
         .as_deref()
         .and_then(|session_id| core.chats().sessions.brief_for(chat.agent_id(), session_id));
-    if let Some(brief) = pinned {
+    if let Some((brief, mem_rev)) = pinned {
         chat.set_brief(brief);
+        if mem_rev > 0 {
+            chat.set_seen_mem_rev(mem_rev);
+        }
     } else {
         if !briefed && (resume_id.is_none() || matches!(chat.provider(), "antigravity" | "codex")) {
             *chat.brief.locked() = (core.chat_above().memory_for_chat)(core, &chat.launch.cwd);
@@ -380,14 +383,18 @@ pub fn resume(core: &Arc<Core>, record: ChatRecord) {
             queue,
             replaced,
         }) => {
-            let brief = record.brief.or_else(|| {
-                chat.launch
-                    .resume_id
-                    .as_deref()
-                    .and_then(|sid| core.chats().sessions.brief_for(chat.agent_id(), sid))
-                    .flatten()
-            });
+            let pinned = chat
+                .launch
+                .resume_id
+                .as_deref()
+                .and_then(|sid| core.chats().sessions.brief_for(chat.agent_id(), sid));
+            let brief = record
+                .brief
+                .or_else(|| pinned.as_ref().and_then(|(b, _)| b.clone()));
             chat.set_brief(brief);
+            if let Some((_, mem_rev)) = pinned.filter(|(_, rev)| *rev > 0) {
+                chat.set_seen_mem_rev(mem_rev);
+            }
             if record.unstarted {
                 wait_for_person(&chat);
             }
@@ -502,14 +509,18 @@ pub fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -> CoreR
         kept.origin.clone(),
         Some((feed, flags)),
     )?;
-    let brief = kept.brief.clone().or_else(|| {
-        launch_spec
-            .resume_id
-            .as_deref()
-            .and_then(|sid| core.chats().sessions.brief_for(chat.agent_id(), sid))
-            .flatten()
-    });
+    let pinned = launch_spec
+        .resume_id
+        .as_deref()
+        .and_then(|sid| core.chats().sessions.brief_for(chat.agent_id(), sid));
+    let brief = kept
+        .brief
+        .clone()
+        .or_else(|| pinned.as_ref().and_then(|(b, _)| b.clone()));
     chat.set_brief(brief);
+    if let Some((_, mem_rev)) = pinned.filter(|(_, rev)| *rev > 0) {
+        chat.set_seen_mem_rev(mem_rev);
+    }
     if kept.unstarted {
         wait_for_person(&chat);
     }

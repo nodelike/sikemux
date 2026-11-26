@@ -132,12 +132,14 @@ impl State {
 }
 
 /// The exact system-prompt brief a session started with, kept so resume and restart pass the
-/// same bytes and keep the prompt cache warm.
+/// same bytes and keep the prompt cache warm, alongside the memory revision it captured.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PinnedBrief {
     pub session_id: String,
     pub brief: Option<String>,
+    #[serde(default)]
+    pub mem_rev: u64,
 }
 
 /// Where a chat's session stands, kept while the chat sleeps or its core starts again, so an
@@ -151,6 +153,8 @@ pub struct KeptSession {
     meter: cap::KeptMeter,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     briefs: Vec<PinnedBrief>,
+    #[serde(default)]
+    seen_mem_rev: u64,
 }
 
 impl KeptSession {
@@ -168,6 +172,7 @@ pub fn kept(chat: &Chat) -> KeptSession {
         full_session: inner.full_session.clone(),
         meter: (inner.fresh.as_ref()).map_or_else(|| chat.meter.kept(), |fresh| fresh.meter),
         briefs: Vec::new(),
+        seen_mem_rev: chat.seen_mem_rev(),
     }
 }
 
@@ -206,19 +211,18 @@ impl Sessions {
         }
     }
 
-    /// Pins the exact brief `session_id` launched with so resume and restart pass the same bytes.
-    pub fn pin_brief(&self, agent_id: &str, session_id: &str, brief: Option<String>) {
+    /// Pins the exact brief `session_id` launched with (and the memory revision it captured)
+    /// so resume and restart pass the same bytes and emit only mid-session deltas.
+    pub fn pin_brief(&self, agent_id: &str, session_id: &str, brief: Option<String>, mem_rev: u64) {
         const KEPT_BRIEFS: usize = 2;
         if session_id.is_empty() {
             return;
         }
         let mut saved = self.saved.locked();
         let entry = saved.entry(agent_id.to_owned()).or_default();
-        if entry
-            .briefs
-            .iter()
-            .any(|pinned| pinned.session_id == session_id && pinned.brief == brief)
-        {
+        if entry.briefs.iter().any(|pinned| {
+            pinned.session_id == session_id && pinned.brief == brief && pinned.mem_rev == mem_rev
+        }) {
             return;
         }
         entry
@@ -227,6 +231,7 @@ impl Sessions {
         entry.briefs.push(PinnedBrief {
             session_id: session_id.to_owned(),
             brief,
+            mem_rev,
         });
         if entry.briefs.len() > KEPT_BRIEFS {
             let drop = entry.briefs.len() - KEPT_BRIEFS;
@@ -235,13 +240,13 @@ impl Sessions {
         self.file.save_soon(&*saved);
     }
 
-    /// The exact brief snapshot pinned for `session_id`, if this session has one.
-    pub fn brief_for(&self, agent_id: &str, session_id: &str) -> Option<Option<String>> {
+    /// The exact brief snapshot and memory revision pinned for `session_id`, if this session has one.
+    pub fn brief_for(&self, agent_id: &str, session_id: &str) -> Option<(Option<String>, u64)> {
         self.saved.locked().get(agent_id).and_then(|kept| {
             kept.briefs
                 .iter()
                 .find(|pinned| pinned.session_id == session_id)
-                .map(|pinned| pinned.brief.clone())
+                .map(|pinned| (pinned.brief.clone(), pinned.mem_rev))
         })
     }
 
@@ -267,6 +272,9 @@ pub fn take_up(chat: &Chat, kept: KeptSession) {
     inner.handoff = kept.handoff;
     inner.full_session = kept.full_session;
     chat.meter.take_up(kept.meter);
+    if kept.seen_mem_rev > 0 {
+        chat.set_seen_mem_rev(kept.seen_mem_rev);
+    }
 }
 
 /// The session the chat runs on now. A session it already knew keeps the footing it started
@@ -305,11 +313,10 @@ pub fn on(core: &Core) -> bool {
     core.preferences().get().chief_rotation
 }
 
-/// Whether a fresh session may take over now: a Claude chat not lately failed, with nothing of
-/// the old session still running that a new one would cut off.
+/// Whether a fresh session may take over now: any native chat harness not lately failed, with
+/// nothing of the old session still running that a new one would cut off.
 fn may_start_fresh(chat: &Chat) -> bool {
-    chat.provider() == "claude"
-        && epoch_ms().saturating_sub(chat.rotation.inner.locked().failed_at) >= RETRY_MS
+    epoch_ms().saturating_sub(chat.rotation.inner.locked().failed_at) >= RETRY_MS
         && chat.feed.running_tasks() == 0
         && chat.feed.running_subagents() == 0
 }
@@ -701,39 +708,47 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let sessions = Sessions::load(Some(dir.path()));
         let original = "You are @Chief.\n\nRules:\n- #1 Follow rules.\nDecided:\n- #10 Old.";
-        sessions.pin_brief("chief-1", "sess-1", Some(original.to_owned()));
-        sessions.pin_brief("worker-1", "sess-w", None);
+        sessions.pin_brief("chief-1", "sess-1", Some(original.to_owned()), 7);
+        sessions.pin_brief("worker-1", "sess-w", None, 7);
         sessions.flush();
 
         let reloaded = Sessions::load(Some(dir.path()));
         assert_eq!(
             reloaded.brief_for("chief-1", "sess-1"),
-            Some(Some(original.to_owned()))
+            Some((Some(original.to_owned()), 7))
         );
-        assert_eq!(reloaded.brief_for("worker-1", "sess-w"), Some(None));
+        assert_eq!(reloaded.brief_for("worker-1", "sess-w"), Some((None, 7)));
         assert_eq!(reloaded.brief_for("chief-1", "sess-new"), None);
 
         // Rotation pins the new session while keeping the old one until a 3rd rotation evicts it
         let rotated = "You are @Chief.\n\nRules:\n- #1 Follow rules.\nDecided:\n- #11 New.";
-        reloaded.pin_brief("chief-1", "sess-2", Some(rotated.to_owned()));
+        reloaded.pin_brief("chief-1", "sess-2", Some(rotated.to_owned()), 12);
         assert_eq!(
             reloaded.brief_for("chief-1", "sess-1"),
-            Some(Some(original.to_owned()))
+            Some((Some(original.to_owned()), 7))
         );
         assert_eq!(
             reloaded.brief_for("chief-1", "sess-2"),
-            Some(Some(rotated.to_owned()))
+            Some((Some(rotated.to_owned()), 12))
         );
 
-        reloaded.pin_brief("chief-1", "sess-3", Some("third".to_owned()));
+        reloaded.pin_brief("chief-1", "sess-3", Some("third".to_owned()), 15);
         assert_eq!(reloaded.brief_for("chief-1", "sess-1"), None);
         assert_eq!(
             reloaded.brief_for("chief-1", "sess-2"),
-            Some(Some(rotated.to_owned()))
+            Some((Some(rotated.to_owned()), 12))
         );
         assert_eq!(
             reloaded.brief_for("chief-1", "sess-3"),
-            Some(Some("third".to_owned()))
+            Some((Some("third".to_owned()), 15))
         );
+    }
+
+    #[test]
+    fn rotation_allows_non_claude_harnesses_when_idle() {
+        let state = State::default();
+        assert_eq!(state.inner.locked().failed_at, 0);
+        state.failed();
+        assert!(state.inner.locked().failed_at > 0);
     }
 }

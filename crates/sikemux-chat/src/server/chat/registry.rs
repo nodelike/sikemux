@@ -635,6 +635,7 @@ impl Chats {
             chief: AtomicBool::new(capped),
             rotation: Default::default(),
             streamed_at: AtomicU64::new(0),
+            seen_mem_rev: AtomicU64::new(0),
             open_tools: Mutex::default(),
             wanted: tokio::sync::Notify::new(),
             person_came: tokio::sync::Notify::new(),

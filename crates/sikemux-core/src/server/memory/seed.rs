@@ -212,6 +212,8 @@ pub(crate) async fn keep(
                 goal: None,
                 sensitive: false,
                 store: Store::Project,
+                pinned: false,
+                supersedes: None,
             };
             match add(&core, &project, new, learned(&core, None)) {
                 Ok(_) => kept += 1,

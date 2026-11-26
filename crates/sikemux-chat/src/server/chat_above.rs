@@ -138,6 +138,10 @@ pub struct ChatAbove {
     /// goal's rules and decisions, and knowledge about what its work names, come
     /// later through `memory_list`.
     pub memory_for_chat: fn(&Core, &Path) -> Option<String>,
+    /// Current global memory revision counter (rules, knowledge, decisions).
+    pub memory_revision: fn(&Core) -> u64,
+    /// Compact cache-safe diff of memory updates for `project` since `since_rev`.
+    pub memory_delta: fn(&Core, &str, u64) -> (u64, Option<String>),
     /// Asks the person something a dialog in `agent_id`'s process is blocked on.
     pub questions_ask_for_dialog: AskForDialog,
     /// How `agent_id`'s turn stands, worked out now from its own facts alone.
