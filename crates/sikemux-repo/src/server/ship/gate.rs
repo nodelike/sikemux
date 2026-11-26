@@ -756,6 +756,7 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
         sikemux_view::calls::CallClient::Device { .. } => "a paired phone".to_owned(),
         _ => "Sikemux".to_owned(),
     });
+    let mut always = false;
     match option.as_deref() {
         Some(FROM_NOW_ON) => {
             let repository = (call.place.as_ref()).and_then(|place| place.repository.as_deref());
@@ -765,7 +766,7 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
         }
         Some(ALWAYS) => {
             if let Some(place) = &call.place {
-                places::always_tell(core, &call.project, &place.id, from);
+                always = places::always_tell(core, &call.project, &place.id, from);
             }
         }
         _ => {}
@@ -778,7 +779,7 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
             "The person said yes on the call \"{}\", and to just tell them from now on. Run `{action}` again now.",
             asked
         ),
-        Some(ALWAYS) => format!(
+        Some(ALWAYS) if always => format!(
             "The person said yes on the call \"{}\", and to let deploys to {place} run from now on, telling them of each; a release, a forced push or anything that isn't a deploy still asks there. Run `{action}` again now.",
             asked
         ),

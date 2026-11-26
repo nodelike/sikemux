@@ -282,9 +282,10 @@ pub fn just_tell(core: &Core, project: &str, place: Place, repository: &str, fro
 /// The person said on a call to let agents deploy to the place `id` from now on and tell them
 /// of each: a release, a push that does more than send commits, or a change that is no deploy
 /// still waits for their yes. Only once they confirmed the list, and only for a place that
-/// still asks.
-pub fn always_tell(core: &Core, project: &str, id: &str, from: Option<String>) {
-    let _ = tapped(core, project, |kept| {
+/// still asks; false when it set nothing.
+pub fn always_tell(core: &Core, project: &str, id: &str, from: Option<String>) -> bool {
+    let mut set = false;
+    let stored = tapped(core, project, |kept| {
         let confirmed = kept.confirmed.is_some();
         let place = (kept.places.iter_mut())
             .find(|place| place.shown.id == id)
@@ -297,9 +298,11 @@ pub fn always_tell(core: &Core, project: &str, id: &str, from: Option<String>) {
             place.ordinary_only = true;
             place.shown.said_by = Some(by_tap());
             place.shown.said_from = from;
+            set = true;
         }
         Ok(())
     });
+    set && stored.is_ok()
 }
 
 /// A production call the gate raised was answered: the place counts it.
