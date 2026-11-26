@@ -214,6 +214,7 @@ impl TabStrip {
                         acting: self.acting.contains_key(id),
                         local_file: None,
                         background: self.background.contains(id),
+                        dialog: None,
                     })
                 })
                 .collect(),

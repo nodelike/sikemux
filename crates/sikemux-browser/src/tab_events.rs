@@ -204,6 +204,7 @@ impl TabEvents for TabListener {
             facts.dialog = dialog;
         }
         manager.dialog_changed.notify_waiters();
+        manager.announce();
     }
 
     fn upload(&self) -> Option<Vec<PathBuf>> {

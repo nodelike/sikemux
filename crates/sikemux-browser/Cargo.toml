@@ -55,6 +55,10 @@ harness = false
 name = "eval_navigation"
 harness = false
 
+[[test]]
+name = "background_dialog"
+harness = false
+
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = { version = "0.18", features = ["v3_24"] }
 raw-window-handle = "0.6"

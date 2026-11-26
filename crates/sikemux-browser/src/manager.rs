@@ -340,8 +340,10 @@ impl BrowserManager {
                 tabs: Vec::new(),
                 active_tab_id: None,
             });
+        let tabs = self.tabs.locked();
         for tab in &mut snapshot.tabs {
             tab.local_file = self.local_files.path_of(&tab.url);
+            tab.dialog = tabs.get(&tab.id).and_then(|facts| facts.dialog.clone());
         }
         Ok(snapshot)
     }
@@ -640,7 +642,7 @@ impl BrowserManager {
         self.downloads
             .locked()
             .insert((tab_id.to_owned(), url.to_owned()), path.clone());
-        self.note_download(agent_id, tab_id, url, &path, DownloadState::Started);
+        self.note_download(agent_id, tab_id, url, &path, DownloadState::Started, true);
         Some(path)
     }
 
@@ -659,7 +661,7 @@ impl BrowserManager {
         } else {
             DownloadState::Failed
         };
-        self.note_download(agent_id, tab_id, url, &path, state);
+        self.note_download(agent_id, tab_id, url, &path, state, true);
     }
 
     pub(crate) fn note_download(
@@ -669,6 +671,7 @@ impl BrowserManager {
         url: &str,
         path: &Path,
         state: DownloadState,
+        notify_host: bool,
     ) {
         let bytes = (state == DownloadState::Finished)
             .then(|| std::fs::metadata(path).ok().map(|meta| meta.len()))
@@ -684,7 +687,9 @@ impl BrowserManager {
             agent.downloads.note(&download, bytes);
         }
         self.downloads_moved.notify_all();
-        self.host().downloaded(&download);
+        if notify_host {
+            self.host().downloaded(&download);
+        }
     }
 
     /// The number the agent's next download will get, to find later which
@@ -738,6 +743,19 @@ impl BrowserManager {
 
     pub fn dialog(&self, tab_id: &str) -> Option<PageDialog> {
         self.tabs.locked().get(tab_id)?.dialog.clone()
+    }
+
+    pub async fn answer_dialog(
+        &self,
+        agent_id: &str,
+        tab_id: &str,
+        accept: bool,
+        text: Option<String>,
+    ) -> BrowserResult<()> {
+        let (_, view) = self.tab_view(agent_id, Some(tab_id))?;
+        crate::native::answer_dialog(&view, tab_id, accept, text)
+            .await
+            .map_err(Error::Other)
     }
 
     pub(crate) async fn wait_for_dialog(&self, tab_id: &str) -> PageDialog {

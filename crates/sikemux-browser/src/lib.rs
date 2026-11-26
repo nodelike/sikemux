@@ -61,9 +61,9 @@ pub const BLANK_URL: &str = "about:blank";
 pub const REPLY_COLUMN_WIDTH: f32 = 756.0;
 /// Past this many dialogs in `DIALOG_WINDOW`, a page's dialogs are answered
 /// with Cancel unseen, the way browsers offer to stop a page's dialogs.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 pub(crate) const DIALOG_LIMIT: usize = 3;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 pub(crate) const DIALOG_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
 /// Parked pages sit outside the window, since a hidden view still takes file
 /// drops over the spot it last covered. They are hidden too once they are idle.
@@ -148,6 +148,9 @@ pub struct BrowserTab {
     /// Opened in the background without bringing out a shut desk or taking focus.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub background: bool,
+    /// An alert, confirm or prompt currently blocking this tab's page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dialog: Option<PageDialog>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]

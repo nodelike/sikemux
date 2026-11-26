@@ -18,10 +18,9 @@ use objc2::{
     define_class, msg_send, sel, ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, Message,
 };
 use objc2_app_kit::{
-    NSAlert, NSAlertFirstButtonReturn, NSAlertSecondButtonReturn, NSAutoresizingMaskOptions,
-    NSBitmapImageFileType, NSBitmapImageRep, NSEvent, NSEventMask, NSEventModifierFlags,
-    NSEventPhase, NSEventType, NSImage, NSImageCompressionFactor, NSModalResponse,
-    NSModalResponseOK, NSOpenPanel, NSTextField, NSView, NSWindowOrderingMode,
+    NSAutoresizingMaskOptions, NSBitmapImageFileType, NSBitmapImageRep, NSEvent, NSEventMask,
+    NSEventModifierFlags, NSEventPhase, NSEventType, NSImage, NSImageCompressionFactor,
+    NSModalResponseOK, NSOpenPanel, NSView, NSWindowOrderingMode,
 };
 use objc2_core_graphics::{CGColor, CGMutablePath};
 use objc2_foundation::{
@@ -191,7 +190,6 @@ thread_local! {
     static TABS: RefCell<HashMap<String, NativeTab>> = RefCell::new(HashMap::new());
     static SHORTCUT_MONITOR: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
     static PERSON_MONITOR: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
-    static OPEN_DIALOGS: RefCell<HashMap<String, OpenDialog>> = RefCell::new(HashMap::new());
     static HOLES: RefCell<HashMap<usize, Vec<NSRect>>> = RefCell::new(HashMap::new());
     static SHADES: RefCell<HashMap<usize, Retained<CALayer>>> = RefCell::new(HashMap::new());
     static MASKS: RefCell<HashMap<usize, PageMask>> = RefCell::new(HashMap::new());
@@ -229,13 +227,6 @@ pub(crate) fn set_background_activity(active: bool) {
     } else {
         dispatch2::DispatchQueue::main().exec_async(apply);
     }
-}
-
-/// A page dialog showing as a sheet, kept so the agent can answer it too.
-struct OpenDialog {
-    alert: Retained<NSAlert>,
-    window: Retained<objc2_app_kit::NSWindow>,
-    field: Option<Retained<NSTextField>>,
 }
 
 /// The window view a tab goes into, and whether under its other children or on top.

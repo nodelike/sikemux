@@ -151,14 +151,16 @@ def typing_from_tool(run):
 def dialog_from_tool(run):
     before = windows(run.app.pid)
     run.prompt(desk.json_tool("browser.evaluate", {"script": "setTimeout(() => { window.answer = prompt('Your name?', 'nobody') }, 500), 'asked'"}))
-    shown = desk.until(lambda: [window for window in windows(run.app.pid) if window not in before], 10) or []
+    shown = desk.until(lambda: desk.spot(run, "page-dialog"), 10)
+    extra_windows = [window for window in windows(run.app.pid) if window not in before]
     run.capture("L5-shown")
     said = run.prompt(desk.json_tool("browser.dialog", {"accept": True, "text": "linux"}))
-    gone = desk.until(lambda: not [window for window in windows(run.app.pid) if window not in before], 10)
+    gone = desk.until(lambda: not desk.spot(run, "page-dialog"), 10)
     told = run.prompt(desk.json_tool("browser.evaluate", {"script": "window.answer"}))
     read = desk.answered(told)
-    run.report("L5", bool(shown) and bool(gone) and read.get("result") == "linux",
-               f"the person's dialog {shown or 'never showed'}, {'gone' if gone else 'still open'} after browser.dialog answered "
+    run.report("L5", bool(shown) and not extra_windows and bool(gone) and read.get("result") == "linux",
+               f"inline dialog {shown or 'never showed'}, extra X windows {extra_windows or 'none'}, "
+               f"{'gone' if gone else 'still open'} after browser.dialog answered "
                f"{said[:120]!r}; reading the page's prompt answered {told[:160]!r}")
 
 

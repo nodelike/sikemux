@@ -94,7 +94,13 @@ const DRIVE_SDK_JS: &str = r#"
             type(first, second, third) {
                 let p;
                 if (typeof first === "object" && first !== null) {
-                    p = { ...first };
+                    if (typeof second === "string") {
+                        p = { ...first, text: second, ...(third || {}) };
+                    } else if (typeof second === "object" && second !== null) {
+                        p = { ...first, ...second };
+                    } else {
+                        p = { ...first };
+                    }
                 } else if (typeof first === "number") {
                     p = { index: first, text: String(second ?? ""), ...(third || {}) };
                 } else if (typeof second === "string") {
@@ -956,7 +962,14 @@ mod tests {
                             .get("tabId")
                             .and_then(Value::as_str)
                             .unwrap_or("tab-1");
-                        Ok(json!({ "tabId": tab_id, "typed": 5 }))
+                        Ok(json!({
+                            "tabId": tab_id,
+                            "typed": 5,
+                            "selector": params.get("selector").cloned().unwrap_or(Value::Null),
+                            "field": params.get("field").cloned().unwrap_or(Value::Null),
+                            "text": params.get("text").cloned().unwrap_or(Value::Null),
+                            "replace": params.get("replace").cloned().unwrap_or(Value::Null),
+                        }))
                     }
                     "browser.select" => Ok(json!({
                         "tabId": params.get("tabId").and_then(Value::as_str).unwrap_or("tab-1"),
@@ -1185,5 +1198,27 @@ mod tests {
             .as_str()
             .unwrap_or_default()
             .starts_with("Waits for the person"));
+    }
+
+    #[tokio::test]
+    async fn browser_drive_type_merges_target_object_with_text_and_opts() {
+        let mut backend = MockBackend::new();
+        backend.call_delay = Duration::ZERO;
+        let script = r##"
+            const tab = browser.tab("tab-1");
+            const a = await tab.type({ selector: "#q" }, "hello");
+            const b = await tab.type({ selector: "#q" }, "world", { replace: true });
+            const c = await tab.type({ selector: "#q", text: "inline" });
+            return { a, b, c };
+        "##;
+        let out = run_drive(&backend, script, Duration::from_secs(5)).await;
+        assert_eq!(out["ok"], json!(true), "unexpected output: {out}");
+        assert_eq!(out["result"]["a"]["selector"], json!("#q"));
+        assert_eq!(out["result"]["a"]["text"], json!("hello"));
+        assert_eq!(out["result"]["b"]["selector"], json!("#q"));
+        assert_eq!(out["result"]["b"]["text"], json!("world"));
+        assert_eq!(out["result"]["b"]["replace"], json!(true));
+        assert_eq!(out["result"]["c"]["selector"], json!("#q"));
+        assert_eq!(out["result"]["c"]["text"], json!("inline"));
     }
 }

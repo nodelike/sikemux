@@ -1,4 +1,4 @@
-//! Page dialogs as window sheets, and the answers agents give them.
+//! Page dialogs held in Rust without OS modal popups, answered by the agent or inline tab UI.
 
 use super::*;
 
@@ -6,6 +6,41 @@ pub(super) struct TabUiDelegateIvars {
     tab_id: String,
     dialogs: RefCell<Burst>,
     events: Arc<dyn TabEvents>,
+}
+
+/// WebKit aborts the process if a JS dialog completion handler is dropped unanswered, so
+/// `Drop` always resolves it with Cancel if the tab closes or another dialog replaces it.
+struct PendingDialog {
+    answer: Option<Box<dyn FnOnce(bool, String)>>,
+    events: Arc<dyn TabEvents>,
+    default_text: Option<String>,
+}
+
+impl PendingDialog {
+    fn resolve(mut self, accept: bool, text: Option<&str>) {
+        if let Some(answer) = self.answer.take() {
+            let reply = match (accept, text, self.default_text.take()) {
+                (true, Some(text), _) => text.to_owned(),
+                (true, None, Some(default)) => default,
+                _ => String::new(),
+            };
+            self.events.dialog(None);
+            answer(accept, reply);
+        }
+    }
+}
+
+impl Drop for PendingDialog {
+    fn drop(&mut self) {
+        if let Some(answer) = self.answer.take() {
+            self.events.dialog(None);
+            answer(false, String::new());
+        }
+    }
+}
+
+thread_local! {
+    static OPEN_DIALOGS: RefCell<HashMap<String, PendingDialog>> = RefCell::new(HashMap::new());
 }
 
 define_class!(
@@ -25,18 +60,16 @@ define_class!(
         #[unsafe(method(webView:runJavaScriptAlertPanelWithMessage:initiatedByFrame:completionHandler:))]
         unsafe fn alert(
             &self,
-            webview: &WKWebView,
+            _webview: &WKWebView,
             message: &NSString,
-            frame: &WKFrameInfo,
+            _frame: &WKFrameInfo,
             handler: &block2::DynBlock<dyn Fn()>,
         ) {
             let done = handler.copy();
-            present_sheet(
+            hold_dialog(
                 self.ivars(),
-                webview,
-                frame,
                 &message.to_string(),
-                Sheet::Alert,
+                DialogKind::Alert,
                 move |_, _| {
                     done.call(());
                 },
@@ -46,18 +79,16 @@ define_class!(
         #[unsafe(method(webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:))]
         unsafe fn confirm(
             &self,
-            webview: &WKWebView,
+            _webview: &WKWebView,
             message: &NSString,
-            frame: &WKFrameInfo,
+            _frame: &WKFrameInfo,
             handler: &block2::DynBlock<dyn Fn(Bool)>,
         ) {
             let done = handler.copy();
-            present_sheet(
+            hold_dialog(
                 self.ivars(),
-                webview,
-                frame,
                 &message.to_string(),
-                Sheet::Confirm,
+                DialogKind::Confirm,
                 move |accepted, _| {
                     done.call((Bool::new(accepted),));
                 },
@@ -67,22 +98,20 @@ define_class!(
         #[unsafe(method(webView:runJavaScriptTextInputPanelWithPrompt:defaultText:initiatedByFrame:completionHandler:))]
         unsafe fn prompt(
             &self,
-            webview: &WKWebView,
+            _webview: &WKWebView,
             prompt: &NSString,
             default_text: Option<&NSString>,
-            frame: &WKFrameInfo,
+            _frame: &WKFrameInfo,
             handler: &block2::DynBlock<dyn Fn(*mut NSString)>,
         ) {
             let done = handler.copy();
             let default = default_text
                 .map(|text| text.to_string())
                 .unwrap_or_default();
-            present_sheet(
+            hold_dialog(
                 self.ivars(),
-                webview,
-                frame,
                 &prompt.to_string(),
-                Sheet::Prompt(default),
+                DialogKind::Prompt(default),
                 move |accepted, text| {
                     if accepted {
                         let answer = NSString::from_str(&text);
@@ -111,7 +140,7 @@ define_class!(
             &self,
             webview: &WKWebView,
             parameters: &WKOpenPanelParameters,
-            frame: &WKFrameInfo,
+            _frame: &WKFrameInfo,
             handler: &block2::DynBlock<
                 dyn Fn(*const objc2_foundation::NSArray<objc2_foundation::NSURL>),
             >,
@@ -198,150 +227,50 @@ impl TabUiDelegate {
     }
 }
 
-pub(super) enum Sheet {
+enum DialogKind {
     Alert,
     Confirm,
     Prompt(String),
 }
 
-/// A page dialog as a sheet on the app window, the way Safari shows them. The
-/// page waits on `answer`, so every path must call it exactly once. The agent
-/// answers through `answer_dialog`, which ends the same sheet.
-pub(super) fn present_sheet(
+fn hold_dialog(
     tab: &TabUiDelegateIvars,
-    webview: &WKWebView,
-    frame: &WKFrameInfo,
     message: &str,
-    sheet: Sheet,
-    answer: impl Fn(bool, String) + 'static,
+    kind: DialogKind,
+    answer: impl FnOnce(bool, String) + 'static,
 ) {
-    let answer = AnswerOnce::new(answer);
-    let (Some(window), Some(mtm)) = (webview.window(), MainThreadMarker::new()) else {
-        answer.give(false, String::new());
-        return;
-    };
     if !tab.dialogs.borrow_mut().admit(Instant::now()) {
-        answer.give(false, String::new());
+        answer(false, String::new());
         return;
     }
-    // SAFETY: main thread, and WebKit keeps `frame` alive while its dialog callback runs.
-    let host = unsafe { frame.securityOrigin().host().to_string() };
-    let alert = NSAlert::new(mtm);
-    let title = if host.is_empty() {
-        "This page says".to_owned()
-    } else {
-        format!("{host} says")
-    };
-    alert.setMessageText(&NSString::from_str(&title));
-    alert.setInformativeText(&NSString::from_str(message));
-    alert.addButtonWithTitle(&NSString::from_str("OK"));
-    if !matches!(sheet, Sheet::Alert) {
-        alert.addButtonWithTitle(&NSString::from_str("Cancel"));
-    }
-    let field = match &sheet {
-        Sheet::Prompt(default) => {
-            let field = NSTextField::initWithFrame(
-                mtm.alloc::<NSTextField>(),
-                NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(280.0, 24.0)),
-            );
-            field.setStringValue(&NSString::from_str(default));
-            alert.setAccessoryView(Some(&field));
-            let _ = window.makeFirstResponder(Some(&field));
-            Some(field)
-        }
+    let default_text = match &kind {
+        DialogKind::Prompt(default) => Some(default.clone()),
         _ => None,
     };
     let described = PageDialog {
-        kind: match &sheet {
-            Sheet::Alert => "alert",
-            Sheet::Confirm => "confirm",
-            Sheet::Prompt(_) => "prompt",
+        kind: match &kind {
+            DialogKind::Alert => "alert",
+            DialogKind::Confirm => "confirm",
+            DialogKind::Prompt(_) => "prompt",
         },
         message: message.to_owned(),
-        default_text: match &sheet {
-            Sheet::Prompt(default) => Some(default.clone()),
-            _ => None,
-        },
+        default_text: default_text.clone(),
     };
-    OPEN_DIALOGS.with(|open| {
-        open.borrow_mut().insert(
-            tab.tab_id.clone(),
-            OpenDialog {
-                alert: alert.clone(),
-                window: window.clone(),
-                field: field.clone(),
-            },
-        );
-    });
+    let pending = PendingDialog {
+        answer: Some(Box::new(answer)),
+        events: tab.events.clone(),
+        default_text,
+    };
+    let previous = OPEN_DIALOGS.with(|open| open.borrow_mut().insert(tab.tab_id.clone(), pending));
+    drop(previous);
     tab.events.dialog(Some(described));
-    let (tab_id, closed) = (tab.tab_id.clone(), tab.events.clone());
-    let block = RcBlock::new(move |response: NSModalResponse| {
-        OPEN_DIALOGS.with(|open| open.borrow_mut().remove(&tab_id));
-        closed.dialog(None);
-        let accepted = response == NSAlertFirstButtonReturn;
-        let text = field
-            .as_ref()
-            .map(|field| field.stringValue().to_string())
-            .unwrap_or_default();
-        answer.give(accepted, text);
-    });
-    alert.beginSheetModalForWindow_completionHandler(&window, Some(&block));
 }
 
-/// WebKit throws when a dialog's answer is dropped unanswered, which aborts the
-/// app, so a sheet AppKit discards without running its block answers Cancel.
-pub(super) struct AnswerOnce<F: Fn(bool, String)> {
-    answer: F,
-    given: Cell<bool>,
-}
-
-impl<F: Fn(bool, String)> AnswerOnce<F> {
-    fn new(answer: F) -> Self {
-        Self {
-            answer,
-            given: Cell::new(false),
-        }
-    }
-
-    fn give(&self, accepted: bool, text: String) {
-        if !self.given.replace(true) {
-            (self.answer)(accepted, text);
-        }
-    }
-}
-
-impl<F: Fn(bool, String)> Drop for AnswerOnce<F> {
-    fn drop(&mut self) {
-        self.give(false, String::new());
-    }
-}
-
-/// Ends the tab's open dialog as if the person pressed OK or Cancel, typing
-/// `text` into a prompt first.
+/// Resolves the tab's pending dialog with `accept` and optional prompt `text`.
 pub fn answer_dialog(tab_id: &str, accept: bool, text: Option<&str>) -> Result<(), String> {
-    let (alert, window, field) = OPEN_DIALOGS
-        .with(|open| {
-            open.borrow().get(tab_id).map(|dialog| {
-                (
-                    dialog.alert.clone(),
-                    dialog.window.clone(),
-                    dialog.field.clone(),
-                )
-            })
-        })
+    let pending = OPEN_DIALOGS
+        .with(|open| open.borrow_mut().remove(tab_id))
         .ok_or("this tab has no open dialog")?;
-    if let (Some(field), Some(text)) = (field, text) {
-        field.setStringValue(&NSString::from_str(text));
-    }
-    let sheet = alert.window();
-    let parent = sheet.sheetParent().unwrap_or(window);
-    parent.endSheet_returnCode(
-        &sheet,
-        if accept {
-            NSAlertFirstButtonReturn
-        } else {
-            NSAlertSecondButtonReturn
-        },
-    );
+    pending.resolve(accept, text);
     Ok(())
 }

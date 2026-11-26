@@ -1,6 +1,7 @@
 //! An agent's desk, beside it in its tab: the pages its browser holds, one in front.
 
 mod address;
+mod dialog;
 mod downloads;
 mod pins;
 mod snip;
@@ -106,6 +107,7 @@ pub struct Desks {
     /// desk is in the tab in front.
     page_wanted: Option<(String, Instant)>,
     pub(crate) floating: Option<address::Floating>,
+    pub(crate) dialog_prompts: HashMap<String, dialog::PromptField>,
     /// How each desk's tab strip is scrolled.
     tab_scrolls: std::cell::RefCell<HashMap<String, TabScroll>>,
     /// What the engine tells the window, until the window listens.
@@ -419,6 +421,7 @@ impl Desks {
             address_wanted: None,
             page_wanted: None,
             floating: None,
+            dialog_prompts: HashMap::new(),
             tab_scrolls: Default::default(),
             hearing,
             told: heard,
@@ -1038,7 +1041,11 @@ impl Workbench {
                     "download {:?} {}",
                     download.state, download.path
                 ));
-                self.notify(downloaded(&download), cx)
+                let visible = (self.desks.read(cx).engine.as_ref())
+                    .is_some_and(|engine| engine.shown(&download.agent_id, &download.tab_id));
+                if visible {
+                    self.notify(downloaded(&download), cx);
+                }
             }
             Heard::Shortcut(shortcut) => {
                 let shift = if shortcut.shift { "Shift+" } else { "" };
@@ -2420,6 +2427,7 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
             bench.float_address(agent, window, cx);
         }
     }
+    dialog::sync(bench, window, cx);
     let desks = bench.desks.read(cx);
     let shown: Vec<(Entity<InputState>, String)> = desks
         .pages
@@ -3067,12 +3075,14 @@ fn pages_desk(
         .when(no_pages, |body| body.child(on_this_desk(bench, agent, cx)))
         .children(foot)
         .children(address::overlay(bench, agent, cx));
+    let dialog_bar = dialog::banner(bench, agent, front, cx);
     div()
         .flex_1()
         .min_h_0()
         .flex()
         .flex_col()
         .when(!no_pages, |content| content.child(bar))
+        .children(dialog_bar)
         .child(body)
         .into_any_element()
 }
@@ -3907,6 +3917,7 @@ mod tests {
             acting: false,
             local_file: None,
             background: false,
+            dialog: None,
         }
     }
 

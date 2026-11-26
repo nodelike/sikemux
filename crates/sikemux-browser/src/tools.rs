@@ -1281,6 +1281,7 @@ pub(super) async fn download_asset(
         parsed.as_str(),
         &asset.path,
         crate::DownloadState::Finished,
+        false,
     );
     Ok(json!({
         "tabId": tab_id,
