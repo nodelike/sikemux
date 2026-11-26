@@ -281,13 +281,13 @@ pub fn just_tell(core: &Core, project: &str, place: Place, repository: &str, fro
 
 /// The person said on a call to let agents make ordinary changes to the place `id` from now on
 /// and tell them of each: a tag, a release or a push that does more than send commits still
-/// waits for their yes. A place that no longer asks is left as it is.
+/// waits for their yes. Only once they confirmed the list, and only for a place that still asks.
 pub fn always_tell(core: &Core, project: &str, id: &str, from: Option<String>) {
     let _ = tapped(core, project, |kept| {
         let confirmed = kept.confirmed.is_some();
         let place = (kept.places.iter_mut())
             .find(|place| place.shown.id == id)
-            .filter(|place| place.asks(confirmed));
+            .filter(|place| confirmed && place.asks(confirmed));
         if let Some(place) = place {
             place.shown.was = Some(Level::Mine);
             place.shown.level = Level::TellMe;

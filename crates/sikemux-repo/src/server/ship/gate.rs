@@ -158,9 +158,9 @@ pub(super) struct Asking<'a> {
     pub(super) attempt: Option<Attempt>,
 }
 
-/// Whether an ask about `ship` at `place` may offer to stop asking there: the project keeps the
-/// place, so its level can be set, and the change is an ordinary one, as that offer leaves the
-/// rest waiting for the person's yes.
+/// Whether an ask about `ship` at `place` may offer to stop asking there: the person confirmed
+/// the project's list, which keeps the place, so its level can be set, and the change is an
+/// ordinary one, as that offer leaves the rest waiting for their yes.
 pub(super) fn may_stop_asking(
     core: &Core,
     project: &str,
@@ -168,9 +168,10 @@ pub(super) fn may_stop_asking(
     ship: &Ship,
     rewrites: bool,
 ) -> bool {
-    let kept = core.places().of(project).places;
-    places::judge::ordinary(ship, rewrites)
-        && (kept.iter()).any(|known| known.shown.id == place.shown.id)
+    let kept = core.places().of(project);
+    kept.confirmed.is_some()
+        && places::judge::ordinary(ship, rewrites)
+        && (kept.places.iter()).any(|known| known.shown.id == place.shown.id)
 }
 
 /// The call that puts a change of `ship` to the production place `place` to the person, which
