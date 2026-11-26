@@ -1038,7 +1038,9 @@ fn pasted_for(core: &Core, agent_id: &str, texts: &[&str]) {
             paths: Vec::new(),
         })
         .collect();
-    core.harness().mailbox.state.locked().pasted.insert(
+    let mut state = core.harness().mailbox.state.locked();
+    state.delivering.insert(agent_id.to_owned());
+    state.pasted.insert(
         agent_id.to_owned(),
         mailbox::Pasted {
             texts,
@@ -1115,9 +1117,15 @@ async fn stopping_an_agent_between_turns_drops_what_waits_for_it() {
 
     assert_eq!(stopped, Ok(true));
     assert!(!mailbox.has_waiting("agent-kirishima"));
-    assert!(!mailbox
-        .state
-        .locked()
-        .pasted
-        .contains_key("agent-kirishima"));
+    let state = mailbox.state.locked();
+    assert!(!state.pasted.contains_key("agent-kirishima"));
+    assert!(
+        !state.delivering.contains("agent-kirishima"),
+        "dropping a pasted message must release delivering so future sends are not stuck"
+    );
+    drop(state);
+    assert_eq!(
+        core.inbox().stopped_by("agent-kirishima").as_deref(),
+        Some("agent-chief")
+    );
 }
