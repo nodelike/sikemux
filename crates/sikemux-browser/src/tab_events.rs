@@ -33,7 +33,7 @@ fn is_sign_in_page(url: &str) -> bool {
 }
 
 fn is_this_computer(url: &Url) -> bool {
-    url.scheme() == "http" && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+    url.scheme() == "http" && url.host_str().is_some_and(crate::address::is_loopback_host)
 }
 
 /// The tab whose page opened another as its window, and what the engine makes that one from.

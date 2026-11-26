@@ -454,6 +454,11 @@ impl BrowserManager {
             agent.viewports.insert(tab_id.clone(), fixed);
         }
         let webview = self.create_view(agent_id, &tab_id, parsed, user_agent, opened_by)?;
+        let already_closed = self
+            .tabs
+            .locked()
+            .get(&tab_id)
+            .is_some_and(|facts| facts.documents.latest_is_closed());
         {
             let mut agents = self.agents.locked();
             let agent = agents.entry(agent_id.to_owned()).or_default();
@@ -461,7 +466,7 @@ impl BrowserManager {
                 tab_id.clone(),
                 TabPage {
                     url: url.to_owned(),
-                    loading: url != BLANK_URL,
+                    loading: url != BLANK_URL && !already_closed,
                     ..TabPage::default()
                 },
                 activate,

@@ -90,6 +90,16 @@ pub(crate) fn attach(webview: &WebView, agent_id: &str, tab_id: &str, events: Ar
         );
         crashed.health(Some(TabStall::Crashed));
     });
+    let failed_events = events.clone();
+    webview.connect_load_failed(move |_view, _event, uri, error| {
+        failed_events.document(crate::DocumentEvent::Failed {
+            navigation: 0,
+            url: (!uri.is_empty()).then(|| uri.to_owned()),
+            error: error.message().to_owned(),
+            provisional: true,
+        });
+        false
+    });
     webview.connect_load_changed(|view, event| {
         if matches!(event, LoadEvent::Started | LoadEvent::Committed) {
             abort_evals(view_key(view), crate::native::EVAL_NAVIGATED);

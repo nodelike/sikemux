@@ -400,12 +400,15 @@ setter fallback for special inputs) so AngularJS, React and ASP.NET forms pick u
 changes. On a `<select>` it picks the matching option by value or visible label.
 
 `browser_drive` runs a sandboxed async JS script on the host with a `browser`
-SDK (`browser.tabs()`, `browser.open(url, { background? })`, `browser.tab(id?)`)
-and `Tab` handles (`goto`, `click`, `hover`, `type`, `select`, `press`, `scroll`,
+SDK (`browser.tabs()`, `browser.open(url, { background? })`, `browser.tab(id?)`),
+standard `URL`, `URLSearchParams`, `setTimeout`/`clearTimeout`, `sleep(ms)`,
+and `Tab` handles (`goto`, `click`, `hover`, `type`, `fill`, `select`, `press`, `scroll`,
 `wait`, `state`, `find`, `eval`, `upload`, `dialog`, `download`, `screenshot`,
 `console`, `network`, `viewport`, `close`). Use it for multi-step flows,
 branching, loops, and parallel multi-tab work with `Promise.all([...])` —
-returning only the structured JSON you need. `tab.select(target, value)` picks a
+returning only the structured JSON you need. `tab.type(target, text, opts?)`
+(and `tab.fill(target, text, opts?)` with `replace: true`) and `tab.eval(script, opts?)`
+accept either positional args or an options object (`{ field|selector|index?, text }` / `{ script }`). `tab.select(target, value)` picks a
 `<select>` option by value or visible label (or an array for `<select multiple>`)
 with framework-safe events. `tab.upload(target, files)` uploads files through
 `browser_upload`, `tab.dialog(action, text?)` answers `"accept"` or `"dismiss"`
@@ -456,13 +459,15 @@ A page that hangs or crashes is reported on the next call: close the tab with
 (10 seconds by default, 180 at most); given several conditions, all must hold. `script` is a
 read-only page expression it waits on until truthy. `stable` takes a selector
 and waits until its text has not changed for `quietMs`, for a streamed answer
-or a log. `networkIdle` means fetch and XHR quiet for half a second. When it
-runs out, `failing` lists what did not hold. Prefer a condition to a sleep or
+or a log. `networkIdle` waits for fetch and XHR to stay quiet for half a second (settling once
+the page is interactive and main-origin requests finish, even if third-party assets hang). When it
+runs out, `failing` lists what did not hold, including pending URLs. Prefer a condition to a sleep or
 to screenshots taken to see whether something finished.
 
 `browser_navigate` takes the same conditions as `waitFor`, but `urlGone`; the
 load and the wait share one minute. `go: "reload"` with `hard: true` skips the
-cache. A failed load is reported in `loadError`. Pass `background: true` to
+cache. A provisional navigation failure (DNS, connection refused, TLS) returns an
+error instead of landing silently on `about:blank`. Pass `background: true` to
 open or reuse a tab without switching the active tab or opening a shut desk.
 
 A tab the person typed in during the last minute, such as one they are paying

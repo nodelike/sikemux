@@ -722,7 +722,9 @@ fn listen(
                         args.WebErrorStatus(&mut error)?;
                         completed.document(DocumentEvent::Failed {
                             navigation,
+                            url: (!url.is_empty()).then_some(url.clone()),
                             error: format!("the page did not load (WebView2 error {})", error.0),
+                            provisional: true,
                         });
                     }
                     let (can_go_back, can_go_forward) = history(&webview);

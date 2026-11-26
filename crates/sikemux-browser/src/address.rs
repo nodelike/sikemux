@@ -59,21 +59,42 @@ fn host_of(value: &str) -> &str {
     authority.split(':').next().unwrap_or_default()
 }
 
-/// A name or address that only reaches this computer or its local network,
-/// whose servers rarely speak https.
-pub fn is_local_host(host: &str) -> bool {
-    let host = host.trim_start_matches('[').trim_end_matches(']');
+/// A name or address that resolves to this machine's loopback interface,
+/// including RFC 6761 `*.localhost` names.
+pub fn is_loopback_host(host: &str) -> bool {
+    let host = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim_end_matches('.');
     let host = host.to_ascii_lowercase();
-    if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") {
+    if host == "localhost" || host.ends_with(".localhost") {
         return true;
     }
     match host.parse::<IpAddr>() {
-        Ok(IpAddr::V4(ip)) => {
-            ip.is_loopback() || ip.is_unspecified() || ip.is_private() || ip.is_link_local()
-        }
+        Ok(IpAddr::V4(ip)) => ip.is_loopback(),
+        Ok(IpAddr::V6(ip)) => ip.is_loopback(),
+        Err(_) => false,
+    }
+}
+
+/// A name or address that only reaches this computer or its local network,
+/// whose servers rarely speak https.
+pub fn is_local_host(host: &str) -> bool {
+    if is_loopback_host(host) {
+        return true;
+    }
+    let host = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim_end_matches('.');
+    let host = host.to_ascii_lowercase();
+    if host.ends_with(".local") {
+        return true;
+    }
+    match host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) => ip.is_unspecified() || ip.is_private() || ip.is_link_local(),
         Ok(IpAddr::V6(ip)) => {
-            ip.is_loopback()
-                || ip.is_unspecified()
+            ip.is_unspecified()
                 || (ip.segments()[0] & 0xfe00) == 0xfc00
                 || (ip.segments()[0] & 0xffc0) == 0xfe80
         }
@@ -97,8 +118,39 @@ pub(crate) fn same_site(one: &str, other: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve, Address};
+    use super::{is_local_host, is_loopback_host, resolve, Address};
     use std::path::PathBuf;
+
+    #[test]
+    fn loopback_hosts_include_rfc6761_localhost_subdomains() {
+        for host in [
+            "localhost",
+            "LOCALHOST",
+            "localhost.",
+            "t1.localhost",
+            "task-42.sub.localhost",
+            "T1.LOCALHOST.",
+            "127.0.0.1",
+            "127.0.0.2",
+            "::1",
+            "[::1]",
+        ] {
+            assert!(is_loopback_host(host), "expected loopback: {host}");
+            assert!(is_local_host(host), "expected local: {host}");
+        }
+        for host in [
+            "notlocalhost",
+            "localhost.example.com",
+            "example.com",
+            "192.168.1.20",
+        ] {
+            assert!(!is_loopback_host(host), "did not expect loopback: {host}");
+        }
+        assert_eq!(
+            resolve("t1.localhost:8000/app"),
+            Address::Url("http://t1.localhost:8000/app".into())
+        );
+    }
 
     #[test]
     fn typed_addresses_name_files_pages_or_searches() {

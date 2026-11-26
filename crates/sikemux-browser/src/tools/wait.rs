@@ -67,8 +67,7 @@ pub(super) async fn wait_for(
     let script = condition.get("script").and_then(Value::as_str);
     let stable = condition.get("stable").and_then(Value::as_str);
     let dom_only = has_dom_conditions(condition) && !network && script.is_none();
-    let needs_loaded = network
-        || stable.is_some()
+    let needs_loaded = stable.is_some()
         || ["textGone", "selectorGone", "urlGone"]
             .iter()
             .any(|key| condition.get(*key).is_some());
@@ -92,7 +91,7 @@ pub(super) async fn wait_for(
             .and_then(Value::as_u64)
             .unwrap_or(DEFAULT_QUIET_MS),
     );
-    let mut quiet_since: Option<Instant> = None;
+    let mut network_tracker = NetworkIdleTracker::default();
     let mut last_text: Option<String> = None;
     let mut text_since = Instant::now();
 
@@ -201,26 +200,34 @@ pub(super) async fn wait_for(
                 }
             }
         }
+        let mut network_note = None;
         if network {
-            match pending_requests(&view).await {
-                Some(0) => {
-                    let since = *quiet_since.get_or_insert_with(Instant::now);
-                    if since.elapsed() < NETWORK_QUIET {
-                        failing.push(json!("the network has only just gone quiet"));
-                    }
+            let page_loading = manager
+                .page(agent_id, tab_id)
+                .is_some_and(|page| page.loading);
+            let pending = pending_requests(&view).await;
+            match network_tracker.evaluate(
+                Instant::now(),
+                page_loading,
+                pending.as_ref(),
+                NETWORK_QUIET,
+                EXTERNAL_SETTLE_GRACE,
+            ) {
+                NetworkIdleState::Idle { note } => {
+                    network_note = note;
                 }
-                Some(open) => {
-                    quiet_since = None;
-                    failing.push(json!(format!(
-                        "{open} fetch or XHR calls are still waiting on an answer"
-                    )));
+                NetworkIdleState::Busy { failing: why } => {
+                    failing.push(json!(why));
                 }
-                None => {}
             }
         }
         let waited = started.elapsed().as_millis() as u64;
         if failing.is_empty() {
-            return Ok(json!({ "met": true, "waitedMs": waited }));
+            let mut answer = json!({ "met": true, "waitedMs": waited });
+            if let Some(note) = network_note {
+                put(&mut answer, "note", json!(note));
+            }
+            return Ok(answer);
         }
         if started.elapsed() >= limit {
             return Ok(json!({ "met": false, "waitedMs": waited, "failing": failing }));
@@ -419,11 +426,208 @@ async fn script_holds(
     Ok(Some(format!("the script returned {shown}")))
 }
 
-pub(super) async fn pending_requests(view: &Tab) -> Option<u64> {
-    read_records(view, "pending", &[])
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct InflightCall {
+    pub(super) method: String,
+    pub(super) url: String,
+    pub(super) age_ms: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct PendingNetwork {
+    pub(super) ready_state: String,
+    pub(super) same_origin: Vec<InflightCall>,
+    pub(super) external: Vec<InflightCall>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum NetworkIdleState {
+    Idle { note: Option<String> },
+    Busy { failing: String },
+}
+
+#[derive(Default)]
+pub(super) struct NetworkIdleTracker {
+    quiet_since: Option<Instant>,
+    main_quiet_since: Option<Instant>,
+}
+
+impl NetworkIdleTracker {
+    pub(super) fn evaluate(
+        &mut self,
+        now: Instant,
+        page_loading: bool,
+        pending: Option<&PendingNetwork>,
+        quiet: Duration,
+        external_grace: Duration,
+    ) -> NetworkIdleState {
+        let Some(net) = pending else {
+            if page_loading {
+                self.quiet_since = None;
+                self.main_quiet_since = None;
+                return NetworkIdleState::Busy {
+                    failing: "the page is still loading".into(),
+                };
+            }
+            let since = *self.quiet_since.get_or_insert(now);
+            return if now.saturating_duration_since(since) >= quiet {
+                NetworkIdleState::Idle { note: None }
+            } else {
+                NetworkIdleState::Busy {
+                    failing: "the network has only just gone quiet".into(),
+                }
+            };
+        };
+
+        let interactive = matches!(net.ready_state.as_str(), "interactive" | "complete");
+        let fully_clear = !page_loading && net.same_origin.is_empty() && net.external.is_empty();
+        if fully_clear {
+            let since = *self.quiet_since.get_or_insert(now);
+            self.main_quiet_since.get_or_insert(now);
+            return if now.saturating_duration_since(since) >= quiet {
+                NetworkIdleState::Idle { note: None }
+            } else {
+                NetworkIdleState::Busy {
+                    failing: "the network has only just gone quiet".into(),
+                }
+            };
+        }
+
+        self.quiet_since = None;
+        if interactive && net.same_origin.is_empty() {
+            let main_since = *self.main_quiet_since.get_or_insert(now);
+            if now.saturating_duration_since(main_since) >= external_grace {
+                let note = if !net.external.is_empty() {
+                    format!(
+                        "main-origin network settled; ignored slow external requests: {}",
+                        format_inflight(&net.external)
+                    )
+                } else {
+                    "page is interactive and main-origin network settled; slow subresources still loading"
+                        .into()
+                };
+                return NetworkIdleState::Idle { note: Some(note) };
+            }
+        } else {
+            self.main_quiet_since = None;
+        }
+
+        NetworkIdleState::Busy {
+            failing: describe_busy(page_loading, net),
+        }
+    }
+}
+
+fn format_inflight(calls: &[InflightCall]) -> String {
+    const MAX_SHOWN: usize = 5;
+    const MAX_URL: usize = 120;
+    let mut parts: Vec<String> = calls
+        .iter()
+        .take(MAX_SHOWN)
+        .map(|call| {
+            let url = if call.url.chars().count() > MAX_URL {
+                let head: String = call.url.chars().take(MAX_URL).collect();
+                format!("{head}…")
+            } else {
+                call.url.clone()
+            };
+            format!("{} {} ({}ms)", call.method, url, call.age_ms)
+        })
+        .collect();
+    if calls.len() > MAX_SHOWN {
+        parts.push(format!("+{} more", calls.len() - MAX_SHOWN));
+    }
+    parts.join(", ")
+}
+
+fn describe_busy(page_loading: bool, net: &PendingNetwork) -> String {
+    if !net.same_origin.is_empty() {
+        return format!(
+            "{} same-origin request(s) still pending: {}",
+            net.same_origin.len(),
+            format_inflight(&net.same_origin)
+        );
+    }
+    if !net.external.is_empty() {
+        return format!(
+            "{} external request(s) still pending: {}",
+            net.external.len(),
+            format_inflight(&net.external)
+        );
+    }
+    if page_loading {
+        let state = if net.ready_state.is_empty() {
+            "loading"
+        } else {
+            net.ready_state.as_str()
+        };
+        return format!("the page is still loading (readyState: {state})");
+    }
+    "the network has only just gone quiet".into()
+}
+
+fn parse_inflight_list(value: Option<&Value>) -> Vec<InflightCall> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let url = item.get("url").and_then(Value::as_str)?.to_owned();
+                    let method = item
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .unwrap_or("GET")
+                        .to_owned();
+                    let age_ms = item.get("ageMs").and_then(Value::as_u64).unwrap_or(0);
+                    Some(InflightCall {
+                        method,
+                        url,
+                        age_ms,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub(super) fn parse_pending_network(value: &Value) -> Option<PendingNetwork> {
+    let obj = value.as_object()?;
+    Some(PendingNetwork {
+        ready_state: obj
+            .get("readyState")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        same_origin: parse_inflight_list(obj.get("sameOrigin")),
+        external: parse_inflight_list(obj.get("external")),
+    })
+}
+
+pub(super) async fn pending_requests(view: &Tab) -> Option<PendingNetwork> {
+    let value = tokio::time::timeout(PAGE_CHECK_LIMIT, read_records(view, "pending", &[]))
         .await
-        .ok()
-        .and_then(|count| count.as_u64())
+        .ok()?
+        .ok()?;
+    parse_pending_network(&value)
+}
+
+fn latest_navigation_failure(
+    manager: &BrowserManager,
+    tab_id: &str,
+    requested_url: Option<&str>,
+) -> Option<String> {
+    let load = manager.documents(tab_id, true).into_iter().last()?;
+    if !load.is_navigation_failure() {
+        return None;
+    }
+    let target = if !load.url.is_empty() && load.url != BLANK_URL {
+        load.url.as_str()
+    } else {
+        requested_url.unwrap_or("the page")
+    };
+    let detail = load.error.as_deref().unwrap_or("navigation failed");
+    Some(format!("{target} did not load: {detail}"))
 }
 
 /// What a navigation or reload ends with: any wait it asked for, the page,
@@ -436,7 +640,11 @@ pub(super) async fn arrived(
     params: &Value,
     started: Instant,
     include_tabs: bool,
+    requested_url: Option<&str>,
 ) -> Result<Value, String> {
+    if let Some(error) = latest_navigation_failure(manager, tab_id, requested_url) {
+        return Err(error);
+    }
     let waited = match params.get("waitFor").and_then(wait_condition) {
         Some(condition) => {
             let asked = params
@@ -456,6 +664,9 @@ pub(super) async fn arrived(
         }
         None => None,
     };
+    if let Some(error) = latest_navigation_failure(manager, tab_id, requested_url) {
+        return Err(error);
+    }
     let mut result = report(manager, agent_id, tab_id, params, include_tabs).await?;
     if let Some(waited) = waited {
         result = merge(waited, result)?;
@@ -486,9 +697,125 @@ pub(super) const CONDITION_POLL: Duration = Duration::from_millis(100);
 
 pub(super) const NETWORK_QUIET: Duration = Duration::from_millis(500);
 
+pub(super) const EXTERNAL_SETTLE_GRACE: Duration = Duration::from_secs(3);
+
+pub(super) const NAV_NETWORK_IDLE_LOAD_CAP: Duration = Duration::from_secs(5);
+
 const DEFAULT_QUIET_MS: u64 = 1_000;
 
 const PAGE_CHECK_LIMIT: Duration = Duration::from_secs(2);
 
 /// How long one try of a wait's script may run before the wait looks again.
 const SCRIPT_CHECK_LIMIT: Duration = Duration::from_secs(5);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn network_idle_settles_on_slow_external_assets_once_main_origin_is_quiet() {
+        let mut tracker = NetworkIdleTracker::default();
+        let t0 = Instant::now();
+        let hanging_external = PendingNetwork {
+            ready_state: "interactive".into(),
+            same_origin: vec![],
+            external: vec![InflightCall {
+                method: "GET".into(),
+                url: "https://analytics.thirdparty.test/pixel.js".into(),
+                age_ms: 1200,
+            }],
+        };
+
+        let first = tracker.evaluate(
+            t0,
+            true,
+            Some(&hanging_external),
+            Duration::from_millis(500),
+            Duration::from_secs(3),
+        );
+        match first {
+            NetworkIdleState::Busy { failing } => {
+                assert!(failing.contains("external request(s) still pending"));
+                assert!(failing.contains("https://analytics.thirdparty.test/pixel.js"));
+            }
+            other => panic!("expected Busy before grace period, got {other:?}"),
+        }
+
+        let settled = tracker.evaluate(
+            t0 + Duration::from_secs(3),
+            true,
+            Some(&hanging_external),
+            Duration::from_millis(500),
+            Duration::from_secs(3),
+        );
+        match settled {
+            NetworkIdleState::Idle { note: Some(note) } => {
+                assert!(note.contains("main-origin network settled"));
+                assert!(note.contains("https://analytics.thirdparty.test/pixel.js"));
+            }
+            other => panic!("expected Idle with external diagnostic note, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn network_idle_reports_pending_same_origin_urls_and_does_not_settle_early() {
+        let mut tracker = NetworkIdleTracker::default();
+        let t0 = Instant::now();
+        let slow_api = PendingNetwork {
+            ready_state: "complete".into(),
+            same_origin: vec![InflightCall {
+                method: "POST".into(),
+                url: "http://t1.localhost:8000/api/search".into(),
+                age_ms: 4200,
+            }],
+            external: vec![],
+        };
+
+        let state = tracker.evaluate(
+            t0 + Duration::from_secs(5),
+            false,
+            Some(&slow_api),
+            Duration::from_millis(500),
+            Duration::from_secs(3),
+        );
+        match state {
+            NetworkIdleState::Busy { failing } => {
+                assert!(failing.contains("1 same-origin request(s) still pending"));
+                assert!(failing.contains("POST http://t1.localhost:8000/api/search (4200ms)"));
+            }
+            other => panic!("expected Busy for same-origin pending call, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn network_idle_settles_quickly_when_fully_clear() {
+        let mut tracker = NetworkIdleTracker::default();
+        let t0 = Instant::now();
+        let clear = PendingNetwork {
+            ready_state: "complete".into(),
+            same_origin: vec![],
+            external: vec![],
+        };
+
+        assert!(matches!(
+            tracker.evaluate(
+                t0,
+                false,
+                Some(&clear),
+                Duration::from_millis(500),
+                Duration::from_secs(3)
+            ),
+            NetworkIdleState::Busy { .. }
+        ));
+        assert_eq!(
+            tracker.evaluate(
+                t0 + Duration::from_millis(500),
+                false,
+                Some(&clear),
+                Duration::from_millis(500),
+                Duration::from_secs(3)
+            ),
+            NetworkIdleState::Idle { note: None }
+        );
+    }
+}

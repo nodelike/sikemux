@@ -84,11 +84,17 @@
   let watch = null;
   let lastAllowed = [];
   let agentDepth = 0;
-  const localHost = (host) =>
-    host === "localhost" ||
-    host === "[::1]" ||
-    host.endsWith(".local") ||
-    host.startsWith("127.");
+  const localHost = (host) => {
+    const h = String(host || "").replace(/\.$/, "").toLowerCase();
+    return (
+      h === "localhost" ||
+      h.endsWith(".localhost") ||
+      h === "[::1]" ||
+      h === "::1" ||
+      h.endsWith(".local") ||
+      h.startsWith("127.")
+    );
+  };
   const fromAgent = (ownFrames) =>
     String(new Error().stack)
       .split("\n")

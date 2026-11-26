@@ -56,12 +56,27 @@
     },
     pending() {
         const recorder = window.__sikemuxNet;
-        if (!recorder) return null;
+        const readyState = document.readyState || "";
+        if (!recorder) return { readyState, sameOrigin: [], external: [] };
         const now = performance.now();
         // A call open for longer than this is a stream or a long poll, which
         // would otherwise keep the page busy for ever.
         const LONG_POLL = 10000;
-        return recorder.entries().filter((entry) => entry.durationMs == null && now - entry.startedAt < LONG_POLL).length;
+        const origin = location.origin;
+        const sameOrigin = [];
+        const external = [];
+        for (const entry of recorder.entries()) {
+            if (entry.durationMs != null || now - entry.startedAt >= LONG_POLL) continue;
+            const ageMs = Math.max(0, Math.round(now - entry.startedAt));
+            let same = true;
+            try {
+                same = new URL(entry.url, location.href).origin === origin;
+            } catch {}
+            const item = { method: entry.method, url: entry.url, ageMs };
+            if (same) sameOrigin.push(item);
+            else external.push(item);
+        }
+        return { readyState, sameOrigin, external };
     },
     console(limit, errorsOnly) {
         const recorder = window.__sikemuxConsole;

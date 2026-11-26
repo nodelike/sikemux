@@ -154,26 +154,30 @@ define_class!(
         #[unsafe(method(webView:didFailProvisionalNavigation:withError:))]
         unsafe fn failed_before_commit(
             &self,
-            _webview: &WKWebView,
+            webview: &WKWebView,
             navigation: Option<&WKNavigation>,
             error: &NSError,
         ) {
             self.ivars().events.document(DocumentEvent::Failed {
                 navigation: navigation_id(navigation),
+                url: failing_url(error, webview),
                 error: load_error(error),
+                provisional: true,
             });
         }
 
         #[unsafe(method(webView:didFailNavigation:withError:))]
         unsafe fn failed(
             &self,
-            _webview: &WKWebView,
+            webview: &WKWebView,
             navigation: Option<&WKNavigation>,
             error: &NSError,
         ) {
             self.ivars().events.document(DocumentEvent::Failed {
                 navigation: navigation_id(navigation),
+                url: failing_url(error, webview),
                 error: load_error(error),
+                provisional: false,
             });
         }
     }
@@ -294,6 +298,35 @@ pub(super) fn page_load(webview: &WKWebView, started: bool) -> PageLoad {
 
 pub(super) fn navigation_id(navigation: Option<&WKNavigation>) -> usize {
     navigation.map_or(0, |navigation| navigation as *const WKNavigation as usize)
+}
+
+pub(super) fn failing_url(error: &NSError, webview: &WKWebView) -> Option<String> {
+    let info = error.userInfo();
+    for key in [
+        "NSErrorFailingURLStringKey",
+        "NSURLErrorFailingURLStringErrorKey",
+    ] {
+        if let Some(value) = info.objectForKey(&NSString::from_str(key)) {
+            if let Some(text) = value.downcast_ref::<NSString>() {
+                let s = text.to_string();
+                if !s.is_empty() {
+                    return Some(s);
+                }
+            }
+        }
+    }
+    if let Some(value) = info.objectForKey(&NSString::from_str("NSErrorFailingURLKey")) {
+        if let Some(url) = value.downcast_ref::<NSURL>() {
+            if let Some(text) = url.absoluteString() {
+                let s = text.to_string();
+                if !s.is_empty() {
+                    return Some(s);
+                }
+            }
+        }
+    }
+    let current = address_of(webview);
+    (!current.is_empty() && current != crate::BLANK_URL).then_some(current)
 }
 
 /// WebKit's description of why a load failed, with its code, since the same

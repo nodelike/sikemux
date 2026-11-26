@@ -5,10 +5,11 @@
 (() => {
     if (window.__sikemux) return;
     const INTERACTIVE =
-        'a[href], button, input, select, textarea, summary, label, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="checkbox"], [role="radio"], [role="option"], [role="switch"], [role="textbox"], [role="combobox"], [contenteditable="true"], [onclick], [tabindex]:not([tabindex="-1"])';
+        'a[href], button, input, select, textarea, summary, label, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="checkbox"], [role="radio"], [role="option"], [role="switch"], [role="textbox"], [role="combobox"], [contenteditable]:not([contenteditable="false"]), [onclick], [tabindex]:not([tabindex="-1"])';
     // Controls in their own right. Anything else in INTERACTIVE, such as a
     // label or a div with a click handler, may just be part of a control.
-    const CONTROL = 'a[href], button, input, select, textarea, summary, iframe, frame, [role], [contenteditable="true"]';
+    const CONTROL = 'a[href], button, input, select, textarea, summary, iframe, frame, [role], [contenteditable]:not([contenteditable="false"])';
+    const NON_TEXT_INPUTS = new Set(["checkbox", "radio", "button", "submit", "reset", "image", "file", "hidden"]);
     const TEXT_CAP = 2000;
     const FULL_TEXT_CAP = 40000;
     const MAX_FOUND = 30;
@@ -28,7 +29,10 @@
         const type = (control.getAttribute("type") || (control.tagName === "BUTTON" ? "submit" : "text")).toLowerCase();
         return type === "submit" || type === "image" ? control : null;
     };
-    const localHost = (host) => host === "localhost" || host === "[::1]" || host.endsWith(".local") || host.startsWith("127.");
+    const localHost = (host) => {
+        const h = String(host || "").replace(/\.$/, "").toLowerCase();
+        return h === "localhost" || h.endsWith(".localhost") || h === "[::1]" || h === "::1" || h.endsWith(".local") || h.startsWith("127.");
+    };
     // A form read by its attributes, since a field named "action" or "method" hides the properties.
     const writeOfForm = (form, control) => {
         const method = ((control && control.getAttribute("formmethod")) || form.getAttribute("method") || "get").toUpperCase();
@@ -594,9 +598,27 @@
         const exact = deepest.filter((holder) => compact(holder.innerText).toLowerCase() === wanted);
         return (exact.length ? exact : deepest).map((holder) => [numberFor(holder), holder]);
     };
+    const isFillable = (element) => {
+        if (!element) return false;
+        if (element.tagName === "TEXTAREA" || element.tagName === "SELECT") return true;
+        if (element.tagName === "INPUT") return !NON_TEXT_INPUTS.has((element.type || "text").toLowerCase());
+        if (element.isContentEditable) return true;
+        const role = roleOf(element);
+        return role === "textbox" || role === "searchbox" || role === "combobox" || role === "spinbutton";
+    };
+    const controlOfLabel = (element) => {
+        if (!element) return null;
+        const lbl = element.tagName === "LABEL" ? element : element.closest && element.closest("label");
+        if (!lbl) return null;
+        if (lbl.control && isFillable(lbl.control)) return lbl.control;
+        const inner = [...lbl.querySelectorAll('input, textarea, select, [contenteditable]:not([contenteditable="false"])')].filter(isFillable);
+        return inner.length === 1 ? inner[0] : null;
+    };
+    const unwrapForType = (element) => (isFillable(element) ? element : controlOfLabel(element) || element);
+    const looksLikeSelector = (text) => typeof text === "string" && /^[#.\[]|[>\[:+]/.test(text.trim());
     // The numbered elements a call names by `selector` or `text`, and what to
     // say when that is not exactly one.
-    const named = (target) => {
+    const named = (target, fillable = false) => {
         if (target.selector != null) {
             const found = selected(target.selector)
                 .filter(shown)
@@ -604,12 +626,34 @@
             return { found, none: `nothing shown matches "${target.selector}"`, many: `${found.length} shown elements match "${target.selector}"`, narrower: "a narrower selector" };
         }
         if (target.text == null) return null;
+        if (fillable && looksLikeSelector(target.text)) {
+            try {
+                const bySel = selected(target.text).filter(shown);
+                if (bySel.length) {
+                    const found = bySel.map((element) => [numberFor(element), element]);
+                    return { found, none: `nothing shown matches "${target.text}"`, many: `${found.length} shown elements match "${target.text}"`, narrower: "a narrower selector" };
+                }
+            } catch {}
+        }
         const scope = target.role ? ` with role ${target.role}` : "";
         const labelled = matching(target.text, target.role);
         const found = labelled.length || target.role ? labelled : textHolders(target.text);
         const otherRoles = target.role && !found.length ? matching(target.text, null) : [];
         const hint = otherRoles.length ? `; these have that text with another role:\n${lines(otherRoles.slice(0, 10))}` : "; try browser_find with part of the words";
         return { found, none: `nothing${scope} shows or is labelled "${target.text}"${hint}`, many: `${found.length} elements${scope} match "${target.text}"`, narrower: "a role or fuller text" };
+    };
+    const narrowFillable = (found) => {
+        const deduped = [];
+        const seen = new Set();
+        for (const [, raw] of found) {
+            const element = unwrapForType(raw);
+            if (!element || seen.has(element)) continue;
+            seen.add(element);
+            deduped.push([numberFor(element), element]);
+        }
+        if (deduped.length <= 1) return deduped;
+        const onlyFillable = deduped.filter(([, element]) => isFillable(element));
+        return onlyFillable.length ? onlyFillable : deduped;
     };
     const centre = (element) => {
         const rect = rectOf(element);
@@ -1311,13 +1355,17 @@
         // The number of the element a call names by `index`, `text` (with an
         // optional `role`) or `selector`. An index given beside text or a
         // selector picks one of the elements they match.
-        resolve(target) {
-            const match = named(target);
+        resolve(target, fillable = false) {
+            const match = named(target, fillable);
             if (!match) {
-                if (target.index != null) return target.index;
+                if (target.index != null) {
+                    if (!fillable) return target.index;
+                    const element = unwrapForType(pick(target.index));
+                    return numberFor(element);
+                }
                 throw new Error("pass index, text or selector");
             }
-            const { found } = match;
+            const found = fillable ? narrowFillable(match.found) : match.found;
             const listed = () => lines(found.slice(0, 10));
             if (found.length === 1 && (target.index == null || target.index === found[0][0])) return found[0][0];
             if (!found.length) throw missing(match.none);
@@ -1325,7 +1373,8 @@
                 if (found.some(([id]) => id === target.index)) return target.index;
                 throw new Error(`element [${target.index}] is not one of the ${found.length} that match; nothing was done. Pass one of these numbers as index:\n${listed()}`);
             }
-            throw new Error(`${match.many}; nothing was done. Pass ${match.narrower}, or one of these numbers as index:\n${listed()}`);
+            const countNote = found.length === match.found.length ? match.many : `${found.length} fillable elements match`;
+            throw new Error(`${countNote}; nothing was done. Pass ${match.narrower}, or one of these numbers as index:\n${listed()}`);
         },
         point(target, expectLabel) {
             const element = pick(typeof target === "number" ? target : this.resolve(target));
@@ -1378,10 +1427,10 @@
             return { x, y, hit };
         },
         focus(target, text, replace) {
-            const element = target == null ? focused() : pick(typeof target === "number" ? target : this.resolve(target));
+            const element = target == null ? focused() : unwrapForType(pick(typeof target === "number" ? target : this.resolve(target, true)));
             if (!element || (element === element.ownerDocument.body && !element.isContentEditable)) throw new Error("nothing is focused, so there is nowhere to type; pass the field's index or selector, or click into it first");
             if (element.tagName === "SELECT") {
-                return { isSelect: true, index: numberOf(element), label: describe(element) };
+                return { isSelect: true, index: numberFor(element), label: describe(element) };
             }
             const into = describe(element);
             if (target == null) return { replacing: replace ? selectContents(element) : false, into };
@@ -1452,7 +1501,7 @@
             };
         },
         commitField(target, expectedValue, replace, blind) {
-            const element = target == null ? focused() : pick(typeof target === "number" ? target : this.resolve(target));
+            const element = target == null ? focused() : unwrapForType(pick(typeof target === "number" ? target : this.resolve(target, true)));
             if (element && blind) {
                 blindElements.add(element);
             }
@@ -1508,7 +1557,7 @@
         },
         // The write pressing Enter in this field would make, if any.
         writeOfField(target) {
-            const element = target == null ? focused() : pick(typeof target === "number" ? target : this.resolve(target));
+            const element = target == null ? focused() : unwrapForType(pick(typeof target === "number" ? target : this.resolve(target, true)));
             if (!element || isFrame(element)) return null;
             const control = submitControl(element);
             if (control) return control.form ? writeOfForm(control.form, control) : null;
@@ -1517,7 +1566,7 @@
         },
         // A long value shows its end, where typing lands, with its length.
         valueOf(target) {
-            const element = target == null ? focused() : pick(typeof target === "number" ? target : this.resolve(target));
+            const element = target == null ? focused() : unwrapForType(pick(typeof target === "number" ? target : this.resolve(target, true)));
             if (!element || isFrame(element)) return { value: null };
             const raw = "value" in element && typeof element.value === "string" ? element.value : element.innerText;
             const value = compact(raw);

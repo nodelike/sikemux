@@ -429,8 +429,22 @@ async fn run(
                 }
                 tab_id
             };
+            let load_timeout = match (
+                params.pointer("/waitFor/timeoutMs").and_then(Value::as_u64),
+                params
+                    .pointer("/waitFor/networkIdle")
+                    .and_then(Value::as_bool)
+                    == Some(true),
+            ) {
+                (Some(asked), true) => LOAD_TIMEOUT
+                    .min(Duration::from_millis(asked))
+                    .min(NAV_NETWORK_IDLE_LOAD_CAP),
+                (Some(asked), false) => LOAD_TIMEOUT.min(Duration::from_millis(asked)),
+                (None, true) => NAV_NETWORK_IDLE_LOAD_CAP,
+                (None, false) => LOAD_TIMEOUT,
+            };
             let _ = manager
-                .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
+                .wait_until_loaded(agent_id, &tab_id, load_timeout)
                 .await;
             if let Ok((_, view)) = manager.tab_view(agent_id, Some(&tab_id)) {
                 call_page_settle_tab(manager, &tab_id, &view).await;
@@ -438,8 +452,16 @@ async fn run(
             if manager.viewport(agent_id, &tab_id).is_some() {
                 let _ = manager.settle_viewport(agent_id, &tab_id).await;
             }
-            let mut result =
-                arrived(manager, agent_id, &tab_id, params, started, tabs_changed).await?;
+            let mut result = arrived(
+                manager,
+                agent_id,
+                &tab_id,
+                params,
+                started,
+                tabs_changed,
+                Some(&wanted),
+            )
+            .await?;
             if let Some(note) = note {
                 put(&mut result, "note", json!(note));
             }
@@ -1244,7 +1266,7 @@ async fn run(
             let url = text("url").ok_or("url is required")?;
             let loopback = url::Url::parse(&url).is_ok_and(|url| {
                 url.scheme() == "http"
-                    && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+                    && url.host_str().is_some_and(crate::address::is_loopback_host)
             });
             if !loopback {
                 return Err("the core takes pictures only of pages served on this machine".into());
@@ -1784,7 +1806,7 @@ async fn step(
         .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
         .await;
     call_page_settle(&view).await;
-    arrived(manager, agent_id, &tab_id, params, started, false).await
+    arrived(manager, agent_id, &tab_id, params, started, false, None).await
 }
 
 /// Whether `script` reads as an expression or as statements, or the syntax error that

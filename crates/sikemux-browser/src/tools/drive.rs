@@ -27,8 +27,227 @@ const MAX_DRIVE_STEPS: usize = 200;
 
 /// JS SDK exposed as the `browser` global inside `browser_drive`.
 /// Pure JS only — no filesystem, network, env, or DOM globals exist in this runtime.
-const DRIVE_SDK_JS: &str = r#"
+const DRIVE_SDK_JS: &str = r##"
 (() => {
+    const encodeForm = (s) =>
+        encodeURIComponent(String(s))
+            .replace(/%20/g, "+")
+            .replace(/[!'()~]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+    const decodeForm = (s) => {
+        try { return decodeURIComponent(String(s).replace(/\+/g, " ")); }
+        catch { return String(s).replace(/\+/g, " "); }
+    };
+
+    class URLSearchParams {
+        constructor(init, onChange) {
+            this._pairs = [];
+            this._onChange = typeof onChange === "function" ? onChange : null;
+            if (init == null) return;
+            if (init instanceof URLSearchParams) {
+                for (const [k, v] of init._pairs) this._pairs.push([k, v]);
+            } else if (typeof init === "string") {
+                const raw = init.startsWith("?") ? init.slice(1) : init;
+                if (raw) {
+                    for (const part of raw.split("&")) {
+                        if (!part) continue;
+                        const eq = part.indexOf("=");
+                        if (eq < 0) this._pairs.push([decodeForm(part), ""]);
+                        else this._pairs.push([decodeForm(part.slice(0, eq)), decodeForm(part.slice(eq + 1))]);
+                    }
+                }
+            } else if (Array.isArray(init) || (typeof init === "object" && typeof init[Symbol.iterator] === "function")) {
+                for (const entry of init) {
+                    if (!entry || entry.length !== 2) throw new TypeError("URLSearchParams sequence entries must have 2 elements");
+                    this._pairs.push([String(entry[0]), String(entry[1])]);
+                }
+            } else if (typeof init === "object") {
+                for (const [k, v] of Object.entries(init)) {
+                    this._pairs.push([String(k), String(v)]);
+                }
+            }
+        }
+        _notify() {
+            if (this._onChange) this._onChange(this.toString());
+        }
+        get size() { return this._pairs.length; }
+        append(name, value) {
+            this._pairs.push([String(name), String(value)]);
+            this._notify();
+        }
+        delete(name, value) {
+            const key = String(name);
+            const hasVal = value !== undefined;
+            const val = hasVal ? String(value) : "";
+            this._pairs = this._pairs.filter(([k, v]) => k !== key || (hasVal && v !== val));
+            this._notify();
+        }
+        get(name) {
+            const key = String(name);
+            const pair = this._pairs.find(([k]) => k === key);
+            return pair ? pair[1] : null;
+        }
+        getAll(name) {
+            const key = String(name);
+            return this._pairs.filter(([k]) => k === key).map(([, v]) => v);
+        }
+        has(name, value) {
+            const key = String(name);
+            const hasVal = value !== undefined;
+            const val = hasVal ? String(value) : "";
+            return this._pairs.some(([k, v]) => k === key && (!hasVal || v === val));
+        }
+        set(name, value) {
+            const key = String(name);
+            const val = String(value);
+            let replaced = false;
+            const next = [];
+            for (const pair of this._pairs) {
+                if (pair[0] === key) {
+                    if (!replaced) {
+                        next.push([key, val]);
+                        replaced = true;
+                    }
+                } else {
+                    next.push(pair);
+                }
+            }
+            if (!replaced) next.push([key, val]);
+            this._pairs = next;
+            this._notify();
+        }
+        sort() {
+            this._pairs.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+            this._notify();
+        }
+        *entries() { for (const [k, v] of this._pairs) yield [k, v]; }
+        *keys() { for (const [k] of this._pairs) yield k; }
+        *values() { for (const [, v] of this._pairs) yield v; }
+        forEach(cb, thisArg) {
+            for (const [k, v] of this._pairs) cb.call(thisArg, v, k, this);
+        }
+        [Symbol.iterator]() { return this.entries(); }
+        toString() {
+            return this._pairs.map(([k, v]) => `${encodeForm(k)}=${encodeForm(v)}`).join("&");
+        }
+    }
+
+    const parseUrlParts = (input, base) => {
+        const raw = __sikemuxParseUrl(String(input), base === undefined ? null : String(base));
+        const env = JSON.parse(raw);
+        if (env.error !== undefined) throw new TypeError(env.error);
+        return env.ok;
+    };
+
+    const rebuildUrl = (parts) => {
+        let auth = "";
+        if (parts.username || parts.password) {
+            auth = parts.username + (parts.password ? `:${parts.password}` : "") + "@";
+        }
+        const authority = parts.host || auth ? `//${auth}${parts.host}` : "";
+        return `${parts.protocol}${authority}${parts.pathname}${parts.search}${parts.hash}`;
+    };
+
+    class URL {
+        constructor(input, base) {
+            this._parts = parseUrlParts(input, base);
+            this._params = new URLSearchParams(this._parts.search, (qs) => {
+                this._parts.search = qs ? `?${qs}` : "";
+                this._parts = parseUrlParts(rebuildUrl(this._parts));
+            });
+        }
+        static canParse(input, base) {
+            try { parseUrlParts(input, base); return true; } catch { return false; }
+        }
+        static parse(input, base) {
+            try { return new URL(input, base); } catch { return null; }
+        }
+        _syncParams() {
+            const next = new URLSearchParams(this._parts.search);
+            this._params._pairs = next._pairs;
+        }
+        _update(patch) {
+            const candidate = { ...this._parts, ...patch };
+            try {
+                this._parts = parseUrlParts(rebuildUrl(candidate));
+                this._syncParams();
+            } catch {}
+        }
+        get href() { return this._parts.href; }
+        set href(v) {
+            this._parts = parseUrlParts(v);
+            this._syncParams();
+        }
+        get origin() { return this._parts.origin; }
+        get protocol() { return this._parts.protocol; }
+        set protocol(v) {
+            const s = String(v).trim();
+            if (!s) return;
+            this._update({ protocol: s.endsWith(":") ? s : `${s}:` });
+        }
+        get username() { return this._parts.username; }
+        set username(v) { this._update({ username: encodeURIComponent(String(v)) }); }
+        get password() { return this._parts.password; }
+        set password(v) { this._update({ password: encodeURIComponent(String(v)) }); }
+        get host() { return this._parts.host; }
+        set host(v) { this._update({ host: String(v) }); }
+        get hostname() { return this._parts.hostname; }
+        set hostname(v) {
+            const h = String(v);
+            this._update({ host: this._parts.port ? `${h}:${this._parts.port}` : h });
+        }
+        get port() { return this._parts.port; }
+        set port(v) {
+            const p = String(v).trim();
+            this._update({ host: p ? `${this._parts.hostname}:${p}` : this._parts.hostname });
+        }
+        get pathname() { return this._parts.pathname; }
+        set pathname(v) {
+            const p = String(v);
+            this._update({ pathname: p.startsWith("/") ? p : `/${p}` });
+        }
+        get search() { return this._parts.search; }
+        set search(v) {
+            const s = String(v);
+            this._update({ search: !s || s === "?" ? "" : (s.startsWith("?") ? s : `?${s}`) });
+        }
+        get searchParams() { return this._params; }
+        get hash() { return this._parts.hash; }
+        set hash(v) {
+            const s = String(v);
+            this._update({ hash: !s || s === "#" ? "" : (s.startsWith("#") ? s : `#${s}`) });
+        }
+        toString() { return this._parts.href; }
+        toJSON() { return this._parts.href; }
+    }
+
+    globalThis.URL = URL;
+    globalThis.URLSearchParams = URLSearchParams;
+
+    let __nextTimerId = 1;
+    const __activeTimers = new Set();
+    const MAX_TIMERS = 64;
+    globalThis.setTimeout = (fn, ms, ...args) => {
+        if (typeof fn !== "function") {
+            throw new TypeError("setTimeout callback must be a function");
+        }
+        if (__activeTimers.size >= MAX_TIMERS) {
+            throw new RangeError(`at most ${MAX_TIMERS} active timers allowed in browser_drive`);
+        }
+        const id = __nextTimerId++;
+        const delay = Math.max(0, Number(ms) || 0);
+        __activeTimers.add(id);
+        __sikemuxWaitTimer(id, delay).then((fire) => {
+            if (!__activeTimers.delete(id) || !fire) return;
+            fn(...args);
+        });
+        return id;
+    };
+    globalThis.clearTimeout = (id) => {
+        if (__activeTimers.delete(id)) {
+            __sikemuxCancelTimer(id);
+        }
+    };
+
     const normalizeTarget = (arg, opts) => {
         if (typeof arg === "number") return { index: arg, ...(opts || {}) };
         if (typeof arg === "string") return { text: arg, ...(opts || {}) };
@@ -54,6 +273,61 @@ const DRIVE_SDK_JS: &str = r#"
         }
     };
 
+    const parseTypeParams = (name, first, second, third) => {
+        const sig = `tab.${name}(target, text, opts?) or tab.${name}({ field|selector|index?, text, replace?, submit? })`;
+        if (first === undefined) {
+            throw new Error(`tab.${name} requires text: ${sig}`);
+        }
+        let p;
+        const isScalarText = (v) => typeof v === "string" || typeof v === "number";
+        if (typeof first === "object" && first !== null) {
+            if (isScalarText(second)) {
+                p = { ...first, text: String(second), ...(third || {}) };
+            } else if (typeof second === "object" && second !== null) {
+                p = { ...first, ...second };
+            } else {
+                p = { ...first };
+            }
+        } else if (typeof first === "number") {
+            if (isScalarText(second)) {
+                p = { index: first, text: String(second), ...(third || {}) };
+            } else if (typeof second === "object" && second !== null) {
+                p = { index: first, ...second };
+            } else {
+                throw new Error(`tab.${name} requires text: ${sig}`);
+            }
+        } else if (typeof first === "string") {
+            if (isScalarText(second)) {
+                p = { field: first, text: String(second), ...(third || {}) };
+            } else if (typeof second === "object" && second !== null && second.text !== undefined) {
+                p = { field: first, ...second };
+            } else {
+                p = { text: first, ...(typeof second === "object" && second !== null ? second : {}) };
+            }
+        } else {
+            throw new Error(`tab.${name} requires text: ${sig}`);
+        }
+        if (typeof p.text === "number") p.text = String(p.text);
+        if (typeof p.text !== "string") {
+            const valueHint = p.value !== undefined ? ' (use "text", not "value")' : "";
+            throw new Error(`tab.${name} requires text${valueHint}: ${sig}`);
+        }
+        return p;
+    };
+
+    const TAB_METHODS = "goto, click, hover, type, fill, select, upload, dialog, download, press, scroll, wait, state, find, eval, screenshot, console, network, viewport, close";
+    const TAB_HINTS = {
+        navigate: "use tab.goto(url, opts?)",
+        go: "use tab.goto(url, opts?) or tab.goto({ go: 'back'|'forward'|'reload' })",
+        back: "use tab.goto({ go: 'back' })",
+        forward: "use tab.goto({ go: 'forward' })",
+        reload: "use tab.goto({ go: 'reload' })",
+        evaluate: "use tab.eval(script, opts?)",
+        waitFor: "use tab.wait(arg)",
+        querySelector: 'use tab.eval("document.querySelector(...)") or tab.find(query)',
+        setValue: "use tab.fill(target, text, opts?)",
+    };
+
     const makeTab = (initialId, initialMeta) => {
         let currentId = initialId || null;
         let currentUrl = (initialMeta && initialMeta.url) || "";
@@ -71,63 +345,42 @@ const DRIVE_SDK_JS: &str = r#"
             return res;
         };
 
-        return {
+        const api = {
             get id() { return currentId; },
             get url() { return currentUrl; },
             get title() { return currentTitle; },
             goto(urlOrOpts, opts) {
                 const p = typeof urlOrOpts === "string" ? { url: urlOrOpts, ...(opts || {}) } : { ...(urlOrOpts || {}) };
+                if (typeof p.url !== "string" && typeof p.go !== "string") {
+                    throw new Error('tab.goto requires url or go: tab.goto(url, opts?) or tab.goto({ url|go, waitFor? })');
+                }
                 if (p.report === undefined) p.report = "outcome";
                 return callOnTab("browser.navigate", p);
             },
             click(target, opts) {
                 const p = normalizeTarget(target, opts);
+                if (p.index === undefined && p.text === undefined && p.selector === undefined && (p.x === undefined || p.y === undefined)) {
+                    throw new Error('tab.click requires a target: tab.click(target, opts?) where target is index, text, or { selector|text|index|x,y }');
+                }
                 if (p.report === undefined) p.report = "outcome";
                 return callOnTab("browser.click", p);
             },
             hover(target, opts) {
                 const p = normalizeTarget(target, opts);
+                if (p.index === undefined && p.text === undefined && p.selector === undefined && (p.x === undefined || p.y === undefined)) {
+                    throw new Error('tab.hover requires a target: tab.hover(target, opts?) where target is index, text, or { selector|text|index|x,y }');
+                }
                 p.hover = true;
                 if (p.report === undefined) p.report = "outcome";
                 return callOnTab("browser.click", p);
             },
             type(first, second, third) {
-                let p;
-                if (typeof first === "object" && first !== null) {
-                    if (typeof second === "string") {
-                        p = { ...first, text: second, ...(third || {}) };
-                    } else if (typeof second === "object" && second !== null) {
-                        p = { ...first, ...second };
-                    } else {
-                        p = { ...first };
-                    }
-                } else if (typeof first === "number") {
-                    p = { index: first, text: String(second ?? ""), ...(third || {}) };
-                } else if (typeof second === "string") {
-                    p = { field: String(first), text: second, ...(third || {}) };
-                } else {
-                    p = { text: String(first ?? ""), ...(typeof second === "object" && second !== null ? second : {}) };
-                }
+                const p = parseTypeParams("type", first, second, third);
                 if (p.report === undefined) p.report = "outcome";
                 return callOnTab("browser.type", p);
             },
             fill(first, second, third) {
-                let p;
-                if (typeof first === "object" && first !== null) {
-                    if (typeof second === "string") {
-                        p = { ...first, text: second, ...(third || {}) };
-                    } else if (typeof second === "object" && second !== null) {
-                        p = { ...first, ...second };
-                    } else {
-                        p = { ...first };
-                    }
-                } else if (typeof first === "number") {
-                    p = { index: first, text: String(second ?? ""), ...(third || {}) };
-                } else if (typeof second === "string") {
-                    p = { field: String(first), text: second, ...(third || {}) };
-                } else {
-                    p = { text: String(first ?? ""), ...(typeof second === "object" && second !== null ? second : {}) };
-                }
+                const p = parseTypeParams("fill", first, second, third);
                 if (p.replace === undefined) p.replace = true;
                 if (p.report === undefined) p.report = "outcome";
                 return callOnTab("browser.type", p);
@@ -142,6 +395,9 @@ const DRIVE_SDK_JS: &str = r#"
                     p = { field: target, value, ...(opts || {}) };
                 } else {
                     p = { ...(target || {}), value, ...(opts || {}) };
+                }
+                if (p.value === undefined) {
+                    throw new Error('tab.select requires target and value: tab.select(target, value, opts?) or tab.select({ field|selector|index, value })');
                 }
                 if (p.report === undefined) p.report = "outcome";
                 return callOnTab("browser.select", p);
@@ -168,6 +424,9 @@ const DRIVE_SDK_JS: &str = r#"
                 } else {
                     p = { ...target, paths: toPaths(files), ...(opts || {}) };
                 }
+                if (!Array.isArray(p.paths) || p.paths.length === 0) {
+                    throw new Error('tab.upload requires files: tab.upload(target, files, opts?) or tab.upload(files)');
+                }
                 if (p.report === undefined) p.report = "outcome";
                 return callOnTab("browser.upload", p);
             },
@@ -185,7 +444,7 @@ const DRIVE_SDK_JS: &str = r#"
                         action === "dismiss" ||
                         action === "cancel";
                     if (!accept && !dismiss) {
-                        throw new Error('dialog action must be "accept", "dismiss", true, or false');
+                        throw new Error('tab.dialog requires action: tab.dialog("accept"|"dismiss", text?)');
                     }
                     p = { accept };
                     if (typeof text === "string") p.text = text;
@@ -197,10 +456,16 @@ const DRIVE_SDK_JS: &str = r#"
             },
             download(url, opts) {
                 const p = typeof url === "string" ? { url, ...(opts || {}) } : { ...(url || {}) };
+                if (typeof p.url !== "string" || !p.url) {
+                    throw new Error('tab.download requires url: tab.download(url, opts?) or tab.download({ url, filename? })');
+                }
                 return callOnTab("browser.download", p);
             },
             press(key, opts) {
-                const p = { key, ...(opts || {}) };
+                const p = typeof key === "object" && key !== null ? { ...key, ...(opts || {}) } : { key, ...(opts || {}) };
+                if (typeof p.key !== "string" || !p.key) {
+                    throw new Error('tab.press requires key: tab.press(key, opts?) or tab.press({ key })');
+                }
                 if (p.report === undefined) p.report = "outcome";
                 return callOnTab("browser.press", p);
             },
@@ -225,10 +490,24 @@ const DRIVE_SDK_JS: &str = r#"
             },
             find(query, role) {
                 const p = typeof query === "object" && query !== null ? { ...query } : { query, ...(role ? { role } : {}) };
+                if (typeof p.query !== "string" || !p.query) {
+                    throw new Error('tab.find requires query: tab.find(query, role?) or tab.find({ query, role? })');
+                }
                 return callOnTab("browser.find", p);
             },
             eval(script, opts) {
-                return callOnTab("browser.evaluate", { script, ...(opts || {}) });
+                let p;
+                if (typeof script === "string") {
+                    p = { script, ...(opts || {}) };
+                } else if (typeof script === "object" && script !== null) {
+                    p = { ...script, ...(opts || {}) };
+                } else {
+                    throw new Error('tab.eval requires a JS string: tab.eval(script, opts?) or tab.eval({ script, timeoutMs? })');
+                }
+                if (typeof p.script !== "string" || !p.script.trim()) {
+                    throw new Error('tab.eval requires a JS string: tab.eval(script, opts?) or tab.eval({ script, timeoutMs? })');
+                }
+                return callOnTab("browser.evaluate", p);
             },
             screenshot(opts) {
                 return callOnTab("browser.screenshot", opts || {});
@@ -247,14 +526,31 @@ const DRIVE_SDK_JS: &str = r#"
                 return callOnTab("browser.tab.close", {});
             },
         };
+
+        return new Proxy(api, {
+            get(target, prop, receiver) {
+                if (typeof prop === "symbol" || prop in target || prop === "then" || prop === "toJSON") {
+                    return Reflect.get(target, prop, receiver);
+                }
+                const hint = TAB_HINTS[prop] ? ` (${TAB_HINTS[prop]})` : "";
+                return () => {
+                    throw new TypeError(`tab.${prop} is not a method${hint}. Valid tab methods: ${TAB_METHODS}`);
+                };
+            },
+        });
     };
 
-    globalThis.browser = Object.freeze({
+    const browserApi = Object.freeze({
         tabs() {
             return JSON.parse(__sikemuxTabs());
         },
         async open(url, opts) {
-            const p = { url, newTab: true, ...(opts || {}) };
+            const p = typeof url === "string"
+                ? { url, newTab: true, ...(opts || {}) }
+                : { newTab: true, ...(url || {}), ...(opts || {}) };
+            if (typeof p.url !== "string" || !p.url) {
+                throw new Error('browser.open requires url: browser.open(url, opts?) or browser.open({ url, background?, waitFor? })');
+            }
             if (p.report === undefined) p.report = "outcome";
             const res = await invoke("browser.navigate", p);
             return makeTab(res && res.tabId, res);
@@ -264,9 +560,20 @@ const DRIVE_SDK_JS: &str = r#"
         },
     });
 
+    globalThis.browser = new Proxy(browserApi, {
+        get(target, prop, receiver) {
+            if (typeof prop === "symbol" || prop in target || prop === "then" || prop === "toJSON") {
+                return Reflect.get(target, prop, receiver);
+            }
+            return () => {
+                throw new TypeError(`browser.${prop} is not a method. Valid browser methods: tabs(), open(url, opts?), tab(id?)`);
+            };
+        },
+    });
+
     globalThis.sleep = (ms) => __sikemuxSleep(Math.max(0, Number(ms) || 0));
 })();
-"#;
+"##;
 
 /// Methods `browser_drive` is allowed to invoke through the gated host dispatcher.
 const ALLOWED_DRIVE_METHODS: &[&str] = &[
@@ -606,6 +913,10 @@ pub(crate) async fn run_drive(
     let (req_tx, mut req_rx) = mpsc::unbounded_channel::<InvokeRequest>();
     let tabs_snapshot = Arc::new(Mutex::new(backend.tabs()));
     let tabs_for_js = Arc::clone(&tabs_snapshot);
+    let timers: Arc<Mutex<std::collections::HashMap<u64, oneshot::Sender<()>>>> =
+        Arc::new(Mutex::new(std::collections::HashMap::new()));
+    let timers_for_js = Arc::clone(&timers);
+    let gate_for_timers = Arc::clone(&gate_aborted);
     let script_owned = script.to_owned();
 
     let js_fut = async move {
@@ -659,6 +970,22 @@ pub(crate) async fn run_drive(
                     .set("__sikemuxTabs", tabs_fn)
                     .map_err(|e| format!("could not set tabs: {e}"))?;
 
+                let parse_url_fn = Function::new(
+                    ctx.clone(),
+                    move |input: String, base: Option<String>| -> String {
+                        let envelope = match parse_url_for_js(&input, base.as_deref()) {
+                            Ok(parts) => json!({ "ok": parts }),
+                            Err(error) => json!({ "error": error }),
+                        };
+                        serde_json::to_string(&envelope)
+                            .unwrap_or_else(|_| r#"{"error":"Invalid URL"}"#.into())
+                    },
+                )
+                .map_err(|e| format!("could not register parseUrl: {e}"))?;
+                globals
+                    .set("__sikemuxParseUrl", parse_url_fn)
+                    .map_err(|e| format!("could not set parseUrl: {e}"))?;
+
                 let sleep_fn = Function::new(
                     ctx.clone(),
                     Async(move |ms: f64| async move {
@@ -671,6 +998,50 @@ pub(crate) async fn run_drive(
                 globals
                     .set("__sikemuxSleep", sleep_fn)
                     .map_err(|e| format!("could not set sleep: {e}"))?;
+
+                let timers_wait = Arc::clone(&timers_for_js);
+                let gate_wait = Arc::clone(&gate_for_timers);
+                let wait_timer_fn = Function::new(
+                    ctx.clone(),
+                    Async(move |id: f64, ms: f64| {
+                        let timers = Arc::clone(&timers_wait);
+                        let gate = Arc::clone(&gate_wait);
+                        async move {
+                            let id = id as u64;
+                            let dur = Duration::from_millis((ms.clamp(0.0, 60_000.0)) as u64);
+                            let left = deadline.saturating_duration_since(Instant::now());
+                            if left.is_zero() || gate.load(Ordering::Acquire) {
+                                return false;
+                            }
+                            let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+                            timers.locked().insert(id, cancel_tx);
+                            let fire = tokio::select! {
+                                biased;
+                                _ = cancel_rx => false,
+                                () = tokio::time::sleep(dur.min(left)) => {
+                                    Instant::now() < deadline && !gate.load(Ordering::Acquire)
+                                }
+                            };
+                            timers.locked().remove(&id);
+                            fire
+                        }
+                    }),
+                )
+                .map_err(|e| format!("could not register waitTimer: {e}"))?;
+                globals
+                    .set("__sikemuxWaitTimer", wait_timer_fn)
+                    .map_err(|e| format!("could not set waitTimer: {e}"))?;
+
+                let timers_cancel = Arc::clone(&timers_for_js);
+                let cancel_timer_fn = Function::new(ctx.clone(), move |id: f64| {
+                    if let Some(cancel) = timers_cancel.locked().remove(&(id as u64)) {
+                        let _ = cancel.send(());
+                    }
+                })
+                .map_err(|e| format!("could not register cancelTimer: {e}"))?;
+                globals
+                    .set("__sikemuxCancelTimer", cancel_timer_fn)
+                    .map_err(|e| format!("could not set cancelTimer: {e}"))?;
 
                 ctx.eval::<(), _>(DRIVE_SDK_JS)
                     .catch(&ctx)
@@ -718,6 +1089,9 @@ pub(crate) async fn run_drive(
     let js_outcome: Option<Result<String, String>> = std::future::poll_fn(|cx| {
         if sleep_deadline.as_mut().poll(cx).is_ready() {
             timed_out.store(true, Ordering::Release);
+            for (_, cancel) in timers.locked().drain() {
+                let _ = cancel.send(());
+            }
             return Poll::Ready(None);
         }
 
@@ -792,6 +1166,9 @@ pub(crate) async fn run_drive(
                     }
                     Err(error) if is_held_write_error(&error) => {
                         gate_aborted.store(true, Ordering::Release);
+                        for (_, cancel) in timers.locked().drain() {
+                            let _ = cancel.send(());
+                        }
                         held_write = Some(HeldWrite {
                             step: entry.step,
                             method: entry.method,
@@ -881,6 +1258,51 @@ pub(crate) async fn run_drive(
             "completedSteps": completed_steps,
         }),
     }
+}
+
+fn parse_url_for_js(input: &str, base: Option<&str>) -> Result<Value, String> {
+    let parsed = match base {
+        Some(base_str) => {
+            let base_url =
+                url::Url::parse(base_str).map_err(|_| format!("Invalid base URL: {base_str}"))?;
+            base_url
+                .join(input)
+                .map_err(|_| format!("Invalid URL: {input}"))?
+        }
+        None => url::Url::parse(input).map_err(|_| format!("Invalid URL: {input}"))?,
+    };
+    let origin = parsed.origin().ascii_serialization();
+    let protocol = format!("{}:", parsed.scheme());
+    let host_str = parsed.host_str().unwrap_or_default().to_owned();
+    let port = parsed.port().map(|p| p.to_string()).unwrap_or_default();
+    let host = if port.is_empty() {
+        host_str.clone()
+    } else {
+        format!("{host_str}:{port}")
+    };
+    let search = parsed
+        .query()
+        .filter(|q| !q.is_empty())
+        .map(|q| format!("?{q}"))
+        .unwrap_or_default();
+    let hash = parsed
+        .fragment()
+        .filter(|f| !f.is_empty())
+        .map(|f| format!("#{f}"))
+        .unwrap_or_default();
+    Ok(json!({
+        "href": parsed.as_str(),
+        "origin": origin,
+        "protocol": protocol,
+        "username": parsed.username(),
+        "password": parsed.password().unwrap_or_default(),
+        "host": host,
+        "hostname": host_str,
+        "port": port,
+        "pathname": parsed.path(),
+        "search": search,
+        "hash": hash,
+    }))
 }
 
 fn format_caught_error(error: CaughtError<'_>) -> String {
@@ -1032,6 +1454,11 @@ mod tests {
                         "bytes": 4200,
                         "url": params.get("url").cloned().unwrap_or(Value::Null),
                         "filename": params.get("filename").cloned().unwrap_or(Value::Null),
+                    })),
+                    "browser.evaluate" => Ok(json!({
+                        "tabId": params.get("tabId").and_then(Value::as_str).unwrap_or("tab-1"),
+                        "result": params.get("script").cloned().unwrap_or(Value::Null),
+                        "timeoutMs": params.get("timeoutMs").cloned().unwrap_or(Value::Null),
                     })),
                     _ => Ok(json!({ "ok": true })),
                 }
@@ -1274,5 +1701,156 @@ mod tests {
             out["result"]["uploaded"]["uploaded"],
             json!(["vault:vlt_doc"])
         );
+    }
+
+    #[tokio::test]
+    async fn browser_drive_provides_url_and_url_search_params() {
+        let mut backend = MockBackend::new();
+        backend.call_delay = Duration::ZERO;
+        let script = r#"
+            const u = new URL("/flights?from=SFO&to=JFK#top", "http://t1.localhost:8000/home");
+            u.searchParams.set("to", "BOS");
+            u.searchParams.append("cabin", "economy plus");
+            const rel = new URL("../deals", u.href);
+            const params = new URLSearchParams({ a: "1", b: "two words" });
+            params.sort();
+            return {
+                href: u.href,
+                origin: u.origin,
+                hostname: u.hostname,
+                port: u.port,
+                pathname: u.pathname,
+                search: u.search,
+                hash: u.hash,
+                from: u.searchParams.get("from"),
+                to: u.searchParams.get("to"),
+                cabin: u.searchParams.get("cabin"),
+                relHref: rel.href,
+                paramsStr: params.toString(),
+                canParseGood: URL.canParse("https://example.test/x"),
+                canParseBad: URL.canParse("not a url"),
+                parsedNull: URL.parse(":::"),
+            };
+        "#;
+        let out = run_drive(&backend, script, Duration::from_secs(5)).await;
+        assert_eq!(out["ok"], json!(true), "unexpected output: {out}");
+        assert_eq!(
+            out["result"]["href"],
+            json!("http://t1.localhost:8000/flights?from=SFO&to=BOS&cabin=economy+plus#top")
+        );
+        assert_eq!(out["result"]["origin"], json!("http://t1.localhost:8000"));
+        assert_eq!(out["result"]["hostname"], json!("t1.localhost"));
+        assert_eq!(out["result"]["port"], json!("8000"));
+        assert_eq!(out["result"]["from"], json!("SFO"));
+        assert_eq!(out["result"]["to"], json!("BOS"));
+        assert_eq!(out["result"]["cabin"], json!("economy plus"));
+        assert_eq!(
+            out["result"]["relHref"],
+            json!("http://t1.localhost:8000/deals")
+        );
+        assert_eq!(out["result"]["paramsStr"], json!("a=1&b=two+words"));
+        assert_eq!(out["result"]["canParseGood"], json!(true));
+        assert_eq!(out["result"]["canParseBad"], json!(false));
+        assert_eq!(out["result"]["parsedNull"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn browser_drive_provides_cancellable_bounded_set_timeout() {
+        let mut backend = MockBackend::new();
+        backend.call_delay = Duration::ZERO;
+        let script = r#"
+            const events = [];
+            const cancelled = setTimeout(() => events.push("cancelled"), 20);
+            clearTimeout(cancelled);
+            const result = await new Promise((resolve) => {
+                setTimeout((a, b) => {
+                    events.push("fired");
+                    resolve(a + b);
+                }, 15, 20, 22);
+            });
+            await sleep(30);
+            return { result, events };
+        "#;
+        let out = run_drive(&backend, script, Duration::from_secs(5)).await;
+        assert_eq!(out["ok"], json!(true), "unexpected output: {out}");
+        assert_eq!(out["result"]["result"], json!(42));
+        assert_eq!(out["result"]["events"], json!(["fired"]));
+
+        let started = Instant::now();
+        let timed = run_drive(
+            &backend,
+            "await new Promise((r) => setTimeout(r, 10000)); return 'late';",
+            Duration::from_millis(120),
+        )
+        .await;
+        assert_eq!(timed["ok"], json!(false));
+        assert!(timed["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[tokio::test]
+    async fn browser_drive_supports_positional_and_object_eval_type_and_clear_error_hints() {
+        let mut backend = MockBackend::new();
+        backend.call_delay = Duration::ZERO;
+        let script = r##"
+            const tab = browser.tab("tab-1");
+            const e1 = await tab.eval("document.title");
+            const e2 = await tab.eval({ script: "location.href", timeoutMs: 3000 });
+            const t1 = await tab.type("Where from?", "SFO");
+            const t2 = await tab.type("Price", 500, { replace: true });
+            const t3 = await tab.type(3, "NYC");
+            const t4 = await tab.type({ selector: "#q" }, 94107);
+            const errors = {};
+            for (const [key, fn] of [
+                ["valueKey", () => tab.type({ selector: "#q", value: "SFO" })],
+                ["missingText", () => tab.type({ selector: "#q" })],
+                ["missingScript", () => tab.eval({})],
+                ["unknownNavigate", () => tab.navigate("https://a.test")],
+                ["unknownFoo", () => tab.foo()],
+            ]) {
+                try {
+                    await fn();
+                } catch (err) {
+                    errors[key] = err.message;
+                }
+            }
+            return { e1, e2, t1, t2, t3, t4, errors };
+        "##;
+        let out = run_drive(&backend, script, Duration::from_secs(5)).await;
+        assert_eq!(out["ok"], json!(true), "unexpected output: {out}");
+        assert_eq!(out["result"]["e1"]["result"], json!("document.title"));
+        assert_eq!(out["result"]["e2"]["result"], json!("location.href"));
+        assert_eq!(out["result"]["e2"]["timeoutMs"], json!(3000));
+        assert_eq!(out["result"]["t1"]["field"], json!("Where from?"));
+        assert_eq!(out["result"]["t1"]["text"], json!("SFO"));
+        assert_eq!(out["result"]["t2"]["field"], json!("Price"));
+        assert_eq!(out["result"]["t2"]["text"], json!("500"));
+        assert_eq!(out["result"]["t2"]["replace"], json!(true));
+        assert_eq!(out["result"]["t3"]["text"], json!("NYC"));
+        assert_eq!(out["result"]["t4"]["selector"], json!("#q"));
+        assert_eq!(out["result"]["t4"]["text"], json!("94107"));
+        assert!(out["result"]["errors"]["valueKey"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("use \"text\", not \"value\""));
+        assert!(out["result"]["errors"]["missingText"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("tab.type(target, text, opts?)"));
+        assert!(out["result"]["errors"]["missingScript"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("tab.eval(script, opts?)"));
+        assert!(out["result"]["errors"]["unknownNavigate"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("use tab.goto(url, opts?)"));
+        assert!(out["result"]["errors"]["unknownFoo"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Valid tab methods:"));
     }
 }

@@ -28,7 +28,9 @@ pub enum DocumentEvent {
     },
     Failed {
         navigation: usize,
+        url: Option<String>,
         error: String,
+        provisional: bool,
     },
 }
 
@@ -46,6 +48,8 @@ pub struct DocumentLoad {
     started: Option<Instant>,
     #[serde(skip)]
     open: bool,
+    #[serde(skip)]
+    provisional_failure: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -83,17 +87,48 @@ impl DocumentLog {
                 }
                 false
             }
-            DocumentEvent::Failed { navigation, error } => {
+            DocumentEvent::Failed {
+                navigation,
+                url,
+                error,
+                provisional,
+            } => {
                 let latest = self.loads.len().checked_sub(1);
-                let Some(index) = self.open_index(navigation) else {
+                if let Some(index) = self.open_index(navigation) {
+                    if let Some(load) = self.loads.get_mut(index) {
+                        if let Some(failed_url) =
+                            url.filter(|u| !u.is_empty() && u != crate::BLANK_URL)
+                        {
+                            if load.url.is_empty() || load.url == crate::BLANK_URL {
+                                load.url = failed_url;
+                            }
+                        }
+                        load.provisional_failure = provisional;
+                        load.close(Some(error));
+                    }
+                    return Some(index) == latest;
+                }
+                let already_seen = navigation != 0
+                    && self
+                        .loads
+                        .iter()
+                        .any(|load| load.navigation == Some(navigation));
+                let newer_open = self.loads.back().is_some_and(|load| load.open);
+                if already_seen || newer_open {
                     return false;
-                };
-                if let Some(load) = self.loads.get_mut(index) {
+                }
+                self.begin(url.unwrap_or_default(), Some(navigation), None);
+                if let Some(load) = self.loads.back_mut() {
+                    load.provisional_failure = provisional;
                     load.close(Some(error));
                 }
-                Some(index) == latest
+                true
             }
         }
+    }
+
+    pub fn latest_is_closed(&self) -> bool {
+        self.loads.back().is_some_and(|load| !load.open)
     }
 
     /// Oldest first. `since_current` keeps only the load that produced the
@@ -120,6 +155,7 @@ impl DocumentLog {
             navigation,
             started,
             open: true,
+            provisional_failure: false,
         });
         if self.loads.len() > MAX_DOCUMENTS {
             self.loads.pop_front();
@@ -146,6 +182,19 @@ impl DocumentLog {
 }
 
 impl DocumentLoad {
+    pub fn is_navigation_failure(&self) -> bool {
+        let Some(error) = self.error.as_deref() else {
+            return false;
+        };
+        if error == "cancelled" {
+            return false;
+        }
+        if self.status.is_some() && error.contains("WebKitErrorDomain 102") {
+            return false;
+        }
+        self.provisional_failure || self.status.is_none()
+    }
+
     fn close(&mut self, error: Option<String>) {
         self.error = error;
         self.duration_ms = self
@@ -207,7 +256,9 @@ mod tests {
         });
         assert!(!log.note(DocumentEvent::Failed {
             navigation: 1,
+            url: None,
             error: "cancelled".into(),
+            provisional: true,
         }));
         log.note(DocumentEvent::Responded {
             url: "http://a/fast".into(),
@@ -217,6 +268,7 @@ mod tests {
         log.note(DocumentEvent::Finished { navigation: 2 });
         let loads = log.loads(false);
         assert_eq!(loads[0].error.as_deref(), Some("cancelled"));
+        assert!(!loads[0].is_navigation_failure());
         assert_eq!(loads[1].error, None);
         assert_eq!(loads[1].status, Some(200));
     }
@@ -232,11 +284,67 @@ mod tests {
         });
         log.note(DocumentEvent::Failed {
             navigation: 3,
+            url: Some("http://a/3".into()),
             error: "offline".into(),
+            provisional: true,
         });
         let urls: Vec<String> = log.loads(true).into_iter().map(|load| load.url).collect();
         assert_eq!(urls, ["http://a/2", "http://a/3"]);
         assert_eq!(log.loads(false).len(), 3);
+    }
+
+    #[test]
+    fn provisional_failure_fills_blank_url_and_surfaces_without_started() {
+        let mut log = DocumentLog::default();
+        log.note(DocumentEvent::Started {
+            navigation: 7,
+            url: String::new(),
+        });
+        assert!(log.note(DocumentEvent::Failed {
+            navigation: 7,
+            url: Some("http://t1.localhost:9999/".into()),
+            error: "Could not connect to the server. (NSURLErrorDomain -1004)".into(),
+            provisional: true,
+        }));
+        let latest = log.loads(true).pop().expect("latest load");
+        assert_eq!(latest.url, "http://t1.localhost:9999/");
+        assert!(latest.is_navigation_failure());
+        assert!(log.latest_is_closed());
+
+        let mut orphan = DocumentLog::default();
+        assert!(orphan.note(DocumentEvent::Failed {
+            navigation: 42,
+            url: Some("http://t2.localhost:9999/".into()),
+            error:
+                "A server with the specified hostname could not be found. (NSURLErrorDomain -1003)"
+                    .into(),
+            provisional: true,
+        }));
+        let latest = orphan.loads(true).pop().expect("orphan failure kept");
+        assert_eq!(latest.url, "http://t2.localhost:9999/");
+        assert!(latest.is_navigation_failure());
+    }
+
+    #[test]
+    fn download_policy_interrupt_after_response_is_not_a_navigation_failure() {
+        let mut log = DocumentLog::default();
+        log.note(DocumentEvent::Started {
+            navigation: 11,
+            url: "https://a.test/report.pdf".into(),
+        });
+        log.note(DocumentEvent::Responded {
+            url: "https://a.test/report.pdf".into(),
+            status: Some(200),
+            mime_type: "application/pdf".into(),
+        });
+        log.note(DocumentEvent::Failed {
+            navigation: 11,
+            url: Some("https://a.test/report.pdf".into()),
+            error: "Frame load interrupted (WebKitErrorDomain 102)".into(),
+            provisional: true,
+        });
+        let latest = log.loads(true).pop().expect("download load");
+        assert!(!latest.is_navigation_failure());
     }
 
     #[test]
