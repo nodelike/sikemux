@@ -811,7 +811,13 @@ fn chip_face(
     cx: &App,
 ) -> Div {
     let t = Tokens::get(cx).clone();
+    let key_cell = match title.is_some() {
+        true => div().flex_none().child(key),
+        false => div().min_w_0().overflow_hidden().text_ellipsis().child(key),
+    };
     div()
+        .min_w_0()
+        .overflow_hidden()
         .pl(SPACE_1)
         .pr(SPACE_1H)
         .flex()
@@ -839,7 +845,7 @@ fn chip_face(
                 .justify_center()
                 .child(mark),
         )
-        .child(div().flex_none().child(key))
+        .child(key_cell)
         .when_some(title, |chip, title| {
             chip.child(
                 div()
@@ -1954,4 +1960,112 @@ pub fn file_pill(
         .child(icon)
         .child(name)
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{Bounds, Pixels, Render, TestAppContext};
+    use std::cell::RefCell;
+
+    const LONG_FILE: &str = "Kishore Gunalan - Yenvee Residency Rental Agreement.pdf";
+
+    struct ChipProbe {
+        width: Option<Pixels>,
+        label: SharedString,
+        pill: Rc<RefCell<Option<Bounds<Pixels>>>>,
+        children: Rc<RefCell<Vec<Bounds<Pixels>>>>,
+    }
+
+    impl Render for ChipProbe {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let pill_slot = self.pill.clone();
+            let children_slot = self.children.clone();
+            let face = chip_face(
+                self.label.clone(),
+                None,
+                false,
+                div().size(px(13.)).into_any_element(),
+                cx,
+            )
+            .when_some(self.width, |face, _| face.w_full())
+            .h(px(20.))
+            .on_children_prepainted(move |bounds, _, _| {
+                *children_slot.borrow_mut() = bounds;
+            });
+            div()
+                .when_some(self.width, |wrap, width| wrap.w(width))
+                .flex()
+                .items_center()
+                .on_children_prepainted(move |bounds, _, _| {
+                    *pill_slot.borrow_mut() = bounds.first().copied();
+                })
+                .child(face)
+        }
+    }
+
+    #[gpui::test]
+    fn long_filename_chip_stays_inside_its_pill(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::install(cx);
+        });
+        for limit in [px(CHIP_WIDEST), px(160.)] {
+            let pill = Rc::new(RefCell::new(None));
+            let children = Rc::new(RefCell::new(Vec::new()));
+            let probe = ChipProbe {
+                width: Some(limit),
+                label: LONG_FILE.into(),
+                pill: pill.clone(),
+                children: children.clone(),
+            };
+            let (_, cx) = cx.add_window_view(|_, _| probe);
+            cx.refresh().ok();
+            let pill = pill.borrow().expect("pill bounds");
+            let children = children.borrow();
+            assert_eq!(children.len(), 2, "mark and filename cell");
+            assert!(
+                pill.size.width <= limit,
+                "pill width {:?} exceeded limit {limit:?}",
+                pill.size.width
+            );
+            assert!(
+                children[1].right() <= pill.right(),
+                "filename cell right {:?} spilled past pill right {:?}",
+                children[1].right(),
+                pill.right()
+            );
+            assert!(
+                children[1].size.width > px(0.),
+                "filename cell should keep visible width"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn short_chip_keeps_its_natural_width_without_collapsing(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::install(cx);
+        });
+        let pill = Rc::new(RefCell::new(None));
+        let children = Rc::new(RefCell::new(Vec::new()));
+        let probe = ChipProbe {
+            width: None,
+            label: "main.rs".into(),
+            pill: pill.clone(),
+            children: children.clone(),
+        };
+        let (_, cx) = cx.add_window_view(|_, _| probe);
+        cx.refresh().ok();
+        let pill = pill.borrow().expect("pill bounds");
+        let children = children.borrow();
+        assert_eq!(children.len(), 2);
+        assert!(
+            children[1].size.width > px(20.),
+            "short label should keep its natural width, got {:?}",
+            children[1].size.width
+        );
+        assert!(pill.size.width > children[1].size.width);
+    }
 }

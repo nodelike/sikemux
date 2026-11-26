@@ -1442,17 +1442,25 @@ impl Draw<'_> {
                 .child(inner)
                 .child(
                     canvas(
-                        move |_, window, cx| {
+                        move |bounds, window, cx| {
                             let line = layout.line_height();
                             chips
                                 .iter()
                                 .filter_map(|(range, chip)| {
                                     let at = layout.gap_origin(range.start)?;
+                                    let available = (bounds.right() - at.x).max(px(0.));
+                                    let width = if bounds.size.width > px(0.)
+                                        && chip.width > available + px(1.)
+                                    {
+                                        available
+                                    } else {
+                                        chip.width
+                                    };
                                     let mut drawn = (chip.draw)(window, cx);
                                     drawn.prepaint_as_root(
                                         point(at.x, at.y),
                                         size(
-                                            AvailableSpace::Definite(chip.width),
+                                            AvailableSpace::Definite(width),
                                             AvailableSpace::Definite(line),
                                         ),
                                         window,
