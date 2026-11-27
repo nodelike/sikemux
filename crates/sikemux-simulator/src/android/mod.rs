@@ -50,6 +50,8 @@ struct Display {
 #[derive(Default)]
 pub struct Android {
     data_dir: Option<PathBuf>,
+    #[cfg(test)]
+    sdk_override: Option<PathBuf>,
     sessions: Mutex<HashMap<String, SimManager>>,
     displays: Mutex<HashMap<String, Display>>,
     launchers: Mutex<HashMap<String, Option<String>>>,
@@ -74,7 +76,19 @@ impl Android {
         }
     }
 
+    #[cfg(test)]
+    fn with_sdk(sdk_root: PathBuf) -> Self {
+        Self {
+            sdk_override: Some(sdk_root),
+            ..Self::default()
+        }
+    }
+
     pub fn sdk(&self) -> Option<PathBuf> {
+        #[cfg(test)]
+        if let Some(root) = &self.sdk_override {
+            return Some(root.clone());
+        }
         sdk::root(self.data_dir.as_deref())
     }
 
@@ -290,6 +304,7 @@ impl Android {
     }
 
     /// Asks the program on the device, copying it there again once if the device lost it.
+    /// Drains the session on timeout or cancellation so a hung request never wedges later calls.
     async fn device(
         &self,
         serial: &str,
@@ -297,9 +312,24 @@ impl Android {
         mut fields: Map<String, Value>,
         limit: Duration,
     ) -> SimResult<Value> {
+        struct DrainOnDrop<'a> {
+            session: &'a SimManager,
+            armed: bool,
+        }
+        impl Drop for DrainOnDrop<'_> {
+            fn drop(&mut self) {
+                if self.armed {
+                    self.session.drain();
+                }
+            }
+        }
         fields.insert("type".into(), kind.into());
         let (session, program) = self.session(serial).await?;
-        match session
+        let mut guard = DrainOnDrop {
+            session: &session,
+            armed: true,
+        };
+        let answer = match session
             .call_within(program.clone(), fields.clone(), limit)
             .await
         {
@@ -309,7 +339,14 @@ impl Android {
                 session.call_within(program, fields, limit).await
             }
             answer => answer,
+        };
+        if !answer
+            .as_ref()
+            .is_err_and(|error| error.contains("in time"))
+        {
+            guard.armed = false;
         }
+        answer
     }
 
     async fn display(&self, serial: &str) -> SimResult<Display> {
@@ -563,17 +600,7 @@ impl Android {
             "install" => {
                 let serial = self.serial(&udid).await?;
                 let path = text("path").ok_or("path is required")?;
-                if !path.ends_with(".apk") {
-                    return Err("give an .apk, such as the one ./gradlew assembleDebug builds into app/build/outputs/apk/debug; an .aab is for the Play Store and cannot be installed directly".into());
-                }
-                let answer = self
-                    .adb(
-                        &["-s", &serial, "install", "-r", "-t", "-g", path],
-                        Duration::from_secs(180),
-                    )
-                    .await?;
-                let package = apk_package(self.sdk().as_deref(), path).await;
-                Ok(json!({ "installed": answer.trim(), "bundleId": package }))
+                self.install(&serial, path).await
             }
             "openUrl" => {
                 let serial = self.serial(&udid).await?;
@@ -634,6 +661,72 @@ impl Android {
         orientation_name(rotation).to_owned()
     }
 
+    async fn install(&self, serial: &str, path: &str) -> SimResult<Value> {
+        if !path.ends_with(".apk") {
+            return Err("give an .apk, such as the one ./gradlew assembleDebug builds into app/build/outputs/apk/debug; an .aab is for the Play Store and cannot be installed directly".into());
+        }
+        let overwrite = self
+            .adb(
+                &["-s", serial, "install", "-r", "-t", "-g", path],
+                Duration::from_secs(180),
+            )
+            .await;
+        match overwrite {
+            Ok(answer) => {
+                let package = apk_package(self.sdk().as_deref(), path).await;
+                Ok(json!({ "installed": answer.trim(), "bundleId": package }))
+            }
+            Err(error) if is_insufficient_storage(&error) => {
+                let _ = self.shell(serial, "pm trim-caches 1G").await;
+                if let Ok(answer) = self
+                    .adb(
+                        &["-s", serial, "install", "-r", "-t", "-g", path],
+                        Duration::from_secs(180),
+                    )
+                    .await
+                {
+                    let package = apk_package(self.sdk().as_deref(), path).await;
+                    return Ok(json!({ "installed": answer.trim(), "bundleId": package }));
+                }
+                let package = apk_package(self.sdk().as_deref(), path).await;
+                let installed = match package.as_deref() {
+                    Some(package) => self
+                        .shell(serial, &format!("pm path {}", quoted(package)))
+                        .await
+                        .is_ok_and(|out| out.contains("package:")),
+                    None => false,
+                };
+                if let Some(package) = package.filter(|_| installed) {
+                    self.adb(
+                        &["-s", serial, "uninstall", &package],
+                        Duration::from_secs(60),
+                    )
+                    .await?;
+                    self.pids
+                        .locked()
+                        .remove(&(serial.to_owned(), package.clone()));
+                    let answer = self
+                        .adb(
+                            &["-s", serial, "install", "-t", "-g", path],
+                            Duration::from_secs(180),
+                        )
+                        .await
+                        .map_err(|fresh| insufficient_storage_error(&fresh))?;
+                    return Ok(json!({
+                        "installed": answer.trim(),
+                        "bundleId": package,
+                        "reinstalled": true,
+                        "note": format!(
+                            "Overwrite install hit INSTALL_FAILED_INSUFFICIENT_STORAGE, so {package} was uninstalled first (clearing its app data) before reinstalling."
+                        ),
+                    }));
+                }
+                Err(insufficient_storage_error(&error))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     async fn launch(
         &self,
         serial: &str,
@@ -650,24 +743,20 @@ impl Android {
             .filter(|line| line.contains('/'))
             .ok_or_else(|| format!("{package} is not installed, or has no screen to open; sim install its .apk first"))?
             .to_owned();
-        let extras: String = arguments
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(|argument| format!(" {}", quoted(argument)))
-            .collect();
-        self.shell(
-            serial,
-            &format!("am start -n {}{extras}", quoted(&activity)),
-        )
-        .await?;
+        let previous = self.pids_of(serial, package).await;
+        self.pids
+            .locked()
+            .remove(&(serial.to_owned(), package.to_owned()));
+        self.shell(serial, &launch_command(&activity, arguments))
+            .await?;
         let mut pid = None;
         for _ in 0..20 {
-            pid = self.pids_of(serial, package).await.first().copied();
-            if pid.is_some() {
+            let now = self.pids_of(serial, package).await;
+            if let Some(fresh) = now.iter().copied().find(|pid| !previous.contains(pid)) {
+                pid = Some(fresh);
                 break;
             }
+            pid = now.first().copied();
             tokio::time::sleep(Duration::from_millis(150)).await;
         }
         if let Some(pid) = pid {
@@ -1008,6 +1097,31 @@ fn quoted(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
+fn launch_command(activity: &str, arguments: Option<&Value>) -> String {
+    let extras: String = arguments
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(|argument| format!(" {}", quoted(argument)))
+        .collect();
+    format!("am start -S -n {}{extras}", quoted(activity))
+}
+
+fn is_insufficient_storage(error: &str) -> bool {
+    error.contains("INSTALL_FAILED_INSUFFICIENT_STORAGE")
+}
+
+fn insufficient_storage_error(error: &str) -> String {
+    if is_insufficient_storage(error) {
+        format!(
+            "{error} (the device's /data partition is full even after trimming caches; free space or wipe/resize the AVD)"
+        )
+    } else {
+        error.to_owned()
+    }
+}
+
 fn save_screenshot(shot: &Value, path: &str) -> SimResult<Value> {
     use base64::Engine;
     let path = sikemux_process::paths::expand_home(path);
@@ -1025,7 +1139,7 @@ fn save_screenshot(shot: &Value, path: &str) -> SimResult<Value> {
     )
 }
 
-/// The package an .apk installs, read with the SDK's aapt when it has one.
+/// The package an .apk installs, read with the SDK's aapt or aapt2 when present.
 async fn apk_package(root: Option<&Path>, apk: &str) -> Option<String> {
     let tools = root?.join("build-tools");
     let mut versions: Vec<PathBuf> = std::fs::read_dir(tools)
@@ -1034,24 +1148,51 @@ async fn apk_package(root: Option<&Path>, apk: &str) -> Option<String> {
         .map(|entry| entry.path())
         .collect();
     versions.sort();
-    let aapt = versions
-        .into_iter()
-        .rev()
-        .map(|folder| folder.join(if cfg!(windows) { "aapt.exe" } else { "aapt" }))
-        .find(|aapt| aapt.is_file())?;
+    let binary = |name: &str| {
+        let file = if cfg!(windows) {
+            format!("{name}.exe")
+        } else {
+            name.to_owned()
+        };
+        versions
+            .iter()
+            .rev()
+            .map(|folder| folder.join(&file))
+            .find(|path| path.is_file())
+    };
+    if let Some(aapt) = binary("aapt") {
+        let output = sikemux_process::command::Command::into_async(
+            sikemux_process::user_environment::command(aapt),
+        )
+        .args(["dump", "badging", apk])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .await
+        .ok()?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        if let Some(name) = text
+            .lines()
+            .find(|line| line.starts_with("package:"))
+            .and_then(|line| line.split("name='").nth(1))
+            .and_then(|rest| rest.split('\'').next())
+            .filter(|name| !name.is_empty())
+        {
+            return Some(name.to_owned());
+        }
+    }
+    let aapt2 = binary("aapt2")?;
     let output = sikemux_process::command::Command::into_async(
-        sikemux_process::user_environment::command(aapt),
+        sikemux_process::user_environment::command(aapt2),
     )
-    .args(["dump", "badging", apk])
+    .args(["dump", "packagename", apk])
     .stdin(Stdio::null())
     .stderr(Stdio::null())
     .output()
     .await
     .ok()?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    let line = text.lines().find(|line| line.starts_with("package:"))?;
-    let name = line.split("name='").nth(1)?.split('\'').next()?;
-    Some(name.to_owned())
+    let name = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (!name.is_empty()).then_some(name)
 }
 
 /// Turns the device program's read into the iOS helper's shape: the app in front,
@@ -1209,5 +1350,258 @@ impl Frames {
         }
         self.scanned = at;
         frames
+    }
+}
+
+#[cfg(test)]
+#[cfg(unix)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use tempfile::TempDir;
+
+    fn write_exec(path: &Path, body: &str) {
+        std::fs::create_dir_all(path.parent().expect("parent dir")).expect("create dir");
+        std::fs::write(path, body).expect("write script");
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
+
+    fn fake_sdk(adb_script: &str) -> (TempDir, Android) {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write_exec(&dir.path().join("platform-tools/adb"), adb_script);
+        write_exec(
+            &dir.path().join("build-tools/37.0.0/aapt"),
+            "#!/bin/sh\necho \"package: name='com.swishx.academy' versionCode='1'\"\n",
+        );
+        let android = Android::with_sdk(dir.path().to_path_buf());
+        (dir, android)
+    }
+
+    fn fields(value: Value) -> Map<String, Value> {
+        value.as_object().cloned().expect("json object")
+    }
+
+    #[tokio::test]
+    async fn timeout_drains_android_session_so_follow_up_calls_are_not_wedged() {
+        let log_dir = tempfile::tempdir().unwrap();
+        let hang_once = log_dir.path().join("hang-once");
+        std::fs::write(&hang_once, "1").unwrap();
+        let script = format!(
+            r#"#!/bin/sh
+if [ "$1" = "-s" ]; then shift 2; fi
+case "$1" in
+  get-state) echo "device" ;;
+  exec-in) cat >/dev/null ;;
+  shell)
+    shift
+    case "$*" in
+      "wm size") echo "Physical size: 1080x2400" ;;
+      "wm density") echo "Physical density: 480" ;;
+      *"resolve-activity"*"HOME"*) echo "com.android.launcher/.Launcher" ;;
+      *"com.sikemux.device.Main"*)
+        echo '{{"type":"ready"}}'
+        while IFS= read -r line; do
+          id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+          case "$line" in
+            *'"type":"text"'*)
+              if [ -e '{hang}' ]; then
+                rm -f '{hang}'
+                sleep 30
+              fi
+              echo "{{\"id\":$id,\"type\":\"result\"}}"
+              ;;
+            *'"type":"tree"'*)
+              echo "{{\"id\":$id,\"type\":\"result\",\"package\":\"com.swishx.academy\",\"bounds\":[0,0,1080,2400],\"nodes\":[]}}"
+              ;;
+            *) echo "{{\"id\":$id,\"type\":\"result\"}}" ;;
+          esac
+        done
+        ;;
+    esac
+    ;;
+esac
+"#,
+            hang = hang_once.display(),
+        );
+        let (_sdk, android) = fake_sdk(&script);
+
+        let timed_out = android
+            .request(
+                "text",
+                fields(json!({ "udid": "adb:pixel", "text": "hello" })),
+                Duration::from_millis(120),
+            )
+            .await
+            .unwrap_err();
+        assert!(timed_out.contains("in time"), "{timed_out}");
+
+        let started = Instant::now();
+        let tree = android
+            .request(
+                "tree",
+                fields(json!({ "udid": "adb:pixel" })),
+                Duration::from_secs(3),
+            )
+            .await
+            .expect("next call after timeout must not hang behind wedged session");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "follow-up tree took {:?}",
+            started.elapsed()
+        );
+        assert_eq!(tree["elements"][0]["label"], json!("com.swishx.academy"));
+        android.drain();
+    }
+
+    #[tokio::test]
+    async fn launch_force_stops_running_app_and_waits_for_fresh_pid() {
+        let log_dir = tempfile::tempdir().unwrap();
+        let log = log_dir.path().join("adb.log");
+        let pid_state = log_dir.path().join("pid-step");
+        std::fs::write(&pid_state, "0").unwrap();
+        let script = format!(
+            r#"#!/bin/sh
+printf '%s\n' "$*" >> '{log}'
+if [ "$1" = "-s" ]; then shift 2; fi
+case "$1" in
+  get-state) echo "device" ;;
+  shell)
+    shift
+    case "$*" in
+      *"resolve-activity"*"LAUNCHER"*) echo "com.swishx.academy/.MainActivity" ;;
+      *"pidof"*)
+        step=$(cat '{step}')
+        step=$((step + 1))
+        printf '%s' "$step" > '{step}'
+        if [ "$step" -le 2 ]; then
+          echo "1001"
+        else
+          echo "2002"
+        fi
+        ;;
+      *"am start"*) echo "Stopping: com.swishx.academy" ;;
+    esac
+    ;;
+esac
+"#,
+            log = log.display(),
+            step = pid_state.display(),
+        );
+        let (_sdk, android) = fake_sdk(&script);
+        let launched = android
+            .request(
+                "launch",
+                fields(json!({ "udid": "adb:pixel", "bundleId": "com.swishx.academy" })),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("launch");
+        assert_eq!(launched["pid"], json!(2002));
+        let ran = std::fs::read_to_string(&log).unwrap();
+        assert!(
+            ran.contains("am start -S -n 'com.swishx.academy/.MainActivity'"),
+            "launch must pass -S to force-stop and relaunch: {ran}"
+        );
+    }
+
+    #[tokio::test]
+    async fn install_trims_caches_then_uninstalls_only_on_insufficient_storage() {
+        let log_dir = tempfile::tempdir().unwrap();
+        let log = log_dir.path().join("adb.log");
+        let state = log_dir.path().join("storage-mode");
+        std::fs::write(&state, "need-uninstall").unwrap();
+        let script = format!(
+            r#"#!/bin/sh
+printf '%s\n' "$*" >> '{log}'
+if [ "$1" = "-s" ]; then shift 2; fi
+case "$1" in
+  get-state) echo "device" ;;
+  shell)
+    shift
+    case "$*" in
+      "pm trim-caches 1G")
+        if [ "$(cat '{state}')" = "trim-fixes" ]; then
+          printf 'ok' > '{state}'
+        fi
+        ;;
+      *"pm path"*)
+        if [ "$(cat '{state}')" != "not-installed" ]; then
+          echo "package:/data/app/com.swishx.academy/base.apk"
+        else
+          exit 1
+        fi
+        ;;
+    esac
+    ;;
+  uninstall)
+    printf 'ok' > '{state}'
+    echo "Success"
+    ;;
+  install)
+    if [ "$(cat '{state}')" = "ok" ]; then
+      echo "Success"
+    else
+      echo "adb: failed to install app.apk: Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]" >&2
+      exit 1
+    fi
+    ;;
+esac
+"#,
+            log = log.display(),
+            state = state.display(),
+        );
+        let (_sdk, android) = fake_sdk(&script);
+
+        // Case 1: overwrite fails twice even after trim-caches -> uninstalls installed pkg & reinstalls cleanly.
+        let reinstalled = android
+            .request(
+                "install",
+                fields(json!({ "udid": "adb:pixel", "path": "/tmp/app-debug.apk" })),
+                Duration::from_secs(10),
+            )
+            .await
+            .expect("reinstall fallback");
+        assert_eq!(reinstalled["bundleId"], json!("com.swishx.academy"));
+        assert_eq!(reinstalled["reinstalled"], json!(true));
+        assert!(
+            reinstalled["note"]
+                .as_str()
+                .is_some_and(|n| n.contains("INSTALL_FAILED_INSUFFICIENT_STORAGE")
+                    && n.contains("clearing its app data")),
+            "{reinstalled}"
+        );
+
+        // Case 2: trim-caches alone frees enough space -> overwrite succeeds without uninstalling.
+        std::fs::write(&log, "").unwrap();
+        std::fs::write(&state, "trim-fixes").unwrap();
+        let preserved = android
+            .request(
+                "install",
+                fields(json!({ "udid": "adb:pixel", "path": "/tmp/app-debug.apk" })),
+                Duration::from_secs(10),
+            )
+            .await
+            .expect("trim-caches suffices");
+        assert!(preserved.get("reinstalled").is_none(), "{preserved}");
+        let trim_log = std::fs::read_to_string(&log).unwrap();
+        assert!(trim_log.contains("pm trim-caches 1G"), "{trim_log}");
+        assert!(!trim_log.contains("uninstall"), "{trim_log}");
+
+        // Case 3: app not previously installed -> does not uninstall, returns actionable storage error.
+        std::fs::write(&log, "").unwrap();
+        std::fs::write(&state, "not-installed").unwrap();
+        let full = android
+            .request(
+                "install",
+                fields(json!({ "udid": "adb:pixel", "path": "/tmp/app-debug.apk" })),
+                Duration::from_secs(10),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            full.contains("INSTALL_FAILED_INSUFFICIENT_STORAGE") && full.contains("/data"),
+            "{full}"
+        );
+        assert!(!std::fs::read_to_string(&log).unwrap().contains("uninstall"));
     }
 }

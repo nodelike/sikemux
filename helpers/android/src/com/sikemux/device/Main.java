@@ -21,6 +21,9 @@ import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.lang.reflect.InvocationTargetException;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * Drives the device for Sikemux from adb's shell, as scrcpy's server does: reads the screen
@@ -46,10 +49,25 @@ public final class Main {
         PrintStream out = new PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.out), true, "UTF-8");
         Main main = new Main(connect(thread.getLooper()), out);
         out.println("{\"type\":\"ready\"}");
+        BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+        Thread worker = new Thread(() -> {
+            while (true) {
+                try {
+                    main.answer(queue.take());
+                } catch (InterruptedException ignored) {
+                    return;
+                }
+            }
+        }, "sikemux-worker");
+        worker.setDaemon(true);
+        worker.start();
         BufferedReader in = new BufferedReader(new InputStreamReader(System.in, "UTF-8"));
         String line;
-        while ((line = in.readLine()) != null) {
-            main.answer(line);
+        try {
+            while ((line = in.readLine()) != null) {
+                queue.put(line);
+            }
+        } catch (Throwable ignored) {
         }
         System.exit(0);
     }
@@ -60,10 +78,23 @@ public final class Main {
         java.lang.reflect.Constructor<UiAutomation> made =
                 UiAutomation.class.getDeclaredConstructor(Looper.class, contract);
         made.setAccessible(true);
-        UiAutomation automation = made.newInstance(looper, connection.getDeclaredConstructor().newInstance());
-        UiAutomation.class.getDeclaredMethod("connect", int.class)
-                .invoke(automation, UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
-        return automation;
+        java.lang.reflect.Method connect = UiAutomation.class.getDeclaredMethod("connect", int.class);
+        for (int attempt = 0; ; attempt++) {
+            UiAutomation automation = made.newInstance(looper, connection.getDeclaredConstructor().newInstance());
+            try {
+                connect.invoke(automation, UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
+                return automation;
+            } catch (InvocationTargetException error) {
+                Throwable cause = error.getCause();
+                boolean busy = cause instanceof IllegalStateException
+                        && cause.getMessage() != null
+                        && cause.getMessage().contains("already registered");
+                if (!busy || attempt >= 10) {
+                    throw error;
+                }
+                Thread.sleep(100);
+            }
+        }
     }
 
     private void answer(String line) {
@@ -269,10 +300,16 @@ public final class Main {
     private void key(int code, String phase) {
         long now = SystemClock.uptimeMillis();
         if (!phase.equals("up")) {
-            automation.injectInputEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0), true);
+            automation.injectInputEvent(
+                    new KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, 0,
+                            KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD),
+                    false);
         }
         if (!phase.equals("down")) {
-            automation.injectInputEvent(new KeyEvent(now, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, code, 0), true);
+            automation.injectInputEvent(
+                    new KeyEvent(now, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, code, 0, 0,
+                            KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD),
+                    false);
         }
     }
 
@@ -283,8 +320,28 @@ public final class Main {
     private JSONObject text(String text) throws Exception {
         KeyEvent[] keys = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(text.toCharArray());
         if (keys != null) {
+            long downTime = SystemClock.uptimeMillis();
             for (KeyEvent key : keys) {
-                automation.injectInputEvent(KeyEvent.changeTimeRepeat(key, SystemClock.uptimeMillis(), 0), true);
+                long now = SystemClock.uptimeMillis();
+                if (key.getAction() == KeyEvent.ACTION_DOWN) {
+                    downTime = now;
+                }
+                int source = key.getSource() != 0 ? key.getSource() : InputDevice.SOURCE_KEYBOARD;
+                KeyEvent timed = new KeyEvent(
+                        downTime,
+                        now,
+                        key.getAction(),
+                        key.getKeyCode(),
+                        key.getRepeatCount(),
+                        key.getMetaState(),
+                        key.getDeviceId(),
+                        key.getScanCode(),
+                        key.getFlags(),
+                        source);
+                automation.injectInputEvent(timed, false);
+                if (key.getAction() == KeyEvent.ACTION_UP) {
+                    Thread.sleep(5);
+                }
             }
             return new JSONObject();
         }

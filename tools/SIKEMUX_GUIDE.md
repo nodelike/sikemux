@@ -646,8 +646,9 @@ start --dev-client` or `react-native start`, no `--ios`), and reach it with
 Android takes the same tools (`platform: "android"`, units in dp). With no
 Android SDK, ask the person to set up the Android Emulator from the desk's
 device menu; do not install it yourself. Build with `./gradlew assembleDebug`
-as a process, `sim install` the `.apk` and `sim launch` it by package name;
-`sim button` has `back`. Never use `pnpm android`, `expo run:android`,
+as a process, `sim install` the `.apk` (trims caches or uninstalls first if
+storage is tight) and `sim launch` it by package name; `sim button` has `back`.
+Never use `pnpm android`, `expo run:android`,
 `react-native run-android`, `flutter run`, `./gradlew installDebug` or `adb
 install`: they may pick another agent's device or the person's phone.
 
