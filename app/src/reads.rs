@@ -780,6 +780,7 @@ impl Workbench {
                     value,
                     "vault requests",
                 ) {
+                    self.vault_cards.notify(cx);
                     self.redraw(PartSet::STAGE | PartSet::SHELL, cx);
                 }
             }
@@ -789,6 +790,7 @@ impl Workbench {
                     value,
                     "vault approvals",
                 ) {
+                    self.vault_cards.notify(cx);
                     self.redraw(PartSet::STAGE | PartSet::SHELL, cx);
                 }
             }

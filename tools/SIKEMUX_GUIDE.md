@@ -42,6 +42,7 @@ For one area in depth, call `guide` with one of these as `topic`:
 - `browser-pages` — navigating, reloading, waiting, local files, viewports, tabs
 - `browser-evidence` — `browser_screenshot`, `browser_annotate`, `browser_record`
 - `browser-debugging` — network, console, `app_console`, `browser_evaluate`
+- `vault` — `vault_list`, `vault_request` (prefilled `filePath` and fields), `vault_fill`
 - `simulator` — driving an iOS simulator with `sim`
 - `databases` — the `db` tool, SQL, and adding a database
 - `aws` — the `aws` tool, profiles, expired sign-ins
@@ -438,13 +439,14 @@ folder, or sent to the chat, unless the chat bypasses permissions. Pass
 uses the page's only file input, and it fails when no file input took the files.
 
 For credentials, payment cards, personal details or encrypted documents, use
-the Vault tools rather than asking for raw secrets in chat:
+the Vault tools rather than asking for raw secrets in chat (see the `vault`
+topic for full details):
 - `vault_list` returns entry IDs, titles, categories (`details`, `secrets`,
   `payments`, `documents`), field keys and domain hints — never raw values.
-- `vault_request` opens a host-rendered card asking the person to enter missing
-  info directly into Vault (`fields` items take `key`, optional `label`, `kind`,
-  `required`, `sensitive`, `placeholder`), returning only the `vault:<id>`
-  reference and field keys.
+- `vault_request` opens a host-rendered card asking the person to review or
+  enter info directly into Vault (supports optional `filePath` for `documents`
+  and prefilled `value` on non-sensitive `details` or `documents` metadata
+  fields like `document_number`), returning only the `vault:<id>` reference.
 - `vault_fill` (or passing `vault:<id>.<field>` to `browser_type` / `tab.fill`
   / `tab.type`, or `vault:<id>` to `browser_upload` / `tab.upload`) resolves
   the value inside the host and injects it directly into the page without
@@ -557,6 +559,36 @@ the expected pattern" from `response.json()` means the response was not JSON,
 such as an error or sign-in page. "Load failed" means no answer: the server is
 down, the address is wrong, or CORS or mixed content blocked it;
 `browser_network` shows which.
+
+## vault: Sikemux Agentic Vault
+
+Use Vault for credentials, payment cards, business/personal details, and
+encrypted documents instead of asking for raw secrets in chat.
+
+- `vault_list` searches existing entries (`category`: `details`, `secrets`,
+  `payments`, `documents`; optional `query` and `domain`). Returns IDs,
+  `vault:<id>` / `vault:<id>.<field>` refs, titles, and field keys — never raw
+  values.
+- `vault_request` renders a native host card in the chat transcript so the
+  person can enter or review information and save it directly into encrypted
+  Vault storage. Returns only `vault:<id>` and field keys, and always creates a
+  new entry after the person clicks Save.
+  - `fields` items take `key`, optional `label`, `kind`, `required`,
+    `sensitive`, `placeholder`, and optional `value`.
+  - Prefilled `value` is allowed on non-sensitive `details` fields and on
+    `documents` metadata fields (such as `document_number` / ID number) for
+    1-click review and save; prefilled values are rejected on `secrets`,
+    `payments`, and secret/card/password fields.
+  - For `category: "documents"`, pass optional `filePath` (an absolute path or
+    `~/...` path to an existing regular file within the 25 MB limit) to
+    pre-attach a local file for 1-click encrypted save. The person sees the
+    resolved path, filename, and size and can swap the file before saving.
+- `vault_fill` blind-fills a `vault:<id>.<field>` text reference or uploads a
+  `vault:<id>` document into the target browser tab (`tabId`, `index`, `field`,
+  or `selector`) strictly inside the host without exposing plaintext. You can
+  also pass `vault:<id>.<field>` directly to `browser_type` / `tab.fill` /
+  `tab.type`, or `vault:<id>` to `browser_upload` / `tab.upload`. Payments and
+  first-time domain secrets prompt the person for approval first.
 
 ## simulator: Driving the iOS Simulator and Android devices
 

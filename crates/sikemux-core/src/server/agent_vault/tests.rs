@@ -903,3 +903,335 @@ fn vault_ref_op_ref_and_totp_parsing() {
     .expect("otpauth totp");
     assert_eq!(from_uri, "287082");
 }
+
+#[tokio::test]
+async fn prefilled_document_and_details_vault_request_with_security_guards() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let core = test_core(Some(dir.path()));
+    let project = dir.path().to_string_lossy().into_owned();
+
+    // Create a valid PDF file to pre-attach.
+    let pdf_path = dir.path().join("UDYAM-KR-03-0795566-Nodelike.pdf");
+    let pdf_bytes = b"%PDF-1.7\nUDYAM-KR-03-0795566-BODY\n%%EOF";
+    std::fs::write(&pdf_path, pdf_bytes).expect("write pdf");
+
+    // Seed an existing document with the same title so we prove submit creates a new entry, never overwrites.
+    let existing = upsert(
+        &core,
+        VaultUpsertParams {
+            id: None,
+            title: "Nodelike Udyam Certificate".into(),
+            category: VaultCategory::Documents,
+            scope: VaultScope::Personal,
+            source: VaultSource::Sikemux,
+            delivery_mode: None,
+            domains: vec![],
+            require_approval: true,
+            fields: vec![],
+            document: Some(VaultDocumentInput {
+                filename: "old.pdf".into(),
+                mime_type: Some("application/pdf".into()),
+                source_path: None,
+                data_base64: Some(BASE64_STANDARD.encode(b"%PDF-1.4\nOLD\n%%EOF")),
+            }),
+            subtitle: None,
+        },
+    )
+    .expect("seed existing");
+
+    // 1. Prefilled document filePath + prefilled ID number (`document_number`).
+    let core_doc = Arc::clone(&core);
+    let project_doc = project.clone();
+    let pdf_arg = pdf_path.to_string_lossy().into_owned();
+    let doc_task = tokio::spawn(async move {
+        tool_request(
+            &core_doc,
+            &HarnessRequest {
+                id: "req-prefill-doc".into(),
+                method: "vault.request".into(),
+                params: json!({
+                    "category": "documents",
+                    "title": "Nodelike Udyam Certificate",
+                    "filePath": pdf_arg,
+                    "fields": [
+                        { "key": "document_number", "label": "ID number", "value": "UDYAM-KR-03-0795566", "required": false }
+                    ],
+                    "waitMs": 5000
+                }),
+                project: project_doc,
+                agent_id: Some("agent-prefill-doc".into()),
+            },
+        )
+        .await
+    });
+
+    let pending_doc = loop {
+        let open = requests(
+            &core,
+            VaultRequestsParams {
+                agent_id: Some("agent-prefill-doc".into()),
+            },
+        );
+        if let Some(first) = open.into_iter().next() {
+            break first;
+        }
+        if doc_task.is_finished() {
+            panic!("doc_task exited early: {:?}", doc_task.await);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    };
+
+    let proposed = pending_doc
+        .proposed_document
+        .as_ref()
+        .expect("proposed_document populated");
+    assert_eq!(proposed.filename, "UDYAM-KR-03-0795566-Nodelike.pdf");
+    assert_eq!(proposed.mime_type, "application/pdf");
+    assert_eq!(proposed.byte_len, pdf_bytes.len() as u64);
+    let doc_num_field = pending_doc
+        .fields
+        .iter()
+        .find(|f| f.key == "document_number")
+        .expect("document_number field");
+    assert_eq!(doc_num_field.kind, VaultFieldKind::TaxId);
+    assert_eq!(doc_num_field.value.as_deref(), Some("UDYAM-KR-03-0795566"));
+
+    // Submit with document: None -> host reads validated proposed_document directly into encrypted Vault.
+    let saved_doc = submit_request(
+        &core,
+        VaultRequestSubmitParams {
+            request_id: pending_doc.id,
+            existing_entry_id: None,
+            title: None,
+            scope: None,
+            source: VaultSource::Sikemux,
+            domains: vec![],
+            require_approval: true,
+            fields: vec![VaultFieldInput {
+                key: "document_number".into(),
+                label: "ID number".into(),
+                kind: VaultFieldKind::TaxId,
+                sensitive: true,
+                value: Some("UDYAM-KR-03-0795566".into()),
+                op_ref: None,
+            }],
+            document: None,
+            approve_domain: false,
+            ephemeral: false,
+        },
+    )
+    .await
+    .expect("submit prefilled doc");
+
+    assert_ne!(
+        saved_doc.id, existing.id,
+        "must never overwrite existing entry"
+    );
+    assert_eq!(
+        saved_doc.document.as_ref().map(|d| d.filename.as_str()),
+        Some("UDYAM-KR-03-0795566-Nodelike.pdf")
+    );
+    let stored_bytes = core
+        .agent_vault()
+        .store
+        .locked()
+        .read_document_bytes(&saved_doc.id)
+        .expect("decrypt stored doc");
+    assert_eq!(stored_bytes, pdf_bytes);
+    let doc_answer = doc_task.await.expect("join").expect("doc_task");
+    assert_eq!(doc_answer["status"], json!("saved"));
+    assert_eq!(
+        doc_answer["reference"],
+        json!(format!("vault:{}", saved_doc.id))
+    );
+    assert!(!serde_json::to_string(&doc_answer)
+        .expect("json")
+        .contains("UDYAM-KR-03-0795566-BODY"));
+
+    // 2. Prefilled non-sensitive details fields.
+    let core_det = Arc::clone(&core);
+    let project_det = project.clone();
+    let det_task = tokio::spawn(async move {
+        tool_request(
+            &core_det,
+            &HarnessRequest {
+                id: "req-prefill-details".into(),
+                method: "vault.request".into(),
+                params: json!({
+                    "category": "details",
+                    "title": "Nodelike Business Details",
+                    "fields": [
+                        { "key": "company_name", "label": "Company", "value": "Nodelike" },
+                        { "key": "email", "label": "Work Email", "value": "kishore.gunalan@sikemux.com" }
+                    ],
+                    "waitMs": 5000
+                }),
+                project: project_det,
+                agent_id: Some("agent-prefill-det".into()),
+            },
+        )
+        .await
+    });
+
+    let pending_det = loop {
+        let open = requests(
+            &core,
+            VaultRequestsParams {
+                agent_id: Some("agent-prefill-det".into()),
+            },
+        );
+        if let Some(first) = open.into_iter().next() {
+            break first;
+        }
+        if det_task.is_finished() {
+            panic!("det_task exited early: {:?}", det_task.await);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    };
+    assert_eq!(pending_det.fields[0].value.as_deref(), Some("Nodelike"));
+    assert_eq!(
+        pending_det.fields[1].value.as_deref(),
+        Some("kishore.gunalan@sikemux.com")
+    );
+    cancel_request(
+        &core,
+        VaultRequestCancelParams {
+            request_id: pending_det.id,
+            reason: None,
+        },
+    )
+    .await
+    .expect("cancel det");
+    let _ = det_task.await.expect("join").expect("det_task");
+
+    // 3. Security guards: reject invalid filePaths and sensitive prefills.
+    let call_req = |mut params: serde_json::Value| {
+        if let Some(obj) = params.as_object_mut() {
+            obj.entry("waitMs".to_owned()).or_insert(json!(200));
+        }
+        let core = Arc::clone(&core);
+        let project = project.clone();
+        async move {
+            tool_request(
+                &core,
+                &HarnessRequest {
+                    id: "req-guard".into(),
+                    method: "vault.request".into(),
+                    params,
+                    project,
+                    agent_id: Some("agent-guard".into()),
+                },
+            )
+            .await
+        }
+    };
+
+    // filePath on non-documents category
+    assert!(call_req(json!({
+        "category": "details",
+        "title": "Bad",
+        "filePath": pdf_path.to_string_lossy()
+    }))
+    .await
+    .is_err());
+
+    // Relative filePath
+    assert!(call_req(json!({
+        "category": "documents",
+        "title": "Relative",
+        "filePath": "relative/doc.pdf"
+    }))
+    .await
+    .is_err());
+
+    // Non-existent filePath
+    assert!(call_req(json!({
+        "category": "documents",
+        "title": "Missing",
+        "filePath": dir.path().join("nope.pdf").to_string_lossy()
+    }))
+    .await
+    .is_err());
+
+    // Directory path
+    assert!(call_req(json!({
+        "category": "documents",
+        "title": "Dir",
+        "filePath": dir.path().to_string_lossy()
+    }))
+    .await
+    .is_err());
+
+    // Empty 0-byte file
+    let empty_path = dir.path().join("empty.pdf");
+    std::fs::write(&empty_path, b"").expect("write empty");
+    assert!(call_req(json!({
+        "category": "documents",
+        "title": "Empty",
+        "filePath": empty_path.to_string_lossy()
+    }))
+    .await
+    .is_err());
+
+    // Oversized file (> 25 MB)
+    let huge_path = dir.path().join("huge.pdf");
+    let huge = std::fs::File::create(&huge_path).expect("create huge");
+    huge.set_len(26 * 1024 * 1024).expect("set_len");
+    assert!(call_req(json!({
+        "category": "documents",
+        "title": "Huge",
+        "filePath": huge_path.to_string_lossy()
+    }))
+    .await
+    .is_err());
+
+    // Symbolic link
+    #[cfg(unix)]
+    {
+        let link_path = dir.path().join("link.pdf");
+        std::os::unix::fs::symlink(&pdf_path, &link_path).expect("symlink");
+        assert!(call_req(json!({
+            "category": "documents",
+            "title": "Symlink",
+            "filePath": link_path.to_string_lossy()
+        }))
+        .await
+        .is_err());
+    }
+
+    // Prefilled value on secrets
+    assert!(call_req(json!({
+        "category": "secrets",
+        "title": "Secret",
+        "fields": [{ "key": "password", "value": "hunter2" }]
+    }))
+    .await
+    .is_err());
+
+    // Prefilled value on payments
+    assert!(call_req(json!({
+        "category": "payments",
+        "title": "Card",
+        "fields": [{ "key": "card_number", "value": "4242 4242 4242 4242" }]
+    }))
+    .await
+    .is_err());
+
+    // Prefilled value on sensitive details field
+    assert!(call_req(json!({
+        "category": "details",
+        "title": "Sensitive detail",
+        "fields": [{ "key": "pan", "value": "ABCDE1234F" }]
+    }))
+    .await
+    .is_err());
+
+    // Prefilled secret field under documents
+    assert!(call_req(json!({
+        "category": "documents",
+        "title": "Doc with password",
+        "fields": [{ "key": "password", "value": "secret-pw" }]
+    }))
+    .await
+    .is_err());
+}

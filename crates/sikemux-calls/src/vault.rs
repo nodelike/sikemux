@@ -491,6 +491,18 @@ pub struct VaultRequestedField {
     pub sensitive: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placeholder: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultProposedDocument {
+    pub source_path: String,
+    pub display_path: String,
+    pub filename: String,
+    pub mime_type: String,
+    pub byte_len: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -509,6 +521,8 @@ pub struct VaultPendingRequest {
     pub domain: Option<String>,
     #[serde(default)]
     pub fields: Vec<VaultRequestedField>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposed_document: Option<VaultProposedDocument>,
     pub created_at: u64,
 }
 

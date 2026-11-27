@@ -24,7 +24,7 @@ const DOCS_DIR: &str = "docs";
 const STAGING_DIR: &str = "staging";
 const ENTRIES_AAD: &str = "sikemux-agent-vault-entries|v1";
 const MAX_AUDIT_ENTRIES: usize = 500;
-const MAX_DOCUMENT_BYTES: usize = 25 * 1024 * 1024;
+pub(crate) const MAX_DOCUMENT_BYTES: usize = 25 * 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -816,8 +816,26 @@ fn read_document_input(
         (Some(encoded), _) => BASE64_STANDARD
             .decode(encoded.trim())
             .map_err(|error| format!("invalid base64 document payload: {error}"))?,
-        (None, Some(path)) => std::fs::read(Path::new(path.trim()))
-            .map_err(|error| format!("could not read document at {path}: {error}"))?,
+        (None, Some(path)) => {
+            let trimmed = path.trim();
+            let path_ref = Path::new(trimmed);
+            let meta = std::fs::metadata(path_ref)
+                .map_err(|error| format!("could not read document at {trimmed}: {error}"))?;
+            if !meta.is_file() {
+                return Err(format!("document at {trimmed} is not a regular file"));
+            }
+            if meta.len() == 0 {
+                return Err("document file is empty".to_owned());
+            }
+            if meta.len() > MAX_DOCUMENT_BYTES as u64 {
+                return Err(format!(
+                    "document exceeds the {} MB vault limit",
+                    MAX_DOCUMENT_BYTES / (1024 * 1024)
+                ));
+            }
+            std::fs::read(path_ref)
+                .map_err(|error| format!("could not read document at {trimmed}: {error}"))?
+        }
         (None, None) => return Err("document requires either sourcePath or dataBase64".to_owned()),
     };
     if bytes.is_empty() {
@@ -843,7 +861,7 @@ fn read_document_input(
     Ok((bytes, summary))
 }
 
-fn sanitize_filename(raw: &str) -> String {
+pub(crate) fn sanitize_filename(raw: &str) -> String {
     let base = Path::new(raw.trim())
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -860,7 +878,7 @@ fn sanitize_filename(raw: &str) -> String {
     }
 }
 
-fn guess_mime_type(filename: &str) -> &'static str {
+pub(crate) fn guess_mime_type(filename: &str) -> &'static str {
     let lower = filename.to_lowercase();
     if lower.ends_with(".pdf") {
         "application/pdf"

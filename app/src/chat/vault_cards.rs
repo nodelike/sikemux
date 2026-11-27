@@ -8,8 +8,9 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, AnyElement, App, AppContext, Context, Entity, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, PathPromptOptions, SharedString, Styled, Subscription, Window,
+    div, px, AnyElement, App, AppContext, Context, Entity, FontWeight, InteractiveElement,
+    IntoElement, ParentElement, PathPromptOptions, SharedString, Styled, Subscription, WeakEntity,
+    Window,
 };
 use sikemux_calls::call;
 use sikemux_calls::vault::{
@@ -28,10 +29,28 @@ use crate::ui::{self, Clicks};
 use crate::vault_ui::{self, CardBrand};
 use crate::workbench::Workbench;
 
-#[derive(Default)]
 pub struct VaultCards {
     requests: HashMap<String, RequestForm>,
     approvals: HashMap<String, ApprovalForm>,
+    signal: Entity<()>,
+}
+
+impl VaultCards {
+    pub fn new(cx: &mut App) -> Self {
+        Self {
+            requests: HashMap::new(),
+            approvals: HashMap::new(),
+            signal: cx.new(|_| ()),
+        }
+    }
+
+    pub(crate) fn signal(&self) -> &Entity<()> {
+        &self.signal
+    }
+
+    pub(crate) fn notify(&self, cx: &mut App) {
+        self.signal.update(cx, |_, cx| cx.notify());
+    }
 }
 
 struct CardField {
@@ -77,36 +96,43 @@ pub fn sync(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workben
         return;
     }
 
+    let mut changed = false;
     let live_reqs: HashSet<&str> = requests.iter().map(|r| r.id.as_str()).collect();
+    let reqs_before = bench.vault_cards.requests.len();
     bench
         .vault_cards
         .requests
         .retain(|id, _| live_reqs.contains(id.as_str()));
+    if bench.vault_cards.requests.len() != reqs_before {
+        changed = true;
+    }
 
     let live_apps: HashSet<&str> = approvals.iter().map(|a| a.id.as_str()).collect();
+    let apps_before = bench.vault_cards.approvals.len();
     bench
         .vault_cards
         .approvals
         .retain(|id, _| live_apps.contains(id.as_str()));
+    if bench.vault_cards.approvals.len() != apps_before {
+        changed = true;
+    }
 
     for req in requests {
         if bench.vault_cards.requests.contains_key(&req.id) {
             continue;
         }
+        changed = true;
         let mut subs = Vec::new();
         let op_ref =
             cx.new(|cx| InputState::new(window, cx).placeholder("op://Personal/Item/credential"));
-        subs.push(cx.subscribe(&op_ref, |bench, _, event: &InputEvent, cx| {
-            if matches!(event, InputEvent::Change) {
-                bench.parts.redraw_stage(cx);
-            }
-        }));
         let mut fields = Vec::with_capacity(req.fields.len());
+        let is_payment = req.category == VaultCategory::Payments;
         for f in &req.fields {
             if f.kind == VaultFieldKind::Document {
                 continue;
             }
-            let masked = f.sensitive || f.kind.is_inherently_sensitive();
+            let prefill = f.value.as_deref().map(str::trim).filter(|v| !v.is_empty());
+            let masked = (f.sensitive || f.kind.is_inherently_sensitive()) && prefill.is_none();
             let ph = f.placeholder.clone().unwrap_or_else(|| match f.kind {
                 VaultFieldKind::CardNumber => "4242 4242 4242 4242".to_owned(),
                 VaultFieldKind::Expiry => "MM/YY".to_owned(),
@@ -116,16 +142,21 @@ pub fn sync(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workben
             });
             let input = cx.new(|cx| {
                 let mut state = InputState::new(window, cx).placeholder(ph);
+                if let Some(val) = prefill {
+                    state = state.default_value(val.to_owned());
+                }
                 if masked {
                     state = state.masked(true);
                 }
                 state
             });
-            subs.push(cx.subscribe(&input, |bench, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    bench.parts.redraw_stage(cx);
-                }
-            }));
+            if is_payment {
+                subs.push(cx.subscribe(&input, |bench, _, event: &InputEvent, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        bench.vault_cards.notify(cx);
+                    }
+                }));
+            }
             fields.push(CardField {
                 key: f.key.clone(),
                 label: f.label.clone(),
@@ -136,6 +167,10 @@ pub fn sync(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workben
                 input,
             });
         }
+        let doc_path = req
+            .proposed_document
+            .as_ref()
+            .map(|doc| PathBuf::from(&doc.source_path));
         bench.vault_cards.requests.insert(
             req.id,
             RequestForm {
@@ -143,7 +178,7 @@ pub fn sync(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workben
                 approve_domain: req.category != VaultCategory::Payments,
                 op_ref,
                 fields,
-                doc_path: None,
+                doc_path,
                 busy: false,
                 error: None,
                 _subs: subs,
@@ -155,22 +190,17 @@ pub fn sync(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workben
         if bench.vault_cards.approvals.contains_key(&app.id) {
             continue;
         }
-        let mut subs = Vec::new();
+        changed = true;
+        let subs = Vec::new();
         let needs_cvc = app.category == VaultCategory::Payments
             && (app.field_keys.iter().any(|k| k == "cvc" || k == "cvv")
                 || app.field_keys.is_empty());
         let cvc = needs_cvc.then(|| {
-            let input = cx.new(|cx| {
+            cx.new(|cx| {
                 InputState::new(window, cx)
                     .placeholder(t!("CVC (optional · never saved)"))
                     .masked(true)
-            });
-            subs.push(cx.subscribe(&input, |bench, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    bench.parts.redraw_stage(cx);
-                }
-            }));
-            input
+            })
         });
         bench.vault_cards.approvals.insert(
             app.id,
@@ -183,18 +213,23 @@ pub fn sync(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workben
             },
         );
     }
+
+    if changed {
+        bench.vault_cards.notify(cx);
+    }
 }
 
 /// Renders all open Vault first-entry and approval cards for `agent`.
 pub(super) fn cards_for(
     bench: &Workbench,
     agent: &str,
-    cx: &mut Context<Workbench>,
+    handle: WeakEntity<Workbench>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let mut out = Vec::new();
     for req in bench.feeds.vault_requests().filter(|r| r.agent_id == agent) {
         if let Some(form) = bench.vault_cards.requests.get(&req.id) {
-            out.push(render_request_card(req, form, cx));
+            out.push(render_request_card(req, form, handle.clone(), cx));
         }
     }
     for app in bench
@@ -203,7 +238,7 @@ pub(super) fn cards_for(
         .filter(|a| a.agent_id == agent)
     {
         if let Some(form) = bench.vault_cards.approvals.get(&app.id) {
-            out.push(render_approval_card(app, form, cx));
+            out.push(render_approval_card(app, form, handle.clone(), cx));
         }
     }
     out
@@ -229,7 +264,7 @@ fn pick_request_doc(
                         form.doc_path = Some(path);
                         form.error = None;
                     }
-                    bench.parts.redraw_stage(cx);
+                    bench.vault_cards.notify(cx);
                 });
             }
         }
@@ -346,7 +381,7 @@ fn submit_request_card(
             if let Some(form) = bench.vault_cards.requests.get_mut(&request_id) {
                 form.error = Some(message.into());
             }
-            bench.parts.redraw_stage(cx);
+            bench.vault_cards.notify(cx);
             return;
         }
     };
@@ -355,7 +390,7 @@ fn submit_request_card(
         form.busy = true;
         form.error = None;
     }
-    bench.parts.redraw_stage(cx);
+    bench.vault_cards.notify(cx);
 
     let target = bench.chat_target(&req.agent_id);
     let asked = target.request_typed::<call::VaultRequestSubmit>(params);
@@ -380,7 +415,7 @@ fn submit_request_card(
                     )
                 };
                 bench.notify(toast::success(msg), cx);
-                bench.parts.redraw_stage(cx);
+                bench.vault_cards.notify(cx);
             }
             Err(error) => {
                 if let Some(form) = bench.vault_cards.requests.get_mut(&request_id) {
@@ -388,7 +423,7 @@ fn submit_request_card(
                     form.error = Some(error.clone().into());
                 }
                 bench.notify(toast::error(error), cx);
-                bench.parts.redraw_stage(cx);
+                bench.vault_cards.notify(cx);
             }
         });
     })
@@ -407,7 +442,7 @@ fn cancel_request_card(bench: &mut Workbench, request_id: String, cx: &mut Conte
     if let Some(form) = bench.vault_cards.requests.get_mut(&request_id) {
         form.busy = true;
     }
-    bench.parts.redraw_stage(cx);
+    bench.vault_cards.notify(cx);
     let target = bench.chat_target(&req.agent_id);
     let asked = target.request_typed::<call::VaultRequestCancel>(VaultRequestCancelParams {
         request_id: request_id.clone(),
@@ -423,7 +458,7 @@ fn cancel_request_card(bench: &mut Workbench, request_id: String, cx: &mut Conte
                     toast::info(t!("Declined Vault request · {who} was told", who = who)),
                     cx,
                 );
-                bench.parts.redraw_stage(cx);
+                bench.vault_cards.notify(cx);
             }
             Err(error) => {
                 if let Some(form) = bench.vault_cards.requests.get_mut(&request_id) {
@@ -431,7 +466,7 @@ fn cancel_request_card(bench: &mut Workbench, request_id: String, cx: &mut Conte
                     form.error = Some(error.clone().into());
                 }
                 bench.notify(toast::error(error), cx);
-                bench.parts.redraw_stage(cx);
+                bench.vault_cards.notify(cx);
             }
         });
     })
@@ -471,7 +506,7 @@ fn answer_approval_card(
         form.busy = true;
         form.error = None;
     }
-    bench.parts.redraw_stage(cx);
+    bench.vault_cards.notify(cx);
 
     let target = bench.chat_target(&app.agent_id);
     let asked = target.request_typed::<call::VaultApprovalAnswer>(VaultApprovalAnswerParams {
@@ -505,7 +540,7 @@ fn answer_approval_card(
                     ))
                 };
                 bench.notify(note, cx);
-                bench.parts.redraw_stage(cx);
+                bench.vault_cards.notify(cx);
             }
             Err(error) => {
                 if let Some(form) = bench.vault_cards.approvals.get_mut(&approval_id) {
@@ -513,7 +548,7 @@ fn answer_approval_card(
                     form.error = Some(error.clone().into());
                 }
                 bench.notify(toast::error(error), cx);
-                bench.parts.redraw_stage(cx);
+                bench.vault_cards.notify(cx);
             }
         });
     })
@@ -523,15 +558,13 @@ fn answer_approval_card(
 fn card_frame(child: impl IntoElement, cx: &App) -> AnyElement {
     div()
         .w_full()
-        .px(SPACE_4)
-        .mb(SPACE_2)
         .flex()
         .justify_center()
         .child(
             div()
                 .w_full()
-                .max_w(super::column::composer(cx))
-                .px(SPACE_4)
+                .max_w(super::column::rows(cx))
+                .px(px(22.))
                 .child(child),
         )
         .into_any_element()
@@ -540,7 +573,8 @@ fn card_frame(child: impl IntoElement, cx: &App) -> AnyElement {
 fn render_request_card(
     req: &VaultPendingRequest,
     form: &RequestForm,
-    cx: &mut Context<Workbench>,
+    handle: WeakEntity<Workbench>,
+    cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let color = vault_ui::category_color(req.category, &t);
@@ -592,7 +626,7 @@ fn render_request_card(
         } else {
             VaultSource::Sikemux
         };
-        let bench = cx.weak_entity();
+        let bench = handle.clone();
         div()
             .flex()
             .flex_col()
@@ -615,7 +649,7 @@ fn render_request_card(
                             form.source_onepassword = is_op;
                             form.error = None;
                         }
-                        bench.parts.redraw_stage(cx);
+                        bench.vault_cards.notify(cx);
                     });
                 }),
             )
@@ -653,15 +687,41 @@ fn render_request_card(
 
     let doc_dropzone = (req.category == VaultCategory::Documents).then(|| {
         let id = req_id.clone();
+        let bench_pick = handle.clone();
         let (name, sub, ready) = if let Some(path) = &form.doc_path {
-            let fname = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.to_string_lossy().into_owned());
-            let sz = std::fs::metadata(path)
-                .map(|m| vault_ui::format_bytes(m.len()))
-                .unwrap_or_else(|_| t!("Ready").to_owned());
-            (fname, format!("{sz} · encrypted locally"), true)
+            if let Some(proposed) = req
+                .proposed_document
+                .as_ref()
+                .filter(|doc| path.to_string_lossy() == doc.source_path)
+            {
+                let sz = vault_ui::format_bytes(proposed.byte_len);
+                (
+                    proposed.filename.clone(),
+                    format!(
+                        "{} · {sz} · {}",
+                        proposed.display_path,
+                        t!("Click to change")
+                    ),
+                    true,
+                )
+            } else {
+                let fname = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.to_string_lossy().into_owned());
+                let sz = std::fs::metadata(path)
+                    .map(|m| vault_ui::format_bytes(m.len()))
+                    .unwrap_or_else(|_| t!("Ready").to_owned());
+                (
+                    fname,
+                    format!(
+                        "{sz} · {} · {}",
+                        t!("encrypted locally"),
+                        t!("Click to change")
+                    ),
+                    true,
+                )
+            }
         } else {
             (
                 t!("Choose a file to encrypt & upload blind").to_owned(),
@@ -684,9 +744,11 @@ fn render_request_card(
             .flex()
             .items_center()
             .gap(SPACE_3)
-            .clicks(cx.listener(move |bench, _, window, cx| {
-                pick_request_doc(bench, id.clone(), window, cx)
-            }))
+            .clicks(move |_, window, cx| {
+                let _ = bench_pick.update(cx, |bench, cx| {
+                    pick_request_doc(bench, id.clone(), window, cx)
+                });
+            })
             .child(ui::icon(Icon::File, 16.).text_color(if ready { t.live } else { color }))
             .child(
                 div()
@@ -755,7 +817,7 @@ fn render_request_card(
                     let eye = f.sensitive.then(|| {
                         let id = req_id.clone();
                         let masked = f.masked;
-                        let bench = cx.weak_entity();
+                        let bench = handle.clone();
                         ui::IconButton::new(
                             SharedString::from(format!("vreq-eye-{id}-{ix}")),
                             if masked { Icon::Eye } else { Icon::EyeOff },
@@ -776,7 +838,7 @@ fn render_request_card(
                                         .input
                                         .update(cx, |i, cx| i.set_masked(next, window, cx));
                                 }
-                                bench.parts.redraw_stage(cx);
+                                bench.vault_cards.notify(cx);
                             });
                         })
                     });
@@ -861,6 +923,14 @@ fn render_request_card(
     let decline_id = req_id.clone();
     let once_id = req_id.clone();
     let save_id = req_id.clone();
+    let bench_decline = handle.clone();
+    let bench_once = handle.clone();
+    let bench_save = handle;
+    let save_label = if req.domain.is_some() {
+        t!("Save to Vault & fill")
+    } else {
+        t!("Save to Vault")
+    };
     let foot = div()
         .px(SPACE_4)
         .py(SPACE_2)
@@ -894,9 +964,11 @@ fn render_request_card(
                         ui::Variant::Ghost,
                     )
                     .disabled(form.busy)
-                    .on_click(cx.listener(move |bench, _, _, cx| {
-                        cancel_request_card(bench, decline_id.clone(), cx)
-                    })),
+                    .on_click(move |_, _, cx| {
+                        let _ = bench_decline.update(cx, |bench, cx| {
+                            cancel_request_card(bench, decline_id.clone(), cx)
+                        });
+                    }),
                 )
                 .child(
                     ui::Button::new(
@@ -905,21 +977,25 @@ fn render_request_card(
                         ui::Variant::Outline,
                     )
                     .disabled(form.busy)
-                    .on_click(cx.listener(move |bench, _, _, cx| {
-                        submit_request_card(bench, once_id.clone(), true, cx)
-                    })),
+                    .on_click(move |_, _, cx| {
+                        let _ = bench_once.update(cx, |bench, cx| {
+                            submit_request_card(bench, once_id.clone(), true, cx)
+                        });
+                    }),
                 )
                 .child(
                     ui::Button::new(
                         SharedString::from(format!("vreq-save-{save_id}")),
-                        t!("Save to Vault & fill"),
+                        save_label,
                         ui::Variant::Primary,
                     )
                     .icon(Icon::ShieldCheck)
                     .disabled(form.busy)
-                    .on_click(cx.listener(move |bench, _, _, cx| {
-                        submit_request_card(bench, save_id.clone(), false, cx)
-                    })),
+                    .on_click(move |_, _, cx| {
+                        let _ = bench_save.update(cx, |bench, cx| {
+                            submit_request_card(bench, save_id.clone(), false, cx)
+                        });
+                    }),
                 ),
         );
 
@@ -943,7 +1019,8 @@ fn render_request_card(
 fn render_approval_card(
     app: &VaultPendingApproval,
     form: &ApprovalForm,
-    cx: &mut Context<Workbench>,
+    handle: WeakEntity<Workbench>,
+    cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let color = vault_ui::category_color(app.category, &t);
@@ -1012,7 +1089,7 @@ fn render_approval_card(
     let remember_row =
         (app.category != VaultCategory::Payments && !app.domain.is_empty()).then(|| {
             let id = app_id.clone();
-            let bench = cx.weak_entity();
+            let bench = handle.clone();
             div()
                 .flex()
                 .items_center()
@@ -1033,7 +1110,7 @@ fn render_approval_card(
                                 if let Some(form) = bench.vault_cards.approvals.get_mut(&id) {
                                     form.remember_domain = on;
                                 }
-                                bench.parts.redraw_stage(cx);
+                                bench.vault_cards.notify(cx);
                             });
                         }),
                 )
@@ -1093,6 +1170,8 @@ fn render_approval_card(
 
     let deny_id = app_id.clone();
     let approve_id = app_id.clone();
+    let bench_deny = handle.clone();
+    let bench_approve = handle;
     let approve_label = if app.requires_biometric {
         t!("Approve with Touch ID")
     } else {
@@ -1132,9 +1211,11 @@ fn render_approval_card(
                         ui::Variant::Ghost,
                     )
                     .disabled(form.busy)
-                    .on_click(cx.listener(move |bench, _, _, cx| {
-                        answer_approval_card(bench, deny_id.clone(), false, cx)
-                    })),
+                    .on_click(move |_, _, cx| {
+                        let _ = bench_deny.update(cx, |bench, cx| {
+                            answer_approval_card(bench, deny_id.clone(), false, cx)
+                        });
+                    }),
                 )
                 .child(
                     ui::Button::new(
@@ -1144,9 +1225,11 @@ fn render_approval_card(
                     )
                     .icon(approve_icon)
                     .disabled(form.busy)
-                    .on_click(cx.listener(move |bench, _, _, cx| {
-                        answer_approval_card(bench, approve_id.clone(), true, cx)
-                    })),
+                    .on_click(move |_, _, cx| {
+                        let _ = bench_approve.update(cx, |bench, cx| {
+                            answer_approval_card(bench, approve_id.clone(), true, cx)
+                        });
+                    }),
                 ),
         );
 

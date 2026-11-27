@@ -441,7 +441,7 @@ impl Workbench {
                 bench.go_with(&go.0, cx)
             }),
             calls,
-            vault_cards: crate::chat::vault_cards::VaultCards::default(),
+            vault_cards: crate::chat::vault_cards::VaultCards::new(cx),
             _older: None,
         };
         bench.parts.stage_follows(&bench.sims, cx);

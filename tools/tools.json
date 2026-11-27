@@ -2779,6 +2779,11 @@
           },
           "maxItems": 20
         },
+        "filePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
         "domain": {
           "type": "string",
           "maxLength": 255
@@ -2788,9 +2793,7 @@
           "maxLength": 400
         },
         "waitMs": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 55000
+          "type": "integer"
         }
       },
       "required": ["category", "title"]

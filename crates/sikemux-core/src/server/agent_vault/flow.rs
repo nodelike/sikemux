@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sikemux_calls::vault::{
     VaultApprovalAnswerParams, VaultApprovalsParams, VaultAuditStatus, VaultCategory,
-    VaultDeliveryMode, VaultEntrySummary, VaultFieldKind, VaultPendingApproval,
+    VaultDeliveryMode, VaultDocumentInput, VaultEntrySummary, VaultFieldKind, VaultPendingApproval,
     VaultPendingRequest, VaultRequestCancelParams, VaultRequestSubmitParams, VaultRequestsParams,
     VaultResolveBrowserParams, VaultResolvedBrowser, VaultSource, VaultUpsertParams,
 };
@@ -146,6 +146,17 @@ pub(crate) async fn submit_request(
             .map(str::to_owned)
             .unwrap_or_else(|| open.view.title.clone());
         let scope = params.scope.unwrap_or_else(|| open.view.scope.clone());
+        let document = params.document.or_else(|| {
+            open.view
+                .proposed_document
+                .as_ref()
+                .map(|doc| VaultDocumentInput {
+                    filename: doc.filename.clone(),
+                    mime_type: Some(doc.mime_type.clone()),
+                    source_path: Some(doc.source_path.clone()),
+                    data_base64: None,
+                })
+        });
         let upsert = VaultUpsertParams {
             id: None,
             title,
@@ -156,7 +167,7 @@ pub(crate) async fn submit_request(
             domains,
             require_approval: params.require_approval,
             fields: params.fields,
-            document: params.document,
+            document,
             subtitle: None,
         };
         let mut store = core.agent_vault().store.locked();

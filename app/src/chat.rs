@@ -758,18 +758,32 @@ impl Reading {
 
 /// What the transcript draws after its last row.
 struct Footer {
+    bench: WeakEntity<Workbench>,
+    agent: String,
     calls: Entity<crate::calls::InChat>,
     activity: AnyView,
     _calls: Subscription,
+    _vault: Subscription,
 }
 
 impl Footer {
-    fn new(calls: Entity<crate::calls::InChat>, activity: AnyView, cx: &mut Context<Self>) -> Self {
+    fn new(
+        bench: WeakEntity<Workbench>,
+        agent: String,
+        calls: Entity<crate::calls::InChat>,
+        activity: AnyView,
+        vault: &Entity<()>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let _calls = cx.observe(&calls, |_, _, cx| cx.notify());
+        let _vault = cx.observe(vault, |_, _, cx| cx.notify());
         Self {
+            bench,
+            agent,
             calls,
             activity,
             _calls,
+            _vault,
         }
     }
 }
@@ -780,6 +794,18 @@ impl Render for Footer {
             let calls = self.calls.read(cx);
             (calls.settled(cx), calls.open(self.calls.downgrade(), cx))
         };
+        let vault = self.bench.upgrade().and_then(|bench| {
+            let cards = vault_cards::cards_for(bench.read(cx), &self.agent, bench.downgrade(), cx);
+            (!cards.is_empty()).then(|| {
+                div()
+                    .w_full()
+                    .pt(crate::theme::SPACE_2)
+                    .flex()
+                    .flex_col()
+                    .gap(crate::theme::SPACE_2)
+                    .children(cards)
+            })
+        });
         div()
             .w_full()
             .flex()
@@ -788,6 +814,7 @@ impl Render for Footer {
             .children(settled)
             .child(self.activity.clone())
             .children(open)
+            .children(vault)
     }
 }
 
@@ -929,6 +956,7 @@ impl Chat {
         bench: WeakEntity<Workbench>,
         target: Target,
         cards: Entity<crate::calls::Cards>,
+        vault_signal: &Entity<()>,
         cx: &mut App,
     ) -> Chat {
         let reader = cx.new(|_| Reading::default());
@@ -1002,6 +1030,7 @@ impl Chat {
         ];
         let rows_changed = {
             let stage = stage.clone();
+            let chat = chat.clone();
             let reader = reader.clone();
             cx.subscribe(&transcript, move |_, _: &RowsChanged, cx| {
                 reader.update(cx, |reading, _| reading.row_index.dirty = true);
@@ -1015,11 +1044,14 @@ impl Chat {
                     .ok();
             })
         };
-        let emptied = cx.subscribe(&transcript, move |_, _: &EmptyChanged, cx| {
-            stage
-                .update(cx, |bench, cx| bench.parts.redraw_stage(cx))
-                .ok();
-        });
+        let emptied = {
+            let stage = stage.clone();
+            cx.subscribe(&transcript, move |_, _: &EmptyChanged, cx| {
+                stage
+                    .update(cx, |bench, cx| bench.parts.redraw_stage(cx))
+                    .ok();
+            })
+        };
         let theming = cx.observe_global::<Tokens>({
             let (looks, transcript) = (kept_looks.clone(), transcript.downgrade());
             let (provider, asks) = (provider.to_owned(), target.asks().clone());
@@ -1042,10 +1074,17 @@ impl Chat {
             }
         });
         let activity_line = cx.new(|_| status::Activity::new(provider, target.clone()));
-        let footer = cx.new(|cx| Footer::new(calls.clone(), activity_line.clone().into(), cx));
-        transcript.update(cx, |transcript, cx| {
-            transcript.set_footer(footer.into(), cx)
+        let footer = cx.new(|cx| {
+            Footer::new(
+                stage.clone(),
+                chat.clone(),
+                calls.clone(),
+                activity_line.clone().into(),
+                vault_signal,
+                cx,
+            )
         });
+        transcript.update(cx, |transcript, cx| transcript.set_footer(footer, cx));
         Chat {
             transcript,
             looks: kept_looks,
@@ -2065,7 +2104,6 @@ pub fn pane(
     }
     drop(seen);
     let asks: Vec<AnyElement> = asking.into_iter().chain(sending).collect();
-    let vault_cards = vault_cards::cards_for(bench, &agent.id, cx);
     let dock = live::dock(bench, agent, chat, asks, cx);
     let notice = composing::notice(bench, &agent.id, cx).map(|notice| {
         div()
@@ -2106,7 +2144,6 @@ pub fn pane(
         .children(status::plan(agent, chat, cx))
         .children(status::trouble(bench, agent, chat, cx))
         .children(permissions)
-        .children(vault_cards)
         .children(notice)
         .children(dock)
         .children(
@@ -2351,6 +2388,7 @@ impl Workbench {
             cx.weak_entity(),
             Target::new(&self.asks, self.place()),
             self.calls.clone(),
+            self.vault_cards.signal(),
             cx,
         );
         chat.rescale(self.preferences().chat_text_scale as f32, cx);

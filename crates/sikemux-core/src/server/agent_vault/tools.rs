@@ -1,10 +1,11 @@
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
 use sikemux_calls::vault::{
-    VaultCategory, VaultFieldKind, VaultListParams, VaultPendingRequest, VaultRequestedField,
-    VaultScope,
+    VaultCategory, VaultFieldKind, VaultListParams, VaultPendingRequest, VaultProposedDocument,
+    VaultRequestedField, VaultScope,
 };
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
@@ -19,6 +20,7 @@ use crate::server::Core;
 
 use super::crypto::{normalize_domain, parse_vault_ref};
 use super::flow::{OpenRequest, RequestResolution};
+use super::store::{guess_mime_type, sanitize_filename, MAX_DOCUMENT_BYTES};
 
 const DEFAULT_REQUEST_WAIT_MS: u64 = 50_000;
 const MAX_REQUEST_WAIT_MS: u64 = 55_000;
@@ -157,6 +159,16 @@ pub(crate) async fn tool_request(
         .and_then(Value::as_str)
         .map(normalize_domain)
         .filter(|d| !d.is_empty());
+    let proposed_document = match params.get("filePath") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(raw)) => {
+            if category != VaultCategory::Documents {
+                return Err("filePath is only supported when category is 'documents'".into());
+            }
+            Some(validate_proposed_file(raw)?)
+        }
+        Some(_) => return Err("filePath must be a string".into()),
+    };
     let fields = parse_requested_fields(category, params.get("fields"))?;
     let wait_ms = params
         .get("waitMs")
@@ -181,6 +193,7 @@ pub(crate) async fn tool_request(
         reason,
         domain,
         fields,
+        proposed_document,
         created_at: epoch_ms(),
     };
     let (tx, rx) = oneshot::channel();
@@ -337,6 +350,7 @@ fn parse_requested_fields(
                     sensitive: kind.is_inherently_sensitive()
                         || matches!(category, VaultCategory::Secrets | VaultCategory::Payments),
                     placeholder: None,
+                    value: None,
                 });
             }
             Value::Object(map) => {
@@ -367,6 +381,23 @@ fn parse_requested_fields(
                     .get("placeholder")
                     .and_then(Value::as_str)
                     .map(str::to_owned);
+                let value = match map.get("value") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(raw_value)) => {
+                        let trimmed = raw_value.trim();
+                        if trimmed.is_empty() {
+                            None
+                        } else {
+                            validate_prefilled_value(category, key, kind, sensitive)?;
+                            Some(trimmed.chars().take(1024).collect())
+                        }
+                    }
+                    Some(_) => {
+                        return Err(format!(
+                            "prefilled value for field '{key}' must be a string"
+                        ))
+                    }
+                };
                 fields.push(VaultRequestedField {
                     key: key.to_owned(),
                     label,
@@ -374,12 +405,129 @@ fn parse_requested_fields(
                     required,
                     sensitive,
                     placeholder,
+                    value,
                 });
             }
             _ => return Err("fields entries must be strings or objects".to_owned()),
         }
     }
     Ok(fields)
+}
+
+fn validate_prefilled_value(
+    category: VaultCategory,
+    key: &str,
+    kind: VaultFieldKind,
+    sensitive: bool,
+) -> Result<(), String> {
+    match category {
+        VaultCategory::Secrets | VaultCategory::Payments => Err(format!(
+            "prefilled value for '{key}' is not allowed for {} requests; let the person enter it directly",
+            category.as_str()
+        )),
+        VaultCategory::Details => {
+            if sensitive || kind.is_inherently_sensitive() {
+                Err(format!(
+                    "prefilled value is not allowed for sensitive field '{key}'"
+                ))
+            } else {
+                Ok(())
+            }
+        }
+        VaultCategory::Documents => {
+            if matches!(
+                kind,
+                VaultFieldKind::Secret
+                    | VaultFieldKind::Password
+                    | VaultFieldKind::Totp
+                    | VaultFieldKind::CardNumber
+                    | VaultFieldKind::Cvc
+                    | VaultFieldKind::AccountNumber
+                    | VaultFieldKind::Document
+            ) {
+                Err(format!(
+                    "prefilled value is not allowed for sensitive field '{key}'"
+                ))
+            } else {
+                Ok(())
+            }
+        }
+    }
+}
+
+fn validate_proposed_file(raw: &str) -> Result<VaultProposedDocument, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("filePath cannot be empty".into());
+    }
+    if trimmed.chars().any(char::is_control) {
+        return Err("filePath cannot contain control characters".into());
+    }
+    let has_tilde = trimmed == "~" || trimmed.starts_with("~/") || trimmed.starts_with("~\\");
+    if !has_tilde && !Path::new(trimmed).is_absolute() {
+        return Err("filePath must be an absolute path or start with ~/".into());
+    }
+    let expanded = sikemux_process::paths::expand_home(trimmed);
+    if !expanded.is_absolute() {
+        return Err("filePath could not be resolved to an absolute path".into());
+    }
+    let link_meta = std::fs::symlink_metadata(&expanded)
+        .map_err(|error| format!("filePath is not accessible: {error}"))?;
+    if link_meta.file_type().is_symlink() {
+        return Err("filePath cannot be a symbolic link".into());
+    }
+    if !link_meta.file_type().is_file() {
+        return Err("filePath must point to a regular file".into());
+    }
+    let canonical = sikemux_process::files::real_path(&expanded)
+        .map_err(|error| format!("could not resolve filePath: {error}"))?;
+    let meta = std::fs::metadata(&canonical)
+        .map_err(|error| format!("could not inspect filePath: {error}"))?;
+    if !meta.is_file() {
+        return Err("filePath must point to a regular file".into());
+    }
+    if meta.len() == 0 {
+        return Err("filePath points to an empty file".into());
+    }
+    if meta.len() > MAX_DOCUMENT_BYTES as u64 {
+        return Err(format!(
+            "document exceeds the {} MB vault limit",
+            MAX_DOCUMENT_BYTES / (1024 * 1024)
+        ));
+    }
+    std::fs::File::open(&canonical)
+        .map_err(|error| format!("filePath could not be opened: {error}"))?;
+    let filename = sanitize_filename(
+        &canonical
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    );
+    let mime_type = guess_mime_type(&filename).to_owned();
+    let display_path = format_display_path(&canonical);
+    Ok(VaultProposedDocument {
+        source_path: canonical.to_string_lossy().into_owned(),
+        display_path,
+        filename,
+        mime_type,
+        byte_len: meta.len(),
+    })
+}
+
+fn format_display_path(canonical: &Path) -> String {
+    if let Some(home) = sikemux_process::paths::home() {
+        let home_canonical = sikemux_process::files::real_path(&home).unwrap_or(home.clone());
+        for root in [&home_canonical, &home] {
+            if let Ok(rel) = canonical.strip_prefix(root) {
+                return if rel.as_os_str().is_empty() {
+                    "~".to_owned()
+                } else {
+                    format!("~/{}", rel.to_string_lossy())
+                };
+            }
+        }
+    }
+    canonical.to_string_lossy().into_owned()
 }
 
 fn default_requested_fields(category: VaultCategory) -> Vec<VaultRequestedField> {
@@ -391,6 +539,7 @@ fn default_requested_fields(category: VaultCategory) -> Vec<VaultRequestedField>
             required,
             sensitive,
             placeholder: None,
+            value: None,
         }
     };
     match category {
@@ -468,35 +617,48 @@ fn default_requested_fields(category: VaultCategory) -> Vec<VaultRequestedField>
 
 fn infer_field_kind(category: VaultCategory, key: &str) -> VaultFieldKind {
     let lower = key.to_lowercase();
-    if lower.contains("password") || lower.contains("pass") {
-        VaultFieldKind::Password
-    } else if lower.contains("totp") || lower.contains("otp") || lower.contains("2fa") {
-        VaultFieldKind::Totp
-    } else if lower.contains("cvc") || lower.contains("cvv") {
-        VaultFieldKind::Cvc
-    } else if lower.contains("card") {
-        VaultFieldKind::CardNumber
-    } else if lower.contains("exp") {
-        VaultFieldKind::Expiry
-    } else if lower.contains("email") {
-        VaultFieldKind::Email
-    } else if lower.contains("phone") || lower.contains("mobile") {
-        VaultFieldKind::Phone
-    } else if lower.contains("address") || lower.contains("street") {
-        VaultFieldKind::Address
-    } else if lower.contains("pan")
-        || lower.contains("ssn")
-        || lower.contains("tax")
-        || lower.contains("vat")
-        || lower.contains("gst")
-        || lower.contains("passport")
+    let tokens: Vec<&str> = lower.split(['_', '-']).filter(|t| !t.is_empty()).collect();
+    let has = |needle: &str| tokens.contains(&needle);
+
+    if has("passport")
+        || has("pan")
+        || has("ssn")
+        || has("tax")
+        || has("vat")
+        || has("gst")
+        || has("gstin")
+        || has("udyam")
+        || has("tin")
+        || has("ein")
+        || lower == "document_number"
+        || lower == "id_number"
+        || lower.contains("tax_id")
+        || lower.contains("registration_number")
     {
         VaultFieldKind::TaxId
-    } else if lower.contains("account") || lower.contains("routing") || lower.contains("iban") {
+    } else if has("password") || has("passcode") || has("passphrase") || has("pwd") || has("pass") {
+        VaultFieldKind::Password
+    } else if has("totp") || has("otp") || has("2fa") || has("mfa") {
+        VaultFieldKind::Totp
+    } else if has("cvc") || has("cvv") {
+        VaultFieldKind::Cvc
+    } else if has("card") || lower.contains("card_number") {
+        VaultFieldKind::CardNumber
+    } else if has("exp") || has("expiry") || has("expiration") {
+        VaultFieldKind::Expiry
+    } else if has("email") {
+        VaultFieldKind::Email
+    } else if has("phone") || has("mobile") {
+        VaultFieldKind::Phone
+    } else if has("address") || has("street") {
+        VaultFieldKind::Address
+    } else if has("account") || has("routing") || has("iban") || has("ifsc") {
         VaultFieldKind::AccountNumber
-    } else if lower.contains("key") || lower.contains("token") || lower.contains("secret") {
+    } else if has("key") || has("token") || has("secret") {
         VaultFieldKind::Secret
-    } else if category == VaultCategory::Documents {
+    } else if category == VaultCategory::Documents
+        && matches!(lower.as_str(), "document" | "file" | "attachment")
+    {
         VaultFieldKind::Document
     } else {
         VaultFieldKind::Text

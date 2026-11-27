@@ -6,10 +6,10 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     actions, canvas, div, list, px, AnyElement, AnyView, App, ClipboardItem, Context,
-    DispatchPhase, ElementId, EventEmitter, FocusHandle, FollowMode, InteractiveElement,
+    DispatchPhase, ElementId, Entity, EventEmitter, FocusHandle, FollowMode, InteractiveElement,
     IntoElement, KeyBinding, ListAlignment, ListOffset, ListState, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Render, SharedString, Styled,
-    Window,
+    Subscription, Window,
 };
 
 use crate::draw::{LayoutBudget, Pen, Style};
@@ -108,6 +108,7 @@ pub struct Transcript<R: Row> {
     draw_row: DrawRow<R>,
     /// Drawn after the last row, scrolling with the rows.
     footer: Option<AnyView>,
+    _footer: Option<Subscription>,
     layout_budget: Rc<LayoutBudget>,
     on_reach_top: Option<Ask>,
     asked_earlier: bool,
@@ -231,6 +232,7 @@ impl<R: Row> Transcript<R> {
             style,
             draw_row: Rc::new(draw_row),
             footer: None,
+            _footer: None,
             on_reach_top: None,
             asked_earlier: false,
             on_reach_bottom: None,
@@ -629,8 +631,15 @@ impl<R: Row> Transcript<R> {
     }
 
     /// Draws `footer` after the last row, scrolling with the rows.
-    pub fn set_footer(&mut self, footer: AnyView, cx: &mut Context<Self>) {
-        self.footer = Some(footer);
+    pub fn set_footer<V: 'static + Render>(&mut self, footer: Entity<V>, cx: &mut Context<Self>) {
+        self._footer = Some(cx.observe(&footer, |this, _, cx| {
+            let ix = this.rows.len();
+            this.list.remeasure_items(ix..ix + 1);
+            cx.notify();
+        }));
+        self.footer = Some(footer.into());
+        let ix = self.rows.len();
+        self.list.remeasure_items(ix..ix + 1);
         cx.notify();
     }
 
