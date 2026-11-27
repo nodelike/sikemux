@@ -1973,13 +1973,11 @@ async fn run(
                     reconnect.reset();
                     continue;
                 }
-                if crate::updates::is_restarting() {
-                    tokio::time::sleep(reconnect.next()).await;
-                    continue;
-                }
-                let _ = updates.send(Update::Lost("the core closed the connection".into()));
-                if connected.elapsed() >= HELD {
-                    reconnect.reset();
+                if !crate::updates::is_restarting() {
+                    let _ = updates.send(Update::Lost("the core closed the connection".into()));
+                    if connected.elapsed() >= HELD {
+                        reconnect.reset();
+                    }
                 }
             }
             Err(error) => {
@@ -1995,35 +1993,34 @@ async fn run(
                         continue;
                     }
                 }
-                if crate::updates::is_restarting() {
-                    tokio::time::sleep(reconnect.next()).await;
-                    continue;
-                }
-                eprintln!("sikemux: no core answers: {error}");
-                let socket = home.socket.clone();
-                let stuck = tokio::task::spawn_blocking(move || core_start::stuck(&socket))
-                    .await
-                    .ok()
-                    .flatten();
-                let Some(pid) = stuck else {
-                    let _ = updates.send(Update::Lost(error.to_string()));
-                    tokio::time::sleep(reconnect.next()).await;
-                    continue;
-                };
-                eprintln!("sikemux: the core, pid {pid}, holds the socket but does not answer");
-                let _ = updates.send(Update::Stuck(pid));
-                if !wait_to_start(&home, &mut asks, &mut watches).await {
-                    return;
-                }
-                let socket = home.socket.clone();
-                let _ = tokio::task::spawn_blocking(move || {
-                    if core_start::stuck(&socket) == Some(pid) && !core_start::end(&socket, pid) {
-                        eprintln!("sikemux: the core, pid {pid}, would not stop");
+                if !crate::updates::is_restarting() {
+                    eprintln!("sikemux: no core answers: {error}");
+                    let socket = home.socket.clone();
+                    let stuck = tokio::task::spawn_blocking(move || core_start::stuck(&socket))
+                        .await
+                        .ok()
+                        .flatten();
+                    let Some(pid) = stuck else {
+                        let _ = updates.send(Update::Lost(error.to_string()));
+                        tokio::time::sleep(reconnect.next()).await;
+                        continue;
+                    };
+                    eprintln!("sikemux: the core, pid {pid}, holds the socket but does not answer");
+                    let _ = updates.send(Update::Stuck(pid));
+                    if !wait_to_start(&home, &mut asks, &mut watches).await {
+                        return;
                     }
-                })
-                .await;
-                reconnect.reset();
-                continue;
+                    let socket = home.socket.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        if core_start::stuck(&socket) == Some(pid) && !core_start::end(&socket, pid)
+                        {
+                            eprintln!("sikemux: the core, pid {pid}, would not stop");
+                        }
+                    })
+                    .await;
+                    reconnect.reset();
+                    continue;
+                }
             }
         }
         tokio::time::sleep(reconnect.next()).await;
