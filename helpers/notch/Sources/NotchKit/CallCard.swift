@@ -197,13 +197,17 @@ struct CallCard: View {
     }
 
     var body: some View {
+        let parts = Markdown.questionParts(call.question)
         VStack(alignment: .leading, spacing: 0) {
             if showsWho { who.padding(.bottom, 8) }
-            Text(call.question)
-                .font(Theme.ui(15, .semibold))
-                .foregroundStyle(Theme.ink)
-                .lineSpacing(2)
-                .padding(.bottom, 3)
+            if let headline = parts.headline {
+                InlineMarkdownText(headline, style: .headline, onOpenURL: store.openExternal)
+                    .padding(.bottom, parts.body != nil ? 8 : 3)
+            }
+            if let questionBody = parts.body {
+                prose(questionBody)
+                    .padding(.bottom, context != nil ? 6 : 0)
+            }
             if let context {
                 prose(context)
             }
@@ -211,7 +215,7 @@ struct CallCard: View {
                 pageRow(page).padding(.top, 12)
             }
             ForEach(Array((call.evidence ?? []).filter { $0.picture == nil }.enumerated()), id: \.offset) { _, evidence in
-                prose(evidence.what).foregroundStyle(Theme.inkDim)
+                prose(evidence.what, style: .dim).padding(.top, 6)
             }
             if pictured {
                 strip.padding(.top, 12).padding(.bottom, 14)
@@ -230,10 +234,13 @@ struct CallCard: View {
             }
             options
             if let against = call.against {
-                (Text("Against it: ").foregroundStyle(Theme.inkDim) + Text(against).foregroundStyle(Theme.inkSoft))
-                    .font(Theme.ui(12.5))
-                    .lineSpacing(2)
-                    .padding(.top, 12)
+                InlineMarkdownText(
+                    against,
+                    style: .body,
+                    prefix: ("Against it: ", Theme.inkDim),
+                    onOpenURL: store.openExternal
+                )
+                .padding(.top, 12)
             }
             if call.kind == .production, let action = call.action {
                 whatRuns(action).padding(.top, 8)
@@ -245,12 +252,8 @@ struct CallCard: View {
         .onChange(of: typed || fieldFocused, initial: true) { _, held in island.callHeld = held }
     }
 
-    private func prose(_ text: String) -> some View {
-        Text(text)
-            .font(Theme.ui(12.5))
-            .foregroundStyle(Theme.inkSoft)
-            .lineSpacing(2)
-            .fixedSize(horizontal: false, vertical: true)
+    private func prose(_ text: String, style: MarkdownStyle = .body) -> some View {
+        MarkdownView(text: text, style: style, onOpenURL: store.openExternal)
     }
 
     private var who: some View {
@@ -455,9 +458,9 @@ private struct OptionRow: View {
             HStack(spacing: 10) {
                 Radio(on: chosen)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(option.label).font(Theme.ui(13)).foregroundStyle(Theme.ink)
+                    InlineMarkdownText(option.label, style: .optionLabel, allowLinks: false)
                     if let detail = option.detail {
-                        Text(detail).font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim)
+                        InlineMarkdownText(detail, style: .optionDetail, allowLinks: false)
                     }
                 }
                 Spacer(minLength: 8)
@@ -614,7 +617,7 @@ private struct CallsLine: View {
                 Circle().fill(Theme.warn).frame(width: 7, height: 7).frame(width: 20, height: 20)
                 Text(count == 1 ? "1 ask" : "\(count) asks")
                     .font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink).fixedSize()
-                Text(open ? "" : newest.headline ?? newest.question)
+                Text(open ? "" : newest.previewHeadline)
                     .font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if !open {
@@ -671,7 +674,7 @@ private struct CallRow: View {
 
     var body: some View {
         let entry = store.entries.first { $0.agentId == call.asker.agentId }
-        let headline = call.headline ?? call.question
+        let headline = call.previewHeadline
         Button(action: choose) {
             HStack(spacing: 10) {
                 AskerLook(call: call, face: entry?.agent?.face)
@@ -699,6 +702,11 @@ extension PersonCall {
 
     /// A secret is kept private, so the notch takes no words for it: they are typed in the asker's chat.
     var keepsWordsPrivate: Bool { secret == true }
+
+    var previewHeadline: String {
+        let raw = headline.flatMap { $0.isEmpty ? nil : $0 } ?? question
+        return Markdown.plainLine(raw)
+    }
 }
 
 /// Who asks a call: the project's chief wears Sikemux's S, as its rows do; any other agent its own face.

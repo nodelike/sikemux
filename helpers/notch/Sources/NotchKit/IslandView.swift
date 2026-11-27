@@ -381,7 +381,7 @@ struct AskDetail: View {
         if let ask = entry.ask {
             CommandText(command: ask.command, isCommand: ask.isCommand, darker: darker)
         } else if let text = entry.item?.detail {
-            Text(text)
+            Text(Markdown.plainLine(text))
                 .font(Theme.ui(13))
                 .foregroundStyle(Theme.ink)
                 .lineLimit(2)

@@ -390,7 +390,7 @@ struct DropTargets: View {
                 target(Self.answering) {
                     AgentLook(entry: asking, size: 20)
                     Text("Answer \(agentName(asking.provider))").font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink)
-                    Text(question.text).font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1)
+                    Text(Markdown.plainLine(question.text)).font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1)
                 }
             }
             if let recent, recent.id != asking?.id {

@@ -294,6 +294,22 @@ let chiefCalls = [
                pick: "name", against: "a name typed in a hurry reads back wrong on the first screen.", evidence: nil, action: nil,
                brief: nil, place: nil, canHandBack: false, multi: nil, secret: nil, raisedAt: now - 180_000, state: .open,
                answer: nil, outcome: nil),
+    PersonCall(id: "c1md", project: "/Users/me/sikemux", kind: .look,
+               asker: CallAsker(agentId: "c1", name: "Chief", cli: "claude", chief: true), joined: nil,
+               about: nil, page: CallPage(id: "8b1e3f2a9c4d7e6f1a2b3c4d5e6f7a8b", title: "WebArena-Pro Benchmark: Sikemux Meta-Harness vs Official"), morePages: nil, shownIn: nil,
+               question: """
+               WebArena-Pro benchmark dashboard is ready — open the artifact for the full 1:1 official parity, before/after speedups, per-site breakdown, and failure audit.
+
+               - **Headline:** Sikemux + Antigravity Gemini 4 Neon ranks **#1 on `test39` at 71.8% raw (28/39; 90.0% adjusted)** — **+7.7 pp** over both top official harnesses (`Codex · GPT 6.1 Sol` & `OpenCode · Qwen 3.8 Max Prime`, 64.1%).
+               - **Claude Opus 5.5:** Ties official Playwright MCP 1:1 (**61.5%**, 24/39) in 65.1s *median* wall time, and cut `pilot30` wall time **-33%** (`46.3s → 30.9s`) after our 5 browser fixes.
+               - **Reliability:** **0** Sikemux browser-tool bugs across all 138 post-fix runs — see [methodology](https://docs.sikemux.com).
+               """,
+               headline: "**WebArena-Pro** `test39` dashboard is ready", context: nil,
+               assumption: nil,
+               options: [CallOption(id: "seen", label: "Seen", detail: nil, picture: nil)],
+               pick: nil, against: nil, evidence: nil, action: nil,
+               brief: nil, place: nil, canHandBack: false, multi: nil, secret: nil, raisedAt: now - 90_000, state: .open,
+               answer: nil, outcome: nil),
 ]
 
 func standing(_ workspace: Workspace, agents: [AgentShown], calls: [PersonCall]) -> Workspace {
@@ -477,6 +493,7 @@ render("P8-own-words", agents: ["a2", "a9"], height: 380, card: { store in
 render("P10-money-call", agents: ["a2", "a12"], height: 420) { $0.mode = .call("m1") }
 render("P13-chief-call", agents: ["c1", "a2"], height: 420) { $0.mode = .call("c1q") }
 render("P14-secret-call", agents: ["a2", "a15"], height: 300) { $0.mode = .call("s1") }
+render("P15-markdown-call", agents: ["c1", "a2"], height: 560) { $0.mode = .call("c1md") }
 render("P9-what-runs", agents: ["a2", "a12"], height: 720, card: { $0.drafts["7"]?.actionOpen = true }) { $0.mode = .call("7") }
 render("P2-finished", agents: ["a2", "a4"]) { $0.mode = .peekDone("agent:a4") }
 render("P3-connect", agents: ["a2", "a3"], height: 240, devices: [PendingDevice(id: "d1", name: "Pixel 8", platform: "android", expiresAt: now + 112_000)]) {
@@ -491,6 +508,11 @@ render("O1b-list-call", agents: ["a1", "a2", "a9", "a12"], height: 900) {
 render("O1e-list-chief-call", agents: ["c1", "a1", "a2", "a9"], height: 900) {
     $0.mode = .open
     $0.listCall = "t1"
+    $0.callsOpen = true
+}
+render("O1f-list-markdown-call", agents: ["c1", "a1", "a2", "a9"], height: 760) {
+    $0.mode = .open
+    $0.listCall = "c1md"
     $0.callsOpen = true
 }
 render("O1c-list-weighty-call", agents: ["a1", "a2", "a13"], height: 900, card: { $0.drafts["w1"]?.actionOpen = true }) {

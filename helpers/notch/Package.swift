@@ -22,5 +22,6 @@ let package = Package(
         .executableTarget(name: "SikemuxNotch", dependencies: ["NotchKit"], path: "Sources/SikemuxNotch"),
         // Renders every state of the island to PNGs: `swift run notch-snapshots <dir>`.
         .executableTarget(name: "notch-snapshots", dependencies: ["NotchKit"], path: "Sources/Snapshots"),
+        .testTarget(name: "NotchKitTests", dependencies: ["NotchKit"], path: "Tests/NotchKitTests"),
     ]
 )

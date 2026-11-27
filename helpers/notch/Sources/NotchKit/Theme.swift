@@ -24,6 +24,7 @@ enum Theme {
     static let hairline = Color.white.opacity(0.09)
     /// The row the person chose, as a selected capsule is filled.
     static let chosen = Color.white.opacity(0.12)
+    static let codeBlockGround = Color.black.opacity(0.35)
     /// Reading text a step quieter than the ink, as a card's context reads.
     static var inkSoft: Color { ink.opacity(0.78) }
 
@@ -48,16 +49,31 @@ enum Theme {
     }
 
     static func ui(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        let name: String
-        switch weight {
-        case .semibold, .bold, .heavy, .black: name = "Figtree-SemiBold"
-        case .medium: name = "Figtree-Medium"
-        default: name = "Figtree-Regular"
-        }
+        let name = uiFontName(weight)
         if NSFont(name: name, size: size) != nil {
             return .custom(name, fixedSize: size)
         }
         return .system(size: size, weight: weight)
+    }
+
+    static func uiItalic(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        let name = uiFontName(weight)
+        if let base = NSFont(name: name, size: size) {
+            // Bundled Figtree has no italic faces; NSFont's matrix encodes size in m11/m22.
+            let oblique = AffineTransform(m11: size, m12: 0, m21: size * 0.2, m22: size, tX: 0, tY: 0)
+            if let slanted = NSFont(descriptor: base.fontDescriptor.withMatrix(oblique), size: 0) {
+                return Font(slanted)
+            }
+        }
+        return .system(size: size, weight: weight).italic()
+    }
+
+    private static func uiFontName(_ weight: Font.Weight) -> String {
+        switch weight {
+        case .semibold, .bold, .heavy, .black: return "Figtree-SemiBold"
+        case .medium: return "Figtree-Medium"
+        default: return "Figtree-Regular"
+        }
     }
 
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {

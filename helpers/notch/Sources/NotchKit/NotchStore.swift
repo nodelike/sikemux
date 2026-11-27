@@ -413,6 +413,14 @@ final class NotchStore {
         openLink("sikemux://artifact/", page.id, query: "?ask=\(call.id)")
     }
 
+    func openExternal(_ url: URL) {
+        if url.scheme?.lowercased() == "sikemux", let app = options.app, app.hasSuffix(".app") {
+            NSWorkspace.shared.open([url], withApplicationAt: URL(fileURLWithPath: app), configuration: NSWorkspace.OpenConfiguration())
+        } else {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     /// Opens a link only this helper's own app follows, since Sikemux and Sikemux Dev both answer `sikemux://`.
     private func openLink(_ kind: String, _ key: String, query: String = "") {
         guard let app = options.app, app.hasSuffix(".app"),
