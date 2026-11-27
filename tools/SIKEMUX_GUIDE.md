@@ -624,9 +624,10 @@ Calls run one at a time, about 50 seconds each.
 
 - `sim tap` by `index` or `label` rather than a point; a `label` that matches
   two elements fails and lists them.
-- `sim type` types into the focused field, US keyboard characters only. While
-  the keyboard shows, a swipe over it types a word: press Return (`\n`) or tap
-  outside first.
+- `sim type` types into the focused field, US keyboard characters only. Pass
+  `submit: true` (or a real newline, not literal `\n`) to press Return. While
+  the keyboard shows, a swipe over it types a word: press Return or tap outside
+  first.
 - A `sim swipe` starting within 10 points of an edge is a system gesture (home,
   back, Notification Center); start inside the content to scroll.
 - `sim touch2_path` points name both fingers (`x1`, `y1`, `x2`, `y2`).

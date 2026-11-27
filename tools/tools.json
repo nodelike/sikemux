@@ -931,6 +931,9 @@
           "type": "string",
           "maxLength": 2000
         },
+        "submit": {
+          "type": "boolean"
+        },
         "report": {
           "enum": [
             "changes",

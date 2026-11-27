@@ -144,8 +144,9 @@ mod tools {
     use crate::claims::Claim;
     use crate::tools::{
         app_size, cap_logs, changes, choose_device, edge_warning, element_lines, elements_from,
-        inside_project, inspect, labelled, launching, newest_iphone, pick_device, run, tap_point,
-        Device, Element, Numbered, Numbering, Pick,
+        inside_project, inspect, labelled, landed, launching, newest_iphone, pick_device, run,
+        tap_point, text_fields_from, trailing_escaped_newline, type_steps, Device, Element,
+        Numbered, Numbering, Pick, Read, TypeStep,
     };
     use sikemux_process::sync::Locked;
     use std::collections::{HashMap, HashSet};
@@ -842,6 +843,326 @@ done
             (tap["x"].as_f64(), tap["y"].as_f64()),
             (Some(340.0), Some(434.0))
         );
+    }
+
+    fn read_from(reply: &serde_json::Value) -> Read {
+        let size = app_size(reply);
+        let (app, elements) = elements_from(reply, size);
+        let mut flat = Vec::new();
+        fn collect<'a>(value: &'a serde_json::Value, out: &mut Vec<&'a serde_json::Value>) {
+            for element in value.as_array().into_iter().flatten() {
+                out.push(element);
+                collect(&element["children"], out);
+            }
+        }
+        collect(&reply["elements"], &mut flat);
+        let keyboard = flat.iter().any(|element| {
+            element["traits"]
+                .as_array()
+                .is_some_and(|traits| traits.iter().any(|trait_| trait_ == "KeyboardKey"))
+        });
+        let text_fields = text_fields_from(&flat);
+        Read {
+            app,
+            elements,
+            size,
+            keyboard,
+            text_fields,
+        }
+    }
+
+    #[test]
+    fn sim_type_dispatches_newlines_control_keys_and_submit_as_key_events() {
+        assert_eq!(
+            type_steps("mobile-e2e@swishx.com\n", false),
+            vec![
+                TypeStep::Text("mobile-e2e@swishx.com".into()),
+                TypeStep::Key("Enter"),
+            ]
+        );
+        assert_eq!(
+            type_steps("mobile-e2e@swishx.com", true),
+            vec![
+                TypeStep::Text("mobile-e2e@swishx.com".into()),
+                TypeStep::Key("Enter"),
+            ]
+        );
+        assert_eq!(
+            type_steps("a\r\nb\rc\td\u{8}", false),
+            vec![
+                TypeStep::Text("a".into()),
+                TypeStep::Key("Enter"),
+                TypeStep::Text("b".into()),
+                TypeStep::Key("Enter"),
+                TypeStep::Text("c".into()),
+                TypeStep::Key("Tab"),
+                TypeStep::Text("d".into()),
+                TypeStep::Key("Backspace"),
+            ]
+        );
+        let boundary = format!("{}\r\nz", "x".repeat(39));
+        assert_eq!(
+            type_steps(&boundary, false),
+            vec![
+                TypeStep::Text("x".repeat(39)),
+                TypeStep::Key("Enter"),
+                TypeStep::Text("z".into()),
+            ],
+            "CRLF at a 40-char chunk boundary still sends a single Enter"
+        );
+        assert_eq!(
+            type_steps(r"mobile-e2e@swishx.com\n", false),
+            vec![TypeStep::Text(r"mobile-e2e@swishx.com\n".into())],
+            "literal backslash-n is not silently rewritten"
+        );
+        assert!(trailing_escaped_newline(r"mobile-e2e@swishx.com\n"));
+        assert!(trailing_escaped_newline(r"\n"));
+        assert!(!trailing_escaped_newline(r"path\\n"));
+        assert!(!trailing_escaped_newline(r"C:\new\file"));
+
+        let log_dir = tempfile::tempdir().unwrap();
+        let log = log_dir.path().join("requests");
+        let value_file = log_dir.path().join("field-value");
+        std::fs::write(&value_file, "").unwrap();
+        let script = format!(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> '{log}'
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+  case "$line" in
+    *'"type":"devices"'*) echo "{{\"id\":$id,\"type\":\"result\",\"devices\":[{{\"udid\":\"U1\",\"name\":\"iPhone 17\",\"runtime\":\"iOS 27.0\",\"state\":\"booted\"}}]}}" ;;
+    *'"type":"screen"'*) echo "{{\"id\":$id,\"type\":\"result\",\"width\":402,\"height\":874,\"scale\":3}}" ;;
+    *'"type":"text"'*)
+      val=$(printf '%s' "$line" | sed -E 's/.*"text":"([^"]*)".*/\1/')
+      printf '%s' "$val" > '{value_file}'
+      echo "{{\"id\":$id,\"type\":\"result\"}}"
+      ;;
+    *'"type":"tree"'*)
+      val=$(cat '{value_file}')
+      echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"App\",\"frame\":{{\"x\":0,\"y\":0,\"width\":402,\"height\":874}},\"children\":[{{\"type\":\"TextField\",\"label\":\"Email\",\"value\":\"$val\",\"enabled\":true,\"traits\":[\"IsEditing\"],\"frame\":{{\"x\":20,\"y\":200,\"width\":360,\"height\":44}}}}]}}]}}"
+      ;;
+    *) echo "{{\"id\":$id,\"type\":\"result\"}}" ;;
+  esac
+done
+"#,
+            log = log.display(),
+            value_file = value_file.display(),
+        );
+        let (_dir, manager) = helper(&script);
+        let call = |method: &str, params: serde_json::Value| {
+            run_now(&manager, "agent-type", "/tmp", method, &params)
+        };
+        call("sim.attach", json!({ "device": "iPhone 17" })).expect("attach");
+
+        let ok = call("sim.type", json!({ "text": "mobile-e2e@swishx.com\n" })).expect("newline");
+        assert!(ok.get("warning").is_none());
+
+        let submitted = call(
+            "sim.type",
+            json!({ "text": "next@swishx.com", "submit": true }),
+        )
+        .expect("submit");
+        assert!(submitted.get("warning").is_none());
+
+        let escaped = call("sim.type", json!({ "text": r"literal@swishx.com\n" }))
+            .expect("escaped newline still types");
+        assert!(
+            escaped["warning"]
+                .as_str()
+                .is_some_and(|w| w.contains("submit: true")),
+            "{escaped}"
+        );
+
+        let sent: Vec<(String, serde_json::Value)> = std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .filter(|req| matches!(req["type"].as_str(), Some("text" | "key")))
+            .filter(|req| req["key"].as_str() != Some("Shift"))
+            .map(|req| {
+                let kind = req["type"].as_str().unwrap().to_owned();
+                let payload = if kind == "text" {
+                    req["text"].clone()
+                } else {
+                    req["key"].clone()
+                };
+                (kind, payload)
+            })
+            .collect();
+        assert_eq!(
+            sent,
+            vec![
+                ("text".into(), json!("mobile-e2e@swishx.com")),
+                ("key".into(), json!("Enter")),
+                ("text".into(), json!("next@swishx.com")),
+                ("key".into(), json!("Enter")),
+                ("text".into(), json!(r"literal@swishx.com\n")),
+            ]
+        );
+    }
+
+    #[test]
+    fn sim_type_accepts_text_matching_placeholder_when_focused_and_rejects_missed_focus() {
+        let otp_screen = |value: &str,
+                          traits: Vec<&str>,
+                          button_enabled: bool,
+                          clock: &str,
+                          keyboard: bool| {
+            let mut children = vec![
+                json!({ "type": "StaticText", "label": clock, "frame": { "x": 60, "y": 20, "width": 50, "height": 20 } }),
+                json!({ "type": "TextField", "label": "OTP", "value": value, "enabled": true, "traits": traits,
+                        "frame": { "x": 20, "y": 240, "width": 360, "height": 48 } }),
+                json!({ "type": "Button", "label": "Verify & Sign In", "enabled": button_enabled,
+                        "frame": { "x": 20, "y": 320, "width": 360, "height": 48 } }),
+            ];
+            if keyboard {
+                children.push(
+                    json!({ "type": "Button", "label": "0", "traits": ["KeyboardKey"],
+                        "frame": { "x": 150, "y": 780, "width": 80, "height": 44 } }),
+                );
+            }
+            read_from(&json!({ "elements": [
+                { "type": "Application", "label": "Academy", "frame": { "x": 0, "y": 0, "width": 402, "height": 874 },
+                  "children": children }
+            ]}))
+        };
+
+        // Repro: OTP TextField reports placeholder "000000" as AXValue before typing and
+        // real "000000" after typing, with IsEditing focused and Verify button enabled.
+        let before_focused = otp_screen("000000", vec!["IsEditing"], false, "9:27", false);
+        let after_enabled = otp_screen("000000", vec!["IsEditing"], true, "9:27", false);
+        assert!(landed(
+            false,
+            &before_focused,
+            &after_enabled,
+            "000000",
+            false
+        ));
+
+        // Even when no other button changes state, a focused field whose value equals the typed text counts as landed.
+        assert!(landed(
+            false,
+            &before_focused,
+            &before_focused,
+            "000000",
+            false
+        ));
+
+        // Submitting blurs the field (IsEditing only before) and still counts as landed.
+        let after_blurred = otp_screen("000000", vec![], true, "9:27", false);
+        assert!(landed(
+            false,
+            &before_focused,
+            &after_blurred,
+            "000000\n",
+            true
+        ));
+
+        // Custom input without IsEditing: either an active iOS keyboard before Shift or an app UI change confirms delivery.
+        let before_unmarked = otp_screen("000000", vec![], false, "9:27", false);
+        assert!(landed(
+            true,
+            &before_unmarked,
+            &before_unmarked,
+            "000000",
+            false
+        ));
+        assert!(landed(
+            false,
+            &before_unmarked,
+            &after_blurred,
+            "000000",
+            false
+        ));
+
+        // Missed focus: field is unfocused, no keyboard was up, and nothing changed — MUST fail even if text matches placeholder.
+        assert!(!landed(
+            false,
+            &before_unmarked,
+            &before_unmarked,
+            "000000",
+            false
+        ));
+
+        // Missed focus with only a status-bar clock tick — MUST still fail.
+        let after_clock_tick = otp_screen("000000", vec![], false, "9:28", false);
+        assert!(!landed(
+            false,
+            &before_unmarked,
+            &after_clock_tick,
+            "000000",
+            false
+        ));
+
+        // Focused field where keystrokes were dropped (typed "123456" but value stayed "000000") — MUST still fail.
+        assert!(!landed(
+            true,
+            &before_focused,
+            &before_focused,
+            "123456",
+            false
+        ));
+
+        // Two fields: Field 1 unfocused with placeholder "000000", Field 2 focused with "Email".
+        // Dropping "000000" into Field 2 must NOT falsely match unfocused Field 1.
+        let two_fields = read_from(&json!({ "elements": [
+            { "type": "Application", "label": "Academy", "frame": { "x": 0, "y": 0, "width": 402, "height": 874 },
+              "children": [
+                { "type": "TextField", "label": "OTP", "value": "000000", "enabled": true, "traits": [],
+                  "frame": { "x": 20, "y": 240, "width": 360, "height": 48 } },
+                { "type": "TextField", "label": "Email", "value": "Email", "enabled": true, "traits": ["IsEditing"],
+                  "frame": { "x": 20, "y": 160, "width": 360, "height": 48 } },
+              ] }
+        ]}));
+        assert!(!landed(true, &two_fields, &two_fields, "000000", false));
+
+        // Multiline React Native TextInput reports role "TextArea" and must be tracked as a text field.
+        let text_area = read_from(&json!({ "elements": [
+            { "type": "Application", "label": "Academy", "frame": { "x": 0, "y": 0, "width": 402, "height": 874 },
+              "children": [
+                { "type": "TextArea", "label": "Notes", "value": "", "enabled": true, "traits": ["TextArea", "TextEntry"],
+                  "frame": { "x": 20, "y": 556, "width": 326, "height": 66 } },
+              ] }
+        ]}));
+        assert_eq!(text_area.text_fields.len(), 1);
+        assert!(!landed(false, &text_area, &text_area, "hello", false));
+
+        // End-to-end sim.type repro: focused OTP field with placeholder "000000" succeeds when typing "000000",
+        // while an unfocused field still fails with NOT_TYPED.
+        let dir = tempfile::tempdir().unwrap();
+        let focused_flag = dir.path().join("focused");
+        std::fs::write(&focused_flag, "1").unwrap();
+        let script = format!(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+  case "$line" in
+    *'"type":"devices"'*) echo "{{\"id\":$id,\"type\":\"result\",\"devices\":[{{\"udid\":\"U1\",\"name\":\"iPhone 17\",\"runtime\":\"iOS 27.0\",\"state\":\"booted\"}}]}}" ;;
+    *'"type":"screen"'*) echo "{{\"id\":$id,\"type\":\"result\",\"width\":402,\"height\":874,\"scale\":3}}" ;;
+    *'"type":"tree"'*)
+      if [ -e '{flag}' ]; then
+        traits='["IsEditing"]'
+      else
+        traits='[]'
+      fi
+      echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":402,\"height\":874}},\"children\":[{{\"type\":\"TextField\",\"label\":\"OTP\",\"value\":\"000000\",\"enabled\":true,\"traits\":$traits,\"frame\":{{\"x\":20,\"y\":240,\"width\":360,\"height\":48}}}}]}}]}}"
+      ;;
+    *) echo "{{\"id\":$id,\"type\":\"result\"}}" ;;
+  esac
+done
+"#,
+            flag = focused_flag.display(),
+        );
+        let (_dir, manager) = helper(&script);
+        let call = |method: &str, params: serde_json::Value| {
+            run_now(&manager, "agent-otp", "/tmp", method, &params)
+        };
+        call("sim.attach", json!({ "device": "iPhone 17" })).expect("attach");
+        call("sim.type", json!({ "text": "000000" }))
+            .expect("typing text equal to placeholder into a focused field succeeds");
+        std::fs::remove_file(&focused_flag).unwrap();
+        let missed = call("sim.type", json!({ "text": "000000" })).unwrap_err();
+        assert!(missed.contains("no text field's value changed"), "{missed}");
     }
 
     /// Drives the fixture app the way an agent would, through every kind of tool:

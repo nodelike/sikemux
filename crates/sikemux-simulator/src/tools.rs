@@ -225,7 +225,9 @@ pub(super) async fn run(
         "sim.type" => {
             let device = attached(manager, agent_id)?;
             let before = read_screen(manager, &device).await?;
-            let typed: Vec<char> = text("text").ok_or("text is required")?.chars().collect();
+            let raw = text("text").ok_or("text is required")?;
+            let submit = params.get("submit").and_then(Value::as_bool) == Some(true);
+            let steps = type_steps(raw, submit);
             // The first key from a hardware keyboard sends iOS's own keyboard away, and keys
             // that arrive while it goes are lost, so a lone Shift sends it away first.
             let shift = json!({ "udid": device.udid, "key": "Shift" });
@@ -234,17 +236,35 @@ pub(super) async fn run(
             } else {
                 before.clone()
             };
-            for chunk in typed.chunks(TEXT_CHUNK) {
-                let chunk: String = chunk.iter().collect();
-                manager
-                    .request("text", json!({ "udid": device.udid, "text": chunk }))
-                    .await?;
+            for step in &steps {
+                match step {
+                    TypeStep::Text(chunk) => {
+                        manager
+                            .request("text", json!({ "udid": device.udid, "text": chunk }))
+                            .await?;
+                    }
+                    TypeStep::Key(key) => {
+                        manager
+                            .request("key", json!({ "udid": device.udid, "key": key }))
+                            .await?;
+                    }
+                }
             }
-            let state = settled_state(manager, agent_id, Some(before), report(params)?).await?;
+            let mut state =
+                settled_state(manager, agent_id, Some(before.clone()), report(params)?).await?;
             let after = read_screen(manager, &device).await?;
-            let printable = typed.iter().any(|typed| !typed.is_control());
-            if printable && !landed(&fields.elements, &after.elements) {
+            let printable = raw.chars().any(|typed| !typed.is_control());
+            let submitted = submit || steps.contains(&TypeStep::Key("Enter"));
+            if printable && !landed(before.keyboard, &fields, &after, raw, submitted) {
                 return Err(NOT_TYPED.into());
+            }
+            if !submit && trailing_escaped_newline(raw) {
+                if let Some(state) = state.as_object_mut() {
+                    state.insert(
+                        "warning".to_owned(),
+                        "text ended with literal \\n instead of a newline; pass submit: true (or a real newline) to press Return".into(),
+                    );
+                }
             }
             Ok(state)
         }
@@ -449,14 +469,23 @@ pub(crate) struct Element {
 pub(crate) type Numbered = (usize, Element);
 
 /// One accessibility read: the frontmost app, its elements, the size of the
-/// app's window, which follows the app when it turns, and whether iOS's own
-/// keyboard is on screen.
+/// app's window, which follows the app when it turns, whether iOS's own
+/// keyboard is on screen, and its text fields with focus metadata.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Read {
     pub app: String,
     pub elements: Vec<Element>,
     pub size: Option<(f64, f64)>,
     pub keyboard: bool,
+    pub text_fields: Vec<TextFieldState>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct TextFieldState {
+    pub identifier: String,
+    pub label: String,
+    pub value: String,
+    pub focused: bool,
 }
 
 /// Gives each element a number that stays with it from read to read. An
@@ -1194,16 +1223,16 @@ async fn read_screen(manager: &SimulatorManager, device: &Device) -> Result<Read
     let size = app_size(&reply).or(device.screen);
     let (app, elements) = elements_from(&reply, size);
     let elements_read = reply.get("elements").map(flattened).unwrap_or_default();
-    let keyboard = elements_read.into_iter().any(|element| {
-        element["traits"]
-            .as_array()
-            .is_some_and(|traits| traits.iter().any(|trait_| trait_ == "KeyboardKey"))
-    });
+    let keyboard = elements_read
+        .iter()
+        .any(|element| has_trait(element, "KeyboardKey"));
+    let text_fields = text_fields_from(&elements_read);
     Ok(Read {
         app,
         elements,
         size,
         keyboard,
+        text_fields,
     })
 }
 
@@ -1259,26 +1288,212 @@ async fn turned(
 
 const NOT_TYPED: &str = "The text did not reach a field: no text field's value changed. Tap the field to focus it, then type again.";
 
-const TEXT_ROLES: [&str; 4] = ["TextField", "SecureTextField", "SearchField", "TextView"];
+const TEXT_ROLES: [&str; 5] = [
+    "TextField",
+    "SecureTextField",
+    "SearchField",
+    "TextView",
+    "TextArea",
+];
 
-/// Whether typing changed a text field's value, as it does in the field that has the keys.
-/// A screen without one, such as a game drawing its own, cannot tell and counts as typed.
-fn landed(before: &[Element], after: &[Element]) -> bool {
-    let values = |elements: &[Element]| -> Vec<(String, String, String)> {
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum TypeStep {
+    Text(String),
+    Key(&'static str),
+}
+
+/// Splits `text` into bounded printable chunks and explicit hardware key presses so
+/// line endings, Tab, Backspace, and `submit` trigger real key events on both iOS and Android.
+pub(super) fn type_steps(text: &str, submit: bool) -> Vec<TypeStep> {
+    let mut steps = Vec::new();
+    let mut chunk = String::new();
+    let mut chunk_len = 0usize;
+    let flush = |steps: &mut Vec<TypeStep>, chunk: &mut String, chunk_len: &mut usize| {
+        if !chunk.is_empty() {
+            steps.push(TypeStep::Text(std::mem::take(chunk)));
+            *chunk_len = 0;
+        }
+    };
+    let mut chars = text.chars().peekable();
+    while let Some(character) = chars.next() {
+        match character {
+            '\r' => {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                flush(&mut steps, &mut chunk, &mut chunk_len);
+                steps.push(TypeStep::Key("Enter"));
+            }
+            '\n' => {
+                flush(&mut steps, &mut chunk, &mut chunk_len);
+                steps.push(TypeStep::Key("Enter"));
+            }
+            '\t' => {
+                flush(&mut steps, &mut chunk, &mut chunk_len);
+                steps.push(TypeStep::Key("Tab"));
+            }
+            '\u{8}' => {
+                flush(&mut steps, &mut chunk, &mut chunk_len);
+                steps.push(TypeStep::Key("Backspace"));
+            }
+            other => {
+                chunk.push(other);
+                chunk_len += 1;
+                if chunk_len >= TEXT_CHUNK {
+                    flush(&mut steps, &mut chunk, &mut chunk_len);
+                }
+            }
+        }
+    }
+    flush(&mut steps, &mut chunk, &mut chunk_len);
+    if submit {
+        steps.push(TypeStep::Key("Enter"));
+    }
+    steps
+}
+
+pub(super) fn trailing_escaped_newline(text: &str) -> bool {
+    let Some(prefix) = text.strip_suffix('n') else {
+        return false;
+    };
+    let backslashes = prefix.chars().rev().take_while(|&c| c == '\\').count();
+    backslashes % 2 == 1
+}
+
+fn has_trait(element: &Value, name: &str) -> bool {
+    element["traits"]
+        .as_array()
+        .is_some_and(|traits| traits.iter().any(|trait_| trait_ == name))
+}
+
+fn value_text(element: &Value) -> String {
+    match element.get("value") {
+        Some(Value::String(text)) => readable(text),
+        Some(Value::Number(number)) => number.to_string(),
+        _ => String::new(),
+    }
+}
+
+pub(super) fn text_fields_from(elements: &[&Value]) -> Vec<TextFieldState> {
+    elements
+        .iter()
+        .filter_map(|element| {
+            let role = element
+                .get("type")
+                .and_then(Value::as_str)
+                .map(readable)
+                .unwrap_or_default();
+            if !TEXT_ROLES.contains(&role.as_str()) && !has_trait(element, "TextEntry") {
+                return None;
+            }
+            let frame = &element["frame"];
+            let (Some(width), Some(height)) = (frame["width"].as_f64(), frame["height"].as_f64())
+            else {
+                return None;
+            };
+            if width <= 0.0 || height <= 0.0 {
+                return None;
+            }
+            let text_field = |key: &str| {
+                element
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .map(readable)
+                    .unwrap_or_default()
+            };
+            let focused = element.get("focused").and_then(Value::as_bool) == Some(true)
+                || has_trait(element, "IsEditing");
+            Some(TextFieldState {
+                identifier: text_field("identifier"),
+                label: text_field("label"),
+                value: value_text(element),
+                focused,
+            })
+        })
+        .collect()
+}
+
+fn expected_typed(raw: &str) -> String {
+    let mut out = String::new();
+    for character in raw.chars() {
+        match character {
+            '\u{8}' => {
+                out.pop();
+            }
+            '\r' | '\n' | '\t' => {}
+            other if !other.is_control() => out.push(other),
+            _ => {}
+        }
+    }
+    readable(&out)
+}
+
+fn non_status_bar_changed(before: &[Element], after: &[Element]) -> bool {
+    fn body(elements: &[Element]) -> Vec<&Element> {
         elements
             .iter()
-            .filter(|element| TEXT_ROLES.contains(&element.role.as_str()))
-            .map(|element| {
+            .filter(|element| element.center.1 >= STATUS_BAR_HEIGHT)
+            .collect()
+    }
+    body(before) != body(after)
+}
+
+/// Whether typing reached a text field.
+/// A screen without text fields, such as a game drawing its own, cannot tell and counts as typed.
+/// On iOS, an empty UITextField reports its placeholder as AXValue, so typing text equal to that
+/// placeholder leaves AXValue unchanged; we accept that only when focus, the active keyboard,
+/// or a non-status-bar UI change confirms delivery.
+pub(super) fn landed(
+    before_keyboard: bool,
+    before: &Read,
+    after: &Read,
+    raw: &str,
+    submitted: bool,
+) -> bool {
+    fn values(read: &Read) -> Vec<(&str, &str, &str)> {
+        read.text_fields
+            .iter()
+            .map(|field| {
                 (
-                    element.identifier.clone(),
-                    element.label.clone(),
-                    element.value.clone(),
+                    field.identifier.as_str(),
+                    field.label.as_str(),
+                    field.value.as_str(),
                 )
             })
             .collect()
-    };
+    }
     let (was, now) = (values(before), values(after));
-    was.is_empty() && now.is_empty() || was != now
+    if (was.is_empty() && now.is_empty()) || was != now {
+        return true;
+    }
+    let any_focused = before
+        .text_fields
+        .iter()
+        .chain(&after.text_fields)
+        .any(|field| field.focused);
+    let ui_changed = non_status_bar_changed(&before.elements, &after.elements);
+    if submitted && (any_focused || before_keyboard) && ui_changed {
+        return true;
+    }
+    let expected = expected_typed(raw);
+    if expected.is_empty() {
+        return false;
+    }
+    before
+        .text_fields
+        .iter()
+        .zip(&after.text_fields)
+        .any(|(was, now)| {
+            if now.value != expected {
+                return false;
+            }
+            let focused = was.focused || now.focused;
+            if any_focused {
+                focused
+            } else {
+                before_keyboard || ui_changed
+            }
+        })
 }
 
 /// The screen once iOS's own keyboard has left it. It starts leaving a second

@@ -142,7 +142,7 @@ public final class Main {
         if (node.isVisibleToUser()) {
             JSONObject read = new JSONObject();
             read.put("class", String.valueOf(node.getClassName()));
-            put(read, "text", node.getText());
+            put(read, "text", node.isShowingHintText() ? null : node.getText());
             put(read, "description", node.getContentDescription());
             put(read, "id", node.getViewIdResourceName());
             put(read, "hint", node.getHintText());

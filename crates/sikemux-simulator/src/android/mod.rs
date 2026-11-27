@@ -1160,6 +1160,7 @@ fn element(node: &Value, frame: Value) -> Option<Value> {
         "value": value,
         "identifier": identifier,
         "enabled": flag("enabled"),
+        "focused": flag("focused"),
         "frame": frame,
     }))
 }
