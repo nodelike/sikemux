@@ -115,8 +115,7 @@ pub(super) async fn show_page(
         Some(id) => {
             let id = id.trim().to_owned();
             blocking(move || {
-                let kept =
-                    crate::pages::is_page_id(&id) && dir.join(format!("{id}.html")).is_file();
+                let kept = crate::pages::page_file(&dir, &id).is_some();
                 if !kept {
                     return Ok(Err(format!(
                         "{id} is no page Sikemux keeps; page_list finds the kept ones"
@@ -400,7 +399,7 @@ async fn read_shared(
         return Err("that is not a page's id".into());
     }
     blocking(move || {
-        if !dir.join(format!("{id}.html")).is_file() {
+        if crate::pages::page_file(&dir, &id).is_none() {
             return Err("that page is gone".into());
         }
         let link = index.share_of(&id)?;
@@ -425,7 +424,7 @@ async fn read_latest(
                 (id, title, None)
             }
         };
-        let html = std::fs::read_to_string(dir.join(format!("{latest_id}.html")))
+        let html = crate::pages::read_html(&dir, &latest_id)
             .map_err(|_| CoreError::from("that page is gone"))?;
         Ok((latest_id, title, html, behind))
     })
@@ -575,8 +574,7 @@ async fn sync_pending(core: &Arc<Core>, data_dir: &Path, failures: u32) -> SyncO
             Some(page_id) => {
                 let dir = pages_folder.clone();
                 blocking(move || {
-                    let Ok(html) = std::fs::read_to_string(dir.join(format!("{page_id}.html")))
-                    else {
+                    let Ok(html) = crate::pages::read_html(&dir, &page_id) else {
                         return Ok(None);
                     };
                     Ok(Some(crate::pages::for_share(
@@ -725,9 +723,10 @@ pub(crate) async fn read_page(core: &Core, params: PageParams) -> CoreResult<Pag
     let desk = desk_for(core, params.agent, shown);
     blocking(move || {
         use base64::Engine as _;
-        let path = dir.join(format!("{}.html", params.id));
-        let html =
-            std::fs::read_to_string(&path).map_err(|_| CoreError::from("that page is gone"))?;
+        let path = crate::pages::page_file(&dir, &params.id)
+            .ok_or_else(|| CoreError::from("that page is gone"))?;
+        let html = crate::pages::read_file_html(&path)
+            .map_err(|_| CoreError::from("that page is gone"))?;
         let picture = std::fs::read(picture_path(&dir, &params.id))
             .ok()
             .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes));

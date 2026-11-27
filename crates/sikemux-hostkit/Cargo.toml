@@ -36,6 +36,8 @@ sikemux-trust = { path = "../sikemux-trust" }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Registry", "Win32_System_Threading"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+crash-context = "0.6"
+minidump-writer = "0.12"
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]

@@ -96,7 +96,14 @@ impl LocalFiles {
         written_in: Option<&Path>,
         theme: Option<ThemeProvider>,
     ) -> Result<String, String> {
-        let mut path = sikemux_process::files::real_path(path)
+        let resolved = if path.exists() {
+            path.to_path_buf()
+        } else if let Some((id, dir)) = sikemux_base::pages::page_id_of(path).zip(path.parent()) {
+            sikemux_base::pages::page_file(dir, id).unwrap_or_else(|| path.to_path_buf())
+        } else {
+            path.to_path_buf()
+        };
+        let mut path = sikemux_process::files::real_path(&resolved)
             .map_err(|_| format!("{} does not exist", path.display()))?;
         if path.is_dir() {
             path = path.join("index.html");
@@ -400,23 +407,48 @@ impl Folder {
         let head_only = request.method == "HEAD";
         let answer = self.answer(&request);
         match answer {
-            Answer::File(path) => send_file(&mut stream, &path, request.range, head_only).await,
+            Answer::File(path) => {
+                if sikemux_base::pages::is_compressed_page(&path) {
+                    if let Ok(html) = sikemux_base::pages::read_file_html(&path) {
+                        return send_bytes(
+                            &mut stream,
+                            html.as_bytes(),
+                            "text/html; charset=utf-8",
+                            request.range,
+                            head_only,
+                        )
+                        .await;
+                    }
+                }
+                send_file(&mut stream, &path, request.range, head_only).await
+            }
             Answer::ThemedFile(path) => {
                 let theme = self.theme.as_ref().map(|provider| provider());
-                if let (Some(theme), Ok(html)) = (theme, std::fs::read_to_string(&path)) {
+                if let (Some(theme), Ok(html)) = (theme, sikemux_base::pages::read_file_html(&path))
+                {
                     let body = if html.contains("id=\"sikemux-theme\"") {
                         html
                     } else {
                         sikemux_base::pages::themed(&html, &theme, None)
                     };
-                    send_bytes(
-                        &mut stream,
-                        body.as_bytes(),
-                        content_type(&path),
-                        request.range,
-                        head_only,
-                    )
-                    .await
+                    let kind = if sikemux_base::pages::is_compressed_page(&path) {
+                        "text/html; charset=utf-8"
+                    } else {
+                        content_type(&path)
+                    };
+                    send_bytes(&mut stream, body.as_bytes(), kind, request.range, head_only).await
+                } else if sikemux_base::pages::is_compressed_page(&path) {
+                    if let Ok(html) = sikemux_base::pages::read_file_html(&path) {
+                        return send_bytes(
+                            &mut stream,
+                            html.as_bytes(),
+                            "text/html; charset=utf-8",
+                            request.range,
+                            head_only,
+                        )
+                        .await;
+                    }
+                    send_file(&mut stream, &path, request.range, head_only).await
                 } else {
                     send_file(&mut stream, &path, request.range, head_only).await
                 }
@@ -490,10 +522,22 @@ impl Folder {
             };
         }
         let found = (!self.root.as_os_str().is_empty())
-            .then(|| sikemux_process::files::real_path(self.root.join(&relative)).ok())
+            .then(|| {
+                let direct = self.root.join(&relative);
+                sikemux_process::files::real_path(&direct).ok().or_else(|| {
+                    let id = sikemux_base::pages::page_id_of(&direct)?;
+                    let resolved = sikemux_base::pages::page_file(&self.root, id)?;
+                    sikemux_process::files::real_path(&resolved).ok()
+                })
+            })
             .flatten();
         let found = found.filter(|found| {
-            found.starts_with(&self.root) && self.only.as_ref().is_none_or(|only| only == found)
+            found.starts_with(&self.root)
+                && self.only.as_ref().is_none_or(|only| {
+                    only == found
+                        || sikemux_base::pages::page_id_of(only)
+                            .is_some_and(|id| sikemux_base::pages::page_id_of(found) == Some(id))
+                })
         });
         let found = found.or_else(|| {
             let folder = self.written_in.as_ref()?;
@@ -504,7 +548,12 @@ impl Folder {
             return Answer::Refused(404);
         };
         if found.is_file() {
-            if self.theme.is_some() && self.only.as_deref() == Some(found.as_path()) {
+            let matches_only = self.only.as_deref().is_some_and(|only| {
+                only == found.as_path()
+                    || sikemux_base::pages::page_id_of(only)
+                        .is_some_and(|id| sikemux_base::pages::page_id_of(&found) == Some(id))
+            });
+            if self.theme.is_some() && matches_only {
                 return Answer::ThemedFile(found);
             }
             return Answer::File(found);
@@ -872,5 +921,42 @@ mod tests {
         assert!(files.url_for(&dir.path().join("assets")).is_err());
         assert!(files.url_for(&dir.path().join(".env")).is_err());
         assert!(files.url_for(&dir.path().join("nope.html")).is_err());
+    }
+
+    #[tokio::test]
+    async fn compressed_pages_are_decompressed_and_themed_over_loopback() {
+        let dir = tempfile::tempdir().unwrap();
+        let pages = dir.path().join("pages");
+        let source = dir.path().join("card.html");
+        std::fs::write(&source, "<!doctype html><p>zstd page</p>").unwrap();
+        let published = sikemux_base::pages::publish(&pages, &source, "Card").unwrap();
+        let zst_path = sikemux_base::pages::compressed_file(&pages, &published.id);
+        let legacy_path = sikemux_base::pages::plain_file(&pages, &published.id);
+        assert!(zst_path.is_file());
+        assert!(!legacy_path.exists());
+
+        let files = LocalFiles::default();
+        let theme: ThemeProvider = Arc::new(|| ":root{color-scheme:dark;}".to_owned());
+        // Opening via legacy `.html` path resolves transparently to `.html.zst`.
+        let url = files
+            .themed_page_url(&legacy_path, None, None, theme)
+            .unwrap();
+        let parsed = Url::parse(&url).unwrap();
+        let port = parsed.port().unwrap();
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let request = format!(
+            "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n",
+            parsed.path()
+        );
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        assert!(
+            response.contains("Content-Type: text/html; charset=utf-8"),
+            "{response}"
+        );
+        assert!(response.contains("id=\"sikemux-theme\""), "{response}");
+        assert!(response.contains("<p>zstd page</p>"), "{response}");
     }
 }

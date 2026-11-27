@@ -576,9 +576,10 @@ impl PageIndex {
                 .flatten()
                 .filter_map(|entry| {
                     let path = entry.path();
-                    let id = (path.extension().is_some_and(|it| it == "html"))
-                        .then(|| path.file_stem()?.to_str())
-                        .flatten()
+                    let name = path.file_name()?.to_str()?;
+                    let id = name
+                        .strip_suffix(".html.zst")
+                        .or_else(|| name.strip_suffix(".html"))
                         .filter(|id| crate::pages::is_page_id(id))?
                         .to_owned();
                     let title = crate::pages::title(pages, &id)?;
@@ -608,12 +609,16 @@ impl PageIndex {
         })
     }
 
-    fn settle_and_sweep(&self, open_calls: &HashSet<String>, pages: &Path) -> Result<bool, String> {
+    fn settle_and_sweep(
+        &self,
+        open_calls: &HashSet<String>,
+        pages: &Path,
+    ) -> Result<(bool, bool), String> {
         self.with(|connection| {
             let settled = settle(connection, open_calls).map_err(|error| error.to_string())?;
-            let swept = sweep(connection, pages)?;
+            let (swept, removed_files) = sweep(connection, pages)?;
             let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
-            Ok(settled + swept > 0)
+            Ok((settled + swept > 0, removed_files))
         })
     }
 }
@@ -818,8 +823,8 @@ fn settle(connection: &mut Connection, open_calls: &HashSet<String>) -> rusqlite
 }
 
 /// Throws away the pages whose time is up, with their files, and drops the rows of pages whose
-/// file is gone. How many rows went.
-fn sweep(connection: &mut Connection, pages: &Path) -> Result<usize, String> {
+/// file is gone. Answers how many rows went and whether any page files were removed.
+fn sweep(connection: &mut Connection, pages: &Path) -> Result<(usize, bool), String> {
     let now = epoch_ms();
     let rows: Vec<(String, PageLife)> = connection
         .prepare_cached("SELECT id, kept, call, settled, seen FROM pages")
@@ -830,16 +835,14 @@ fn sweep(connection: &mut Connection, pages: &Path) -> Result<usize, String> {
         })
         .map_err(|error| error.to_string())?;
     let mut gone = Vec::new();
+    let mut removed_files = false;
     for (id, life) in rows {
         let over = matches!(life, PageLife::Goes { at } if at <= now);
         if over {
-            let _ = std::fs::remove_file(pages.join(format!("{id}.html")));
-            let _ = std::fs::remove_file(pages.join(format!("{id}.jpg")));
-            let _ = std::fs::remove_file(crate::pages::written_in_file(pages, &id));
-            let _ = std::fs::remove_file(crate::pages::source_file(pages, &id));
-            let _ = std::fs::remove_dir_all(crate::pages::media_folder(pages, &id));
+            crate::pages::remove_page_files(pages, &id);
+            removed_files = true;
         }
-        if over || !pages.join(format!("{id}.html")).exists() {
+        if over || crate::pages::page_file(pages, &id).is_none() {
             gone.push(id);
         }
     }
@@ -858,27 +861,33 @@ fn sweep(connection: &mut Connection, pages: &Path) -> Result<usize, String> {
         .execute("DELETE FROM page_shares WHERE expires <= ?1", [now as i64])
         .map_err(|error| error.to_string())?;
     tx.commit().map_err(|error| error.to_string())?;
-    Ok(gone.len() + ended)
+    Ok((gone.len() + ended, removed_files))
 }
 
-/// Indexes the pages kept before the index, then each hour marks the pages whose call settled
-/// and throws away those whose time is up.
+/// Indexes the pages kept before the index, then each hour marks the pages whose call settled,
+/// throws away those whose time is up, and reclaims unreferenced deduplicated assets. On startup,
+/// legacy uncompressed `.html` pages are compacted on a background thread.
 pub(crate) async fn serve(core: std::sync::Arc<super::Core>, data_dir: PathBuf) {
     let pages = data_dir.join(crate::pages::FOLDER);
     let mut ticker = tokio::time::interval(SWEEP_EVERY);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut filled = false;
+    let mut compacted = false;
     loop {
         ticker.tick().await;
         let open_calls = core.harness().questions.open_ids();
         let index = core.harness().page_index.clone();
-        let pages = pages.clone();
+        let pages_dir = pages.clone();
         let swept = super::blocking(move || {
-            let pass = || {
+            let pass = || -> Result<(bool, bool), String> {
                 if !filled {
-                    index.backfill(&pages)?;
+                    index.backfill(&pages_dir)?;
                 }
-                index.settle_and_sweep(&open_calls, &pages)
+                let (changed, removed_files) = index.settle_and_sweep(&open_calls, &pages_dir)?;
+                if removed_files {
+                    crate::pages::gc_blobs(&pages_dir);
+                }
+                Ok((changed, removed_files))
             };
             Ok(pass())
         })
@@ -886,10 +895,61 @@ pub(crate) async fn serve(core: std::sync::Arc<super::Core>, data_dir: PathBuf) 
         .map_err(|error| error.to_string())
         .and_then(|swept| swept);
         filled = true;
+        if !compacted {
+            compacted = true;
+            let pages_dir = pages.clone();
+            let _ = std::thread::Builder::new()
+                .name("pages-compact".into())
+                .spawn(move || {
+                    let count = crate::pages::compact_dir(&pages_dir);
+                    if count > 0 {
+                        crate::pages::gc_blobs(&pages_dir);
+                    }
+                });
+        }
         match swept {
-            Ok(true) => core.changed(What::Read(Topic::Pages)),
-            Ok(false) => {}
+            Ok((true, _)) => core.changed(What::Read(Topic::Pages)),
+            Ok((false, _)) => {}
             Err(error) => eprintln!("sikemux core: the pages were not swept: {error}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compressed_pages_index_backfill_and_sweep_cleanly() {
+        let dir = tempfile::tempdir().unwrap();
+        let pages = dir.path().join(crate::pages::FOLDER);
+        let source = dir.path().join("report.html");
+        std::fs::write(&source, "<!doctype html><p>hello compressed world</p>").unwrap();
+
+        let published = crate::pages::publish(&pages, &source, "Compressed").unwrap();
+        assert!(crate::pages::compressed_file(&pages, &published.id).is_file());
+
+        let index = PageIndex::new(Some(dir.path()));
+        index.backfill(&pages).unwrap();
+        let listed = index.list(&[], None, &HashSet::new(), 10).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, published.id);
+        assert_eq!(listed[0].title, "Compressed");
+
+        // Age the page past PAGE_STAYS_MS and sweep it away.
+        index
+            .with(|conn| {
+                conn.execute("UPDATE pages SET seen = 0 WHERE id = ?1", [&published.id])
+                    .map_err(|e| e.to_string())
+            })
+            .unwrap();
+        let (changed, removed_files) = index.settle_and_sweep(&HashSet::new(), &pages).unwrap();
+        assert!(changed);
+        assert!(removed_files);
+        assert!(crate::pages::page_file(&pages, &published.id).is_none());
+        assert!(index
+            .list(&[], None, &HashSet::new(), 10)
+            .unwrap()
+            .is_empty());
     }
 }

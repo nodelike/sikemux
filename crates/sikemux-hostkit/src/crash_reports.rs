@@ -42,6 +42,12 @@ const SESSION_VARIABLE: &str = "SIKEMUX_CRASH_REPORTER_SESSION";
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
 /// The crash reporter ends once this runs out, sent or not.
 const CRASH_FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long the crash reporter waits without a ping before treating its parent as gone.
+/// On macOS, kqueue `EVFILT_PROC` and Unix socket EOF detect parent exit immediately.
+#[cfg(target_os = "macos")]
+const SERVER_STALE_TIMEOUT: Duration = Duration::from_secs(300);
+#[cfg(not(target_os = "macos"))]
+const SERVER_STALE_TIMEOUT: Duration = Duration::from_secs(60);
 /// By when a crash reporter that is still running has read and deleted its dump.
 const DUMP_LEFT_AFTER: Duration = Duration::from_secs(60);
 /// How often the core looks for panics that other processes left behind.
@@ -106,6 +112,7 @@ fn start_sending_to(
         .server_env_var(REPORTER_VARIABLE)
         .process_name(format!("sikemux {} crash reporter", process.name()))
         .flush_timeout(CRASH_FLUSH_TIMEOUT)
+        .server_stale_timeout(SERVER_STALE_TIMEOUT)
         .before_capture(|scope, dump| {
             SENDING_CRASH.store(true, Ordering::SeqCst);
             send_crashed_session();
@@ -114,10 +121,22 @@ fn start_sending_to(
             scope.add_event_processor(move |event| Some(native_crash(event, stack.as_ref())));
         })
         .on_process(|command| {
+            command.stdin(std::process::Stdio::null());
             command.env(PARENT_VARIABLE, std::process::id().to_string());
             if let Some(session) = SESSION.locked().as_ref() {
                 if let Ok(session) = serde_json::to_string(session) {
                     command.env(SESSION_VARIABLE, session);
+                }
+            }
+            #[cfg(unix)]
+            {
+                let close_limit = highest_open_fd().max(1024).saturating_add(512);
+                // SAFETY: `mark_fds_cloexec` calls only async-signal-safe syscalls.
+                unsafe {
+                    std::os::unix::process::CommandExt::pre_exec(command, move || {
+                        mark_fds_cloexec(close_limit);
+                        Ok(())
+                    });
                 }
             }
         });
@@ -126,13 +145,20 @@ fn start_sending_to(
         minidumps = minidumps.crashes_dir(dumps);
     }
     if minidumps.is_crash_reporter_process() {
+        #[cfg(unix)]
+        close_inherited_fds();
         if let Some(user) = crashed_session().and_then(|session| session.distinct_id) {
             let _ = USER.set(user);
         }
         #[cfg(unix)]
         leave_with_parent();
-        Client::with_options(options(dsn, process, minidumps));
-        std::process::exit(0);
+        #[cfg(target_os = "macos")]
+        run_macos_reporter(dsn, process);
+        #[cfg(not(target_os = "macos"))]
+        {
+            Client::with_options(options(dsn, process, minidumps));
+            std::process::exit(0);
+        }
     }
     let spawned = std::thread::Builder::new()
         .name("crash-reports".into())
@@ -228,8 +254,8 @@ fn new_session() -> SessionUpdate<'static> {
 }
 
 /// The crash reporter only stops once the process it watches disconnects, so one whose process
-/// ended before connecting would run on forever. It ends a couple of seconds after that process,
-/// unless it is sending its crash.
+/// ended before connecting would run on forever. It watches its parent without polling and exits
+/// after a short grace period unless it is sending a crash.
 #[cfg(unix)]
 fn leave_with_parent() {
     let Some(parent) = std::env::var(PARENT_VARIABLE)
@@ -241,19 +267,379 @@ fn leave_with_parent() {
     let _ = std::thread::Builder::new()
         .name("parent-watch".into())
         .spawn(move || {
-            let mut gone = 0;
-            loop {
-                std::thread::sleep(Duration::from_secs(1));
-                // SAFETY: getppid has no preconditions.
-                if unsafe { libc::getppid() } == parent || SENDING_CRASH.load(Ordering::SeqCst) {
-                    gone = 0;
-                } else if gone == 1 {
+            wait_for_parent_exit(parent);
+            if !SENDING_CRASH.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_secs(2));
+            }
+            if !SENDING_CRASH.load(Ordering::SeqCst) {
+                std::process::exit(0);
+            }
+            std::thread::sleep(CRASH_FLUSH_TIMEOUT + Duration::from_secs(5));
+            std::process::exit(0);
+        });
+}
+
+#[cfg(unix)]
+struct OwnedFdGuard(libc::c_int);
+
+#[cfg(unix)]
+impl Drop for OwnedFdGuard {
+    fn drop(&mut self) {
+        // SAFETY: `self.0` is an owned file descriptor not closed elsewhere.
+        unsafe {
+            libc::close(self.0);
+        }
+    }
+}
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly"
+))]
+fn wait_for_parent_exit(parent: libc::pid_t) {
+    // SAFETY: getppid has no preconditions.
+    if unsafe { libc::getppid() } != parent {
+        return;
+    }
+    // SAFETY: kqueue takes no arguments and returns a new fd or -1.
+    let kq = unsafe { libc::kqueue() };
+    if kq < 0 {
+        wait_for_parent_exit_fallback(parent);
+        return;
+    }
+    let _guard = OwnedFdGuard(kq);
+    // SAFETY: `kq` is a valid open descriptor owned by `_guard`.
+    unsafe {
+        libc::fcntl(kq, libc::F_SETFD, libc::FD_CLOEXEC);
+    }
+    let change = libc::kevent {
+        ident: parent as libc::uintptr_t,
+        filter: libc::EVFILT_PROC,
+        flags: libc::EV_ADD | libc::EV_ONESHOT,
+        fflags: libc::NOTE_EXIT,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    };
+    // SAFETY: `change` points to one initialized kevent; nevents == 0 registers without blocking.
+    let registered =
+        unsafe { libc::kevent(kq, &change, 1, std::ptr::null_mut(), 0, std::ptr::null()) };
+    if registered < 0 {
+        if std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+            return;
+        }
+        wait_for_parent_exit_fallback(parent);
+        return;
+    }
+    // SAFETY: getppid has no preconditions.
+    if unsafe { libc::getppid() } != parent {
+        return;
+    }
+    // SAFETY: `kevent` is a plain C struct where all-zero bytes are valid.
+    let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+    loop {
+        // SAFETY: `event` is valid writable storage; null timeout blocks until NOTE_EXIT.
+        let n = unsafe { libc::kevent(kq, std::ptr::null(), 0, &mut event, 1, std::ptr::null()) };
+        if n > 0 {
+            return;
+        }
+        if n < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+            continue;
+        }
+        return;
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn wait_for_parent_exit(parent: libc::pid_t) {
+    // SAFETY: getppid has no preconditions.
+    if unsafe { libc::getppid() } != parent {
+        return;
+    }
+    // SAFETY: `SYS_pidfd_open` takes (pid, flags) and returns a new fd or -1.
+    let pidfd =
+        unsafe { libc::syscall(libc::SYS_pidfd_open, parent, 0 as libc::c_uint) } as libc::c_int;
+    if pidfd < 0 {
+        if std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+            return;
+        }
+        wait_for_parent_exit_fallback(parent);
+        return;
+    }
+    let _guard = OwnedFdGuard(pidfd);
+    // SAFETY: getppid has no preconditions.
+    if unsafe { libc::getppid() } != parent {
+        return;
+    }
+    let mut pollfd = libc::pollfd {
+        fd: pidfd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    loop {
+        // SAFETY: `pollfd` points to one valid `pollfd`; timeout -1 blocks until parent exits.
+        let n = unsafe { libc::poll(&mut pollfd, 1, -1) };
+        if n > 0 {
+            return;
+        }
+        if n < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+            continue;
+        }
+        return;
+    }
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
+        target_os = "linux"
+    ))
+))]
+fn wait_for_parent_exit(parent: libc::pid_t) {
+    wait_for_parent_exit_fallback(parent);
+}
+
+#[cfg(unix)]
+fn wait_for_parent_exit_fallback(parent: libc::pid_t) {
+    loop {
+        std::thread::sleep(Duration::from_secs(5));
+        // SAFETY: getppid has no preconditions.
+        if unsafe { libc::getppid() } != parent {
+            return;
+        }
+    }
+}
+
+#[cfg(unix)]
+fn fd_dir() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        "/proc/self/fd"
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        "/dev/fd"
+    }
+}
+
+#[cfg(unix)]
+fn highest_open_fd() -> libc::c_int {
+    let Ok(entries) = std::fs::read_dir(fd_dir()) else {
+        return 4096;
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| entry.file_name().to_str()?.parse::<libc::c_int>().ok())
+        .max()
+        .unwrap_or(256)
+}
+
+#[cfg(unix)]
+fn mark_fds_cloexec(limit: libc::c_int) {
+    #[cfg(target_os = "linux")]
+    {
+        const CLOSE_RANGE_CLOEXEC: libc::c_uint = 1 << 2;
+        // SAFETY: `SYS_close_range` is async-signal-safe and marks fds >= 3 close-on-exec.
+        let res = unsafe {
+            libc::syscall(
+                libc::SYS_close_range,
+                3 as libc::c_uint,
+                libc::c_uint::MAX,
+                CLOSE_RANGE_CLOEXEC,
+            )
+        };
+        if res == 0 {
+            return;
+        }
+    }
+    for fd in 3..=limit {
+        // SAFETY: `fcntl(F_SETFD, FD_CLOEXEC)` is async-signal-safe and fails harmlessly on closed fds.
+        unsafe {
+            libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn close_inherited_fds() {
+    let Ok(entries) = std::fs::read_dir(fd_dir()) else {
+        return;
+    };
+    let fds: Vec<libc::c_int> = entries
+        .flatten()
+        .filter_map(|entry| entry.file_name().to_str()?.parse::<libc::c_int>().ok())
+        .filter(|&fd| fd >= 3)
+        .collect();
+    for fd in fds {
+        // SAFETY: closing stray inherited descriptors >= 3 before any reporter resources are opened.
+        unsafe {
+            libc::close(fd);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[derive(serde::Deserialize)]
+enum ScopeUpdate {
+    AddBreadcrumb(Breadcrumb),
+    SetUser(Option<sentry::User>),
+    SetExtra(String, Option<Value>),
+    SetTag(String, Option<String>),
+}
+
+/// Event-driven macOS crash reporter server replacing `minidumper::Server::run`'s 10ms poll loop
+/// with blocking Mach port and Unix socket threads (0 wakeups while idle).
+#[cfg(target_os = "macos")]
+fn run_macos_reporter(dsn: &'static str, process: Process) -> ! {
+    use std::ffi::CString;
+    use std::io::{Read, Write};
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::net::UnixListener;
+
+    const IPC_CRASH: u32 = 0;
+    const IPC_PING: u32 = 2;
+    const IPC_PONG: u32 = 3;
+    const IPC_USER: u32 = 4;
+    const MAX_IPC_MESSAGE: usize = 1024 * 1024;
+
+    let Some(raw) = std::env::var_os(REPORTER_VARIABLE) else {
+        std::process::exit(1);
+    };
+    let Some(path_bytes) = raw.as_bytes().strip_prefix(b"path:") else {
+        std::process::exit(1);
+    };
+    let socket_path = PathBuf::from(std::ffi::OsStr::from_bytes(path_bytes));
+    let Ok(port_name) = CString::new(path_bytes) else {
+        std::process::exit(1);
+    };
+    let _ = std::fs::remove_file(&socket_path);
+
+    let client = Client::with_options(base_options(dsn, process));
+    let hub = Hub::main();
+    hub.bind_client(Some(Arc::new(client)));
+    hub.configure_scope(|scope| {
+        scope.set_extra("event.process", Value::String("crash-reporter".to_owned()));
+    });
+
+    let Ok(mut port) = crash_context::ipc::Server::create(&port_name) else {
+        let _ = std::fs::remove_file(&socket_path);
+        std::process::exit(1);
+    };
+    let Ok(listener) = UnixListener::bind(&socket_path) else {
+        let _ = std::fs::remove_file(&socket_path);
+        std::process::exit(1);
+    };
+
+    let mach_socket = socket_path.clone();
+    let _ = std::thread::Builder::new()
+        .name("mach-crash-wait".into())
+        .spawn(move || loop {
+            match port.try_recv_crash_context(Some(Duration::from_secs(24 * 60 * 60))) {
+                Ok(Some(mut received)) => {
+                    SENDING_CRASH.store(true, Ordering::SeqCst);
+                    let mut buffer = std::io::Cursor::new(Vec::new());
+                    let dump =
+                        minidump_writer::minidump_writer::MinidumpWriter::with_crash_context(
+                            received.crash_context,
+                        )
+                        .dump(&mut buffer);
+                    let _ = received.acker.send_ack(1, Some(Duration::from_secs(2)));
+                    let stack = dump.ok().and_then(|bytes| crash_stacks::read(&bytes));
+                    send_crashed_session();
+                    let hub = Hub::main();
+                    hub.with_scope(
+                        |scope| {
+                            scope.remove_extra("event.process");
+                            scope.clear_attachments();
+                        },
+                        || {
+                            let event = native_crash(
+                                Event {
+                                    level: Level::Fatal,
+                                    ..Default::default()
+                                },
+                                stack.as_ref(),
+                            );
+                            hub.capture_event(event);
+                        },
+                    );
+                    if let Some(client) = hub.client() {
+                        client.flush(Some(CRASH_FLUSH_TIMEOUT));
+                    }
+                    let _ = std::fs::remove_file(&mach_socket);
                     std::process::exit(0);
-                } else {
-                    gone += 1;
                 }
+                Ok(None) => continue,
+                Err(_) => break,
             }
         });
+
+    if let Ok((mut stream, _)) = listener.accept() {
+        let mut head = [0u8; 8];
+        while stream.read_exact(&mut head).is_ok() {
+            let [k0, k1, k2, k3, s0, s1, s2, s3] = head;
+            let kind = u32::from_ne_bytes([k0, k1, k2, k3]);
+            let size = u32::from_ne_bytes([s0, s1, s2, s3]) as usize;
+            if size > MAX_IPC_MESSAGE {
+                break;
+            }
+            let mut body = vec![0u8; size];
+            if size > 0 && stream.read_exact(&mut body).is_err() {
+                break;
+            }
+            match kind {
+                IPC_CRASH => {
+                    if stream.write_all(&[1]).is_err() {
+                        break;
+                    }
+                }
+                IPC_PING => {
+                    let [p0, p1, p2, p3] = IPC_PONG.to_ne_bytes();
+                    if stream.write_all(&[p0, p1, p2, p3, 0, 0, 0, 0]).is_err() {
+                        break;
+                    }
+                }
+                IPC_PONG => {}
+                k if k >= IPC_USER => {
+                    if let Ok(update) = serde_json::from_slice::<ScopeUpdate>(&body) {
+                        let hub = Hub::main();
+                        match update {
+                            ScopeUpdate::AddBreadcrumb(b) => hub.add_breadcrumb(b),
+                            ScopeUpdate::SetUser(u) => {
+                                hub.configure_scope(|scope| scope.set_user(u));
+                            }
+                            ScopeUpdate::SetExtra(key, val) => {
+                                hub.configure_scope(|scope| match val {
+                                    Some(val) => scope.set_extra(&key, val),
+                                    None => scope.remove_extra(&key),
+                                });
+                            }
+                            ScopeUpdate::SetTag(key, val) => {
+                                hub.configure_scope(|scope| match val {
+                                    Some(val) => scope.set_tag(&key, &val),
+                                    None => scope.remove_tag(&key),
+                                });
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if SENDING_CRASH.load(Ordering::SeqCst) {
+        std::thread::sleep(CRASH_FLUSH_TIMEOUT + Duration::from_secs(2));
+    }
+    let _ = std::fs::remove_file(&socket_path);
+    std::process::exit(0);
 }
 
 /// Whether this process is the crash reporter another one started to watch it.
@@ -397,7 +783,7 @@ fn send_startup() {
     transaction.finish_with_timestamp(finished);
 }
 
-fn options(dsn: &str, process: Process, minidumps: MinidumpIntegration) -> ClientOptions {
+fn base_options(dsn: &str, process: Process) -> ClientOptions {
     crate::install_tls_crypto();
     let mut options = ClientOptions::new();
     options.dsn = dsn.parse().ok();
@@ -408,7 +794,7 @@ fn options(dsn: &str, process: Process, minidumps: MinidumpIntegration) -> Clien
     options.traces_sampling_strategy =
         sentry::TracesSamplingStrategy::FixedRate(STARTUP_SAMPLE_RATE);
     options.default_integrations = false;
-    options.integrations = vec![Arc::new(ContextIntegration::new()), Arc::new(minidumps)];
+    options.integrations = vec![Arc::new(ContextIntegration::new())];
     options.before_send = Some(Arc::new(move |event| before_send(event, process)));
     options.transport = Some(Arc::new(
         move |options: &ClientOptions| -> Arc<dyn Transport> {
@@ -427,6 +813,12 @@ fn options(dsn: &str, process: Process, minidumps: MinidumpIntegration) -> Clien
             })
         },
     ));
+    options
+}
+
+fn options(dsn: &str, process: Process, minidumps: MinidumpIntegration) -> ClientOptions {
+    let mut options = base_options(dsn, process);
+    options.integrations.push(Arc::new(minidumps));
     options
 }
 
@@ -880,9 +1272,138 @@ mod tests {
 
     const TEST: &str = "crash_reports::tests::crashes_under_the_crash_handler_end";
     const ABORT_TEST: &str = "crash_reports::tests::aborts_report_sigabrt_below_signal_handler";
+    const FD_TEST: &str =
+        "crash_reports::tests::crash_reporter_closes_inherited_fds_and_exits_with_parent";
     const ROLE: &str = "SIKEMUX_TEST_CRASH_ROLE";
     const PORT: &str = "SIKEMUX_TEST_CRASH_PORT";
     const IN_MEMORY: &[u8] = b"what the memory held when it crashed";
+
+    #[test]
+    fn crash_reporter_closes_inherited_fds_and_exits_with_parent() {
+        if std::env::var(ROLE).as_deref() == Ok("fd-parent") {
+            fd_parent_process();
+        }
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let _ = answer(stream);
+            }
+        });
+        let mut child = test_process_for(FD_TEST, "fd-parent")
+            .env("HOME", home.path())
+            .env(PORT, port.to_string())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let ended = wait_for(&mut child, Duration::from_secs(20));
+        let mut out = String::new();
+        child
+            .stdout
+            .take()
+            .unwrap()
+            .read_to_string(&mut out)
+            .unwrap();
+        let mut err = String::new();
+        child
+            .stderr
+            .take()
+            .unwrap()
+            .read_to_string(&mut err)
+            .unwrap();
+        assert!(
+            ended.is_some_and(|status| status.success()),
+            "fd-parent failed: {ended:?}\nstdout={out}\nstderr={err}"
+        );
+        assert!(out.contains("PIPE_EOF_OK"), "unexpected output: {out}");
+
+        // Also verify event-driven wait_for_parent_exit returns immediately once a process exits.
+        let mut sleeper = sikemux_process::user_environment::command("/bin/sleep")
+            .arg("60")
+            .spawn()
+            .unwrap();
+        let pid = sleeper.id() as libc::pid_t;
+        let started = Instant::now();
+        let _ = sleeper.kill();
+        let _ = sleeper.wait();
+        wait_for_parent_exit(pid);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "wait_for_parent_exit took too long: {:?}",
+            started.elapsed()
+        );
+    }
+
+    fn fd_parent_process() -> ! {
+        clear_inherited_handlers();
+        let home = sikemux_process::paths::home().unwrap();
+        std::fs::create_dir_all(home.join("data")).unwrap();
+        std::fs::write(
+            home.join("data/preferences.json"),
+            r#"{"onboardingComplete":true}"#,
+        )
+        .unwrap();
+
+        let mut fds = [0 as libc::c_int; 2];
+        // SAFETY: `fds` is a valid 2-element array for `pipe`.
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        let [read_fd, write_fd] = fds;
+        // Clear FD_CLOEXEC on `write_fd` to simulate an inherited non-CLOEXEC core descriptor.
+        // SAFETY: `write_fd` is open; clearing FD_CLOEXEC sets only descriptor flags.
+        unsafe {
+            let flags = libc::fcntl(write_fd, libc::F_GETFD);
+            assert!(flags >= 0);
+            assert_eq!(
+                libc::fcntl(write_fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC),
+                0
+            );
+        }
+
+        let dsn = format!("http://public@127.0.0.1:{}/1", std::env::var(PORT).unwrap());
+        start_sending_to(
+            dsn.leak(),
+            Process::Core,
+            Some(home.join("data")),
+            Some(home.join("core.sock")),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Hub::main().client().is_none() {
+            assert!(Instant::now() < deadline, "crash reports never started");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        // Closing `write_fd` in the parent must yield immediate EOF on `read_fd` only if the
+        // spawned crash reporter did NOT inherit `write_fd`.
+        // SAFETY: `write_fd` is owned by this test and closed once.
+        unsafe {
+            libc::close(write_fd);
+        }
+        let mut pfd = libc::pollfd {
+            fd: read_fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: `pfd` points to a valid `pollfd` for `read_fd`.
+        let ready = unsafe { libc::poll(&mut pfd, 1, 2000) };
+        assert!(
+            ready > 0,
+            "crash reporter inherited parent's non-CLOEXEC fd"
+        );
+        let mut byte = [0u8; 1];
+        // SAFETY: `read_fd` is open and `byte` is valid writable storage.
+        let n = unsafe { libc::read(read_fd, byte.as_mut_ptr().cast(), 1) };
+        assert_eq!(n, 0, "expected immediate EOF on read_fd, got {n}");
+        // SAFETY: `read_fd` is owned by this test and closed once.
+        unsafe {
+            libc::close(read_fd);
+        }
+
+        println!("PIPE_EOF_OK");
+        std::io::stdout().flush().unwrap();
+        std::process::exit(0);
+    }
 
     /// A `SIGABRT` on macOS must report as `SIGABRT` starting at the abort site, without the
     /// crash handler's own signal-wait frames (`__psynch_cvwait` .. `_sigtramp`) that would

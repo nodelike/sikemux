@@ -9888,6 +9888,7 @@ dependencies = [
  "url",
  "uuid",
  "workspace-hack",
+ "zstd",
 ]
 
 [[package]]
@@ -10337,10 +10338,12 @@ name = "sikemux-hostkit"
 version = "0.6.2"
 dependencies = [
  "backtrace",
+ "crash-context",
  "framehop",
  "libc",
  "log",
  "minidump-common",
+ "minidump-writer",
  "object",
  "regex",
  "reqwest",

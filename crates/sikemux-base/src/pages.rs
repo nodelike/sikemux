@@ -3,17 +3,29 @@
 //! or sound copied into a folder beside it, so it outlives those files. Whatever
 //! else it loads comes from the folder it was written in.
 
-use std::collections::{BTreeMap, HashMap};
+use std::borrow::Cow;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use regex::Regex;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::text::one_line;
 
 /// The folder under the data folder pages are kept in.
 pub const FOLDER: &str = "pages";
+
+const ZSTD_LEVEL: i32 = 3;
+const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
+const BLOBS_FOLDER: &str = "blobs";
+const BLOB_MARKER: &str = ";sikemux-blob=";
+const BLOB_GC_MIN_AGE: Duration = Duration::from_secs(10 * 60);
+const COMPACT_MIN_AGE: Duration = Duration::from_secs(30);
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 const MIB: u64 = 1024 * 1024;
 const MAX_SOURCE_BYTES: u64 = 2 * MIB;
@@ -79,6 +91,17 @@ static CLOSING_STYLE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)</style"#).expect("closing style pattern")
 });
 
+static DATA_BASE64: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "the pattern is a constant")]
+    Regex::new(r"data:([a-zA-Z0-9.+/-]+);base64,([A-Za-z0-9+/=]{1024,})")
+        .expect("data base64 pattern")
+});
+
+static DATA_BLOB: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "the pattern is a constant")]
+    Regex::new(r"data:([a-zA-Z0-9.+/-]+);sikemux-blob=([0-9a-f]{64})").expect("data blob pattern")
+});
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct PageRef {
     pub id: String,
@@ -89,9 +112,313 @@ pub fn is_page_id(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-/// The id of the page kept in `file`, whose name is that id.
+/// The id of the page kept in `file`, whose name is that id (with `.html` or `.html.zst`).
 pub fn page_id_of(file: &Path) -> Option<&str> {
-    file.file_stem()?.to_str().filter(|id| is_page_id(id))
+    let name = file.file_name()?.to_str()?;
+    let id = name
+        .strip_suffix(".html.zst")
+        .or_else(|| name.strip_suffix(".html"))
+        .or_else(|| file.file_stem()?.to_str())?;
+    is_page_id(id).then_some(id)
+}
+
+pub fn is_compressed_page(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".html.zst"))
+}
+
+pub fn compressed_file(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{id}.html.zst"))
+}
+
+pub fn plain_file(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{id}.html"))
+}
+
+/// The stored HTML file for page `id`, preferring the zstd-compressed copy over a legacy `.html`.
+pub fn page_file(dir: &Path, id: &str) -> Option<PathBuf> {
+    if !is_page_id(id) {
+        return None;
+    }
+    let compressed = compressed_file(dir, id);
+    if compressed.is_file() {
+        return Some(compressed);
+    }
+    let plain = plain_file(dir, id);
+    if plain.is_file() {
+        return Some(plain);
+    }
+    None
+}
+
+fn blobs_dir(dir: &Path) -> PathBuf {
+    dir.join(BLOBS_FOLDER)
+}
+
+fn unique_temp_path(dir: &Path, prefix: &str) -> PathBuf {
+    let seq = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    dir.join(format!(".{prefix}.tmp.{}.{seq}", std::process::id()))
+}
+
+fn write_blob(dir: &Path, hash: &str, raw: &[u8]) -> std::io::Result<()> {
+    let folder = blobs_dir(dir);
+    let target = folder.join(hash);
+    if target.is_file() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(&folder)?;
+    let temp = unique_temp_path(&folder, hash);
+    if let Err(error) = std::fs::write(&temp, raw) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(error);
+    }
+    if let Err(error) = std::fs::rename(&temp, &target) {
+        let _ = std::fs::remove_file(&temp);
+        if !target.is_file() {
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+/// Extracts large inlined base64 `data:` payloads into content-addressed raw binary files under
+/// `{dir}/blobs/{sha256}` so shared fonts and screenshots are stored once without base64 bloat.
+fn dehydrate_html<'a>(dir: &Path, html: &'a str) -> std::io::Result<Cow<'a, str>> {
+    use base64::Engine as _;
+    if !html.contains(";base64,") {
+        return Ok(Cow::Borrowed(html));
+    }
+    let mut failure: Option<std::io::Error> = None;
+    let replaced = DATA_BASE64.replace_all(html, |found: &regex::Captures| {
+        if failure.is_some() {
+            return found[0].to_owned();
+        }
+        let mime = &found[1];
+        let b64 = &found[2];
+        let Ok(raw) = base64::engine::general_purpose::STANDARD.decode(b64) else {
+            return found[0].to_owned();
+        };
+        if base64::engine::general_purpose::STANDARD.encode(&raw) != b64 {
+            return found[0].to_owned();
+        }
+        let hash = hex::encode(Sha256::digest(&raw));
+        if let Err(error) = write_blob(dir, &hash, &raw) {
+            failure = Some(error);
+            return found[0].to_owned();
+        }
+        format!("data:{mime}{BLOB_MARKER}{hash}")
+    });
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    Ok(replaced)
+}
+
+fn hydrate_html<'a>(dir: Option<&Path>, html: &'a str) -> Cow<'a, str> {
+    use base64::Engine as _;
+    if !html.contains(BLOB_MARKER) {
+        return Cow::Borrowed(html);
+    }
+    let Some(dir) = dir else {
+        return Cow::Borrowed(html);
+    };
+    let folder = blobs_dir(dir);
+    let mut cache: HashMap<String, String> = HashMap::new();
+    DATA_BLOB.replace_all(html, |found: &regex::Captures| {
+        let mime = &found[1];
+        let hash = &found[2];
+        if let Some(encoded) = cache.get(hash) {
+            return format!("data:{mime};base64,{encoded}");
+        }
+        let Ok(raw) = std::fs::read(folder.join(hash)) else {
+            return found[0].to_owned();
+        };
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&raw);
+        cache.insert(hash.to_owned(), encoded.clone());
+        format!("data:{mime};base64,{encoded}")
+    })
+}
+
+fn read_raw_html_file(path: &Path) -> std::io::Result<String> {
+    let bytes = std::fs::read(path)?;
+    let decoded = if is_compressed_page(path) || bytes.starts_with(&ZSTD_MAGIC) {
+        zstd::stream::decode_all(bytes.as_slice())?
+    } else {
+        bytes
+    };
+    String::from_utf8(decoded)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+}
+
+/// Reads a stored page file (zstd-compressed `.html.zst` or legacy `.html`) and restores any
+/// deduplicated inline assets into self-contained HTML.
+pub fn read_file_html(path: &Path) -> std::io::Result<String> {
+    let html = read_raw_html_file(path)?;
+    Ok(hydrate_html(path.parent(), &html).into_owned())
+}
+
+/// Reads page `id` from `dir`, handling both `.html.zst` and legacy `.html` files transparently.
+pub fn read_html(dir: &Path, id: &str) -> std::io::Result<String> {
+    let path = page_file(dir, id)
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "page not found"))?;
+    read_file_html(&path)
+}
+
+/// Writes page `id` into `dir` as a zstd-compressed `.html.zst` with deduplicated binary blobs,
+/// atomically replacing any previous version and removing a legacy uncompressed `.html`.
+pub fn write_compressed_html(dir: &Path, id: &str, html: &str) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    let dehydrated = dehydrate_html(dir, html)?;
+    let compressed = zstd::stream::encode_all(dehydrated.as_bytes(), ZSTD_LEVEL)?;
+    let target = compressed_file(dir, id);
+    let temp = unique_temp_path(dir, id);
+    if let Err(error) = std::fs::write(&temp, compressed) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(error);
+    }
+    if let Err(error) = std::fs::rename(&temp, &target) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(error);
+    }
+    let _ = std::fs::remove_file(plain_file(dir, id));
+    Ok(target)
+}
+
+/// Deletes every file belonging to page `id` in `dir`.
+pub fn remove_page_files(dir: &Path, id: &str) {
+    let _ = std::fs::remove_file(compressed_file(dir, id));
+    let _ = std::fs::remove_file(plain_file(dir, id));
+    let _ = std::fs::remove_file(dir.join(format!("{id}.jpg")));
+    let _ = std::fs::remove_file(written_in_file(dir, id));
+    let _ = std::fs::remove_file(source_file(dir, id));
+    let _ = std::fs::remove_dir_all(media_folder(dir, id));
+}
+
+/// Compresses legacy uncompressed `{id}.html` files in `dir` into `{id}.html.zst` with
+/// content-addressed asset deduplication. Returns how many pages were compacted.
+pub fn compact_dir(dir: &Path) -> usize {
+    compact_dir_older_than(dir, COMPACT_MIN_AGE)
+}
+
+fn compact_dir_older_than(dir: &Path, min_age: Duration) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut compacted = 0usize;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Some(id) = name.strip_suffix(".html").filter(|id| is_page_id(id)) else {
+            continue;
+        };
+        if compressed_file(dir, id).is_file() {
+            let _ = std::fs::remove_file(&path);
+            compacted += 1;
+            continue;
+        }
+        if !min_age.is_zero() {
+            let too_recent = entry
+                .metadata()
+                .ok()
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|modified| modified.elapsed().ok())
+                .is_some_and(|age| age < min_age);
+            if too_recent {
+                continue;
+            }
+        }
+        let Ok(html) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if write_compressed_html(dir, id, &html).is_ok() {
+            compacted += 1;
+        }
+    }
+    compacted
+}
+
+/// Deletes blobs in `{dir}/blobs/` that no surviving page references and are old enough not to
+/// belong to an in-flight write. Returns how many blobs were removed.
+pub fn gc_blobs(dir: &Path) -> usize {
+    gc_blobs_older_than(dir, BLOB_GC_MIN_AGE)
+}
+
+fn gc_blobs_older_than(dir: &Path, min_age: Duration) -> usize {
+    let folder = blobs_dir(dir);
+    let Ok(blob_entries) = std::fs::read_dir(&folder) else {
+        return 0;
+    };
+    let blobs: Vec<(PathBuf, String, Option<Duration>)> = blob_entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.is_file() {
+                return None;
+            }
+            let name = path.file_name()?.to_str()?.to_owned();
+            if name.starts_with('.') {
+                return None;
+            }
+            let age = entry
+                .metadata()
+                .ok()
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|modified| modified.elapsed().ok());
+            Some((path, name, age))
+        })
+        .collect();
+    if blobs.is_empty() {
+        return 0;
+    }
+
+    let Ok(page_entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut referenced = HashSet::new();
+    for entry in page_entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let is_page = name
+            .strip_suffix(".html.zst")
+            .or_else(|| name.strip_suffix(".html"))
+            .is_some_and(is_page_id);
+        if !is_page {
+            continue;
+        }
+        let Ok(raw_html) = read_raw_html_file(&path) else {
+            return 0;
+        };
+        if raw_html.contains(BLOB_MARKER) {
+            for found in DATA_BLOB.captures_iter(&raw_html) {
+                referenced.insert(found[2].to_owned());
+            }
+        }
+    }
+
+    let mut removed = 0usize;
+    for (path, name, age) in blobs {
+        if referenced.contains(&name) {
+            continue;
+        }
+        if !min_age.is_zero() && age.is_none_or(|age| age < min_age) {
+            continue;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
 }
 
 /* Elements ahead of `<html>` land in the head the parser makes for them, so
@@ -338,7 +665,7 @@ fn kept_as(dir: &Path, id: &str) -> (Option<Vec<u8>>, u64) {
         .flatten()
         .filter_map(|file| Some(file.metadata().ok()?.len()))
         .sum();
-    (std::fs::read(dir.join(format!("{id}.html"))).ok(), media)
+    (read_html(dir, id).ok().map(String::into_bytes), media)
 }
 
 fn keep(dir: &Path, id: &str, source: &Path, title: &str) -> Result<(), String> {
@@ -347,8 +674,7 @@ fn keep(dir: &Path, id: &str, source: &Path, title: &str) -> Result<(), String> 
         page = insert_head(&page, &format!("<title>{}</title>", escape_text(title)));
     }
     let failed = |error: std::io::Error| format!("could not keep the page: {error}");
-    std::fs::create_dir_all(dir).map_err(failed)?;
-    std::fs::write(dir.join(format!("{id}.html")), page).map_err(failed)?;
+    write_compressed_html(dir, id, &page).map_err(failed)?;
     let written_in = source.parent().unwrap_or(source);
     std::fs::write(
         written_in_file(dir, id),
@@ -380,20 +706,34 @@ pub fn written_in(dir: &Path, id: &str) -> Option<PathBuf> {
 
 /// The title of page `id` kept in `dir`, as its `<title>` names it; none when no such page is kept.
 pub fn title(dir: &Path, id: &str) -> Option<String> {
-    if !is_page_id(id) {
-        return None;
-    }
-    let path = dir.join(format!("{id}.html"));
-    let mut head = Vec::new();
-    std::io::Read::read_to_end(
-        &mut std::io::Read::take(std::fs::File::open(&path).ok()?, HEAD_BYTES),
-        &mut head,
-    )
-    .ok()?;
-    let head = String::from_utf8_lossy(&head);
-    let page = match head.to_ascii_lowercase().contains("</title") {
-        true => head.into_owned(),
-        false => std::fs::read_to_string(&path).ok()?,
+    let path = page_file(dir, id)?;
+    let page = if is_compressed_page(&path) {
+        let file = std::fs::File::open(&path).ok()?;
+        let mut decoder = zstd::stream::read::Decoder::new(file).ok()?;
+        let mut head = Vec::new();
+        std::io::Read::read_to_end(
+            &mut std::io::Read::take(&mut decoder, HEAD_BYTES),
+            &mut head,
+        )
+        .ok()?;
+        let head_text = String::from_utf8_lossy(&head);
+        if head_text.to_ascii_lowercase().contains("</title") {
+            head_text.into_owned()
+        } else {
+            read_raw_html_file(&path).ok()?
+        }
+    } else {
+        let mut head = Vec::new();
+        std::io::Read::read_to_end(
+            &mut std::io::Read::take(std::fs::File::open(&path).ok()?, HEAD_BYTES),
+            &mut head,
+        )
+        .ok()?;
+        let head = String::from_utf8_lossy(&head);
+        match head.to_ascii_lowercase().contains("</title") {
+            true => head.into_owned(),
+            false => std::fs::read_to_string(&path).ok()?,
+        }
     };
     let start = page.to_ascii_lowercase().find("<title")?;
     let (_, rest) = page.get(start..)?.split_once('>')?;
@@ -835,7 +1175,9 @@ mod tests {
         let kept = dir.path().join("kept");
         let page = publish(&kept, &source, "Draft").unwrap();
         std::fs::remove_file(dir.path().join("ademark.mp4")).unwrap();
-        let html = std::fs::read_to_string(kept.join(format!("{}.html", page.id))).unwrap();
+        assert!(compressed_file(&kept, &page.id).is_file());
+        assert!(!plain_file(&kept, &page.id).exists());
+        let html = read_html(&kept, &page.id).unwrap();
         let video = format!("{}/0-ademark.mp4", page.id);
         assert!(html.contains(&format!("src=\"{video}\"")), "{html}");
         assert_eq!(std::fs::read(kept.join(video)).unwrap(), [9u8; 4]);
@@ -850,7 +1192,7 @@ mod tests {
         let page = publish(&kept, &source, "Mockup").unwrap();
         std::fs::write(&source, "<p>redrawn</p>").unwrap();
         assert!(refresh(&kept, &page.id).unwrap());
-        let html = std::fs::read_to_string(kept.join(format!("{}.html", page.id))).unwrap();
+        let html = read_html(&kept, &page.id).unwrap();
         assert!(html.contains("redrawn") && html.contains("<title>Mockup</title>"));
     }
 
@@ -868,6 +1210,97 @@ mod tests {
         assert!(is_page_id("0123456789abcdef0123456789abcdef"));
         assert!(!is_page_id("../../etc/passwd"));
         assert!(!is_page_id("0123456789abcdef0123456789abcde"));
+        assert_eq!(
+            page_id_of(Path::new("/tmp/0123456789abcdef0123456789abcdef.html.zst")),
+            Some("0123456789abcdef0123456789abcdef")
+        );
+        assert_eq!(
+            page_id_of(Path::new("/tmp/0123456789abcdef0123456789abcdef.html")),
+            Some("0123456789abcdef0123456789abcdef")
+        );
+    }
+
+    #[test]
+    fn pages_compress_deduplicate_blobs_and_gc_cleanly() {
+        let dir = tempfile::tempdir().unwrap();
+        let kept = dir.path().join("kept");
+        let shared_font: Vec<u8> = (0..8192u32).map(|i| ((i * 31) % 251) as u8).collect();
+        std::fs::write(dir.path().join("Figtree.woff2"), &shared_font).unwrap();
+        let unique_img: Vec<u8> = (0..4096u32).map(|i| ((i * 17 + 5) % 251) as u8).collect();
+        std::fs::write(dir.path().join("shot.png"), &unique_img).unwrap();
+
+        let source_a = dir.path().join("a.html");
+        let repeated_markup = "<p>Some repeated report body text.</p>".repeat(200);
+        std::fs::write(
+            &source_a,
+            format!(
+                "<!doctype html><style>@font-face{{src:url(Figtree.woff2)}}</style><img src=\"shot.png\">{repeated_markup}"
+            ),
+        )
+        .unwrap();
+        let source_b = dir.path().join("b.html");
+        std::fs::write(
+            &source_b,
+            format!(
+                "<!doctype html><style>@font-face{{src:url(Figtree.woff2)}}</style>{repeated_markup}"
+            ),
+        )
+        .unwrap();
+
+        let page_a = publish(&kept, &source_a, "Report A").unwrap();
+        let page_b = publish(&kept, &source_b, "Report B").unwrap();
+
+        let expected_a = insert_head(
+            &build(&source_a, None, None).unwrap(),
+            "<title>Report A</title>",
+        );
+        let expected_b = insert_head(
+            &build(&source_b, None, None).unwrap(),
+            "<title>Report B</title>",
+        );
+        assert_eq!(read_html(&kept, &page_a.id).unwrap(), expected_a);
+        assert_eq!(read_html(&kept, &page_b.id).unwrap(), expected_b);
+        assert_eq!(title(&kept, &page_a.id).as_deref(), Some("Report A"));
+        assert_eq!(title(&kept, &page_b.id).as_deref(), Some("Report B"));
+
+        // Shared font is stored once in blobs/ alongside the unique image (2 blobs total).
+        let blobs_count = std::fs::read_dir(blobs_dir(&kept)).unwrap().count();
+        assert_eq!(blobs_count, 2);
+
+        // Compressed files + deduplicated blobs must be much smaller than raw duplicated HTML.
+        let compressed_bytes = std::fs::metadata(compressed_file(&kept, &page_a.id))
+            .unwrap()
+            .len()
+            + std::fs::metadata(compressed_file(&kept, &page_b.id))
+                .unwrap()
+                .len();
+        let blob_bytes: u64 = std::fs::read_dir(blobs_dir(&kept))
+            .unwrap()
+            .flatten()
+            .map(|e| e.metadata().unwrap().len())
+            .sum();
+        assert!(
+            (compressed_bytes + blob_bytes) < (expected_a.len() + expected_b.len()) as u64 / 2,
+            "expected >50% reduction, got {} vs {}",
+            compressed_bytes + blob_bytes,
+            expected_a.len() + expected_b.len()
+        );
+
+        // Removing page A and running GC drops only the unreferenced image blob, keeping the shared font.
+        remove_page_files(&kept, &page_a.id);
+        assert_eq!(gc_blobs_older_than(&kept, Duration::ZERO), 1);
+        assert_eq!(std::fs::read_dir(blobs_dir(&kept)).unwrap().count(), 1);
+        assert_eq!(read_html(&kept, &page_b.id).unwrap(), expected_b);
+
+        // Legacy uncompressed `.html` files read cleanly and compact in place.
+        let legacy_id = "0123456789abcdef0123456789abcdef";
+        std::fs::write(plain_file(&kept, legacy_id), &expected_a).unwrap();
+        assert_eq!(read_html(&kept, legacy_id).unwrap(), expected_a);
+        assert_eq!(title(&kept, legacy_id).as_deref(), Some("Report A"));
+        assert_eq!(compact_dir_older_than(&kept, Duration::ZERO), 1);
+        assert!(compressed_file(&kept, legacy_id).is_file());
+        assert!(!plain_file(&kept, legacy_id).exists());
+        assert_eq!(read_html(&kept, legacy_id).unwrap(), expected_a);
     }
 
     #[test]
@@ -884,7 +1317,7 @@ mod tests {
         .unwrap();
         let kept = dir.path().join("kept");
         let page = publish(&kept, &source, "Demo").unwrap();
-        let html = std::fs::read_to_string(kept.join(format!("{}.html", page.id))).unwrap();
+        let html = read_html(&kept, &page.id).unwrap();
         assert!(html.contains(&format!("{}/0-clip.mp4", page.id)));
 
         let shared = for_share(&kept, &page.id, &html, MAX_SHARED_HTML_BYTES).unwrap();
@@ -906,15 +1339,14 @@ mod tests {
         std::fs::write(&too_big_clip, [7u8; 256]).unwrap();
         std::fs::write(&source, "<video src=\"big.mp4\"></video>").unwrap();
         let big_page = publish(&kept, &source, "Big").unwrap();
-        let big_html = std::fs::read_to_string(kept.join(format!("{}.html", big_page.id))).unwrap();
+        let big_html = read_html(&kept, &big_page.id).unwrap();
         let too_big = for_share(&kept, &big_page.id, &big_html, big_html.len() + 16).unwrap_err();
         assert!(too_big.contains("too large"), "{too_big}");
 
         std::fs::write(dir.path().join("child.html"), "<p>nested</p>").unwrap();
         std::fs::write(&source, "<iframe src=\"child.html\"></iframe>").unwrap();
         let nested = publish(&kept, &source, "Nested").unwrap();
-        let nested_html =
-            std::fs::read_to_string(kept.join(format!("{}.html", nested.id))).unwrap();
+        let nested_html = read_html(&kept, &nested.id).unwrap();
         let refused =
             for_share(&kept, &nested.id, &nested_html, MAX_SHARED_HTML_BYTES).unwrap_err();
         assert!(refused.contains("child.html"), "{refused}");

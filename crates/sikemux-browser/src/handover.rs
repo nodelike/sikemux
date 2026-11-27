@@ -131,17 +131,26 @@ impl BrowserManager {
                 }
                 let url = match &tab.local_file {
                     Some(path) => {
-                        let reopened = match sikemux_base::pages::page_id_of(path)
-                            .zip(path.parent())
-                        {
-                            Some((id, dir)) => {
-                                let media = Some(sikemux_base::pages::media_folder(dir, id))
-                                    .filter(|media| media.is_dir());
-                                let written_in = sikemux_base::pages::written_in(dir, id);
-                                self.themed_page_url(path, media.as_deref(), written_in.as_deref())
-                            }
-                            None => self.local_files.url_for(path),
-                        };
+                        let reopened =
+                            match sikemux_base::pages::page_id_of(path).zip(path.parent()) {
+                                Some((id, dir)) => {
+                                    let resolved = if path.is_file() {
+                                        path.clone()
+                                    } else {
+                                        sikemux_base::pages::page_file(dir, id)
+                                            .unwrap_or_else(|| path.clone())
+                                    };
+                                    let media = Some(sikemux_base::pages::media_folder(dir, id))
+                                        .filter(|media| media.is_dir());
+                                    let written_in = sikemux_base::pages::written_in(dir, id);
+                                    self.themed_page_url(
+                                        &resolved,
+                                        media.as_deref(),
+                                        written_in.as_deref(),
+                                    )
+                                }
+                                None => self.local_files.url_for(path),
+                            };
                         match reopened {
                             Ok(url) => url,
                             Err(_) => continue,
