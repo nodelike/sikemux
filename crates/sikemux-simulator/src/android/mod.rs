@@ -27,6 +27,10 @@ const DEVICE_JAR: &str = "/data/local/tmp/sikemux-device.jar";
 const VIRTUAL: &str = "avd:";
 const PLUGGED: &str = "adb:";
 const BOOT_POLL: Duration = Duration::from_secs(1);
+const SERIAL_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+const SERIAL_READY_STEP: Duration = Duration::from_millis(250);
+const AVD_READY_WAIT: Duration = Duration::from_secs(6);
+const PHONE_READY_WAIT: Duration = Duration::from_secs(3);
 const PACKAGE_SETTLE_TRIES: usize = 8;
 const PACKAGE_SETTLE_STEP: Duration = Duration::from_millis(150);
 const LOW_DATA_MB: u64 = 500;
@@ -246,20 +250,61 @@ impl Android {
 
     async fn serial(&self, udid: &str) -> SimResult<String> {
         let target = self.target(udid);
+        let is_avd = target.avd.is_some();
+        let label = target.avd.as_deref().unwrap_or(udid);
         let serial = target.serial.ok_or_else(|| {
-            format!(
-                "{} is not running. Call sim attach to start it, or ask the person.",
-                target.avd.as_deref().unwrap_or(udid)
-            )
+            format!("{label} is not running. Call sim attach to start it, or ask the person.")
         })?;
-        let state = self
-            .adb(&["-s", &serial, "get-state"], Duration::from_secs(10))
+        self.wait_for_serial_ready(serial, is_avd, || self.target(udid).serial, label)
             .await
-            .unwrap_or_default();
-        match state.trim() {
-            "device" => Ok(serial),
-            "unauthorized" => Err(format!("{serial} has not allowed USB debugging from this computer; ask the person to accept the prompt on the phone")),
-            _ => Err(format!("{serial} is not ready; it may still be starting, or be unplugged")),
+    }
+
+    async fn wait_for_serial_ready(
+        &self,
+        mut serial: String,
+        is_avd: bool,
+        mut refresh: impl FnMut() -> Option<String>,
+        missing_label: &str,
+    ) -> SimResult<String> {
+        let wait = if is_avd {
+            AVD_READY_WAIT
+        } else {
+            PHONE_READY_WAIT
+        };
+        let mut deadline = None;
+        loop {
+            let state = classify_device_state(
+                self.adb(&["-s", &serial, "get-state"], SERIAL_PROBE_TIMEOUT)
+                    .await,
+            );
+            match state {
+                DeviceState::Ready => return Ok(serial),
+                DeviceState::Unauthorized => {
+                    return Err(format!(
+                        "{serial} has not allowed USB debugging from this computer; ask the person to accept the prompt on the phone"
+                    ));
+                }
+                DeviceState::NotFound(detail) if !is_avd => {
+                    return Err(not_ready_error(&serial, &detail));
+                }
+                DeviceState::NotFound(detail) | DeviceState::Transient(detail) => {
+                    if is_avd {
+                        match refresh() {
+                            Some(current) => serial = current,
+                            None => {
+                                return Err(format!(
+                                    "{missing_label} is not running. Call sim attach to start it, or ask the person."
+                                ));
+                            }
+                        }
+                    }
+                    let until = *deadline.get_or_insert_with(|| Instant::now() + wait);
+                    if Instant::now() >= until {
+                        return Err(not_ready_error(&serial, &detail));
+                    }
+                    crate::pause(SERIAL_READY_STEP).await?;
+                }
+            }
         }
     }
 
@@ -1033,10 +1078,15 @@ impl Android {
                 ));
             }
             if let Some(serial) = self.target(udid).serial {
-                let booted = self
-                    .shell(&serial, "getprop sys.boot_completed")
+                let ready = self
+                    .adb(&["-s", &serial, "get-state"], SERIAL_PROBE_TIMEOUT)
                     .await
-                    .is_ok_and(|text| text.trim() == "1");
+                    .is_ok_and(|state| state.trim() == "device");
+                let booted = ready
+                    && self
+                        .shell(&serial, "getprop sys.boot_completed")
+                        .await
+                        .is_ok_and(|text| text.trim() == "1");
                 if booted {
                     return Ok(json!({}));
                 }
@@ -1285,6 +1335,43 @@ fn launch_command(activity: &str, arguments: Option<&Value>) -> String {
         .map(|argument| format!(" {}", quoted(argument)))
         .collect();
     format!("am start -S -n {}{extras}", quoted(activity))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum DeviceState {
+    Ready,
+    Unauthorized,
+    NotFound(String),
+    Transient(String),
+}
+
+fn classify_device_state(result: Result<String, String>) -> DeviceState {
+    match result {
+        Ok(output) => match output.trim() {
+            "device" => DeviceState::Ready,
+            "unauthorized" => DeviceState::Unauthorized,
+            other => DeviceState::Transient(other.to_owned()),
+        },
+        Err(error) => {
+            let lower = error.to_ascii_lowercase();
+            if lower.contains("unauthorized") {
+                DeviceState::Unauthorized
+            } else if lower.contains("not found") || lower.contains("no devices/emulators found") {
+                DeviceState::NotFound(error)
+            } else {
+                DeviceState::Transient(error)
+            }
+        }
+    }
+}
+
+fn not_ready_error(serial: &str, detail: &str) -> String {
+    let detail = detail.trim();
+    if detail.is_empty() {
+        format!("{serial} is not ready; it may still be starting, or be unplugged")
+    } else {
+        format!("{serial} is not ready; it may still be starting, or be unplugged ({detail})")
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2302,5 +2389,121 @@ esac
 
         std::fs::write(&mode, "df-fail").unwrap();
         assert_eq!(android.low_storage_warning("adb:pixel").await, None);
+    }
+
+    #[tokio::test]
+    async fn serial_retries_transient_blips_and_fails_fast_when_unplugged_or_unauthorized() {
+        let dir = tempfile::tempdir().unwrap();
+        let mode = dir.path().join("mode");
+        let tries = dir.path().join("tries");
+        let script = format!(
+            r#"#!/bin/sh
+if [ "$1" = "-s" ]; then shift 2; fi
+case "$1" in
+  get-state)
+    m=$(cat '{mode}')
+    case "$m" in
+      offline-then-ok)
+        t=$(cat '{tries}')
+        t=$((t + 1))
+        printf '%s' "$t" > '{tries}'
+        if [ "$t" -lt 3 ]; then
+          echo "error: device offline" >&2
+          exit 1
+        fi
+        echo "device"
+        ;;
+      not-found-then-ok)
+        t=$(cat '{tries}')
+        t=$((t + 1))
+        printf '%s' "$t" > '{tries}'
+        if [ "$t" -lt 3 ]; then
+          echo "error: device 'emulator-5554' not found" >&2
+          exit 1
+        fi
+        echo "device"
+        ;;
+      unplugged)
+        t=$(cat '{tries}')
+        printf '%s' "$((t + 1))" > '{tries}'
+        echo "error: device 'pixel' not found" >&2
+        exit 1
+        ;;
+      unauthorized)
+        t=$(cat '{tries}')
+        printf '%s' "$((t + 1))" > '{tries}'
+        echo "error: device unauthorized." >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  shell) ;;
+esac
+"#,
+            mode = mode.display(),
+            tries = tries.display(),
+        );
+        let (_sdk, android) = fake_sdk(&script);
+
+        std::fs::write(&mode, "offline-then-ok").unwrap();
+        std::fs::write(&tries, "0").unwrap();
+        android
+            .request(
+                "terminate",
+                fields(json!({ "udid": "adb:pixel", "bundleId": "com.swishx.academy" })),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("terminate should ride out brief offline state");
+
+        std::fs::write(&mode, "not-found-then-ok").unwrap();
+        std::fs::write(&tries, "0").unwrap();
+        let recovered = android
+            .wait_for_serial_ready(
+                "emulator-5554".into(),
+                true,
+                || Some("emulator-5554".into()),
+                "Medium_Phone",
+            )
+            .await
+            .expect("running AVD should ride out brief transport reconnect");
+        assert_eq!(recovered, "emulator-5554");
+
+        std::fs::write(&mode, "unplugged").unwrap();
+        std::fs::write(&tries, "0").unwrap();
+        let dead = android
+            .wait_for_serial_ready("emulator-5554".into(), true, || None, "Medium_Phone")
+            .await
+            .unwrap_err();
+        assert!(dead.contains("is not running"), "{dead}");
+        assert_eq!(std::fs::read_to_string(&tries).unwrap(), "1");
+
+        std::fs::write(&tries, "0").unwrap();
+        let unplugged = android
+            .request(
+                "terminate",
+                fields(json!({ "udid": "adb:pixel", "bundleId": "com.swishx.academy" })),
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            unplugged.contains("is not ready") && unplugged.contains("not found"),
+            "{unplugged}"
+        );
+        assert_eq!(std::fs::read_to_string(&tries).unwrap(), "1");
+
+        std::fs::write(&mode, "unauthorized").unwrap();
+        std::fs::write(&tries, "0").unwrap();
+        let unauth = android
+            .request(
+                "terminate",
+                fields(json!({ "udid": "adb:pixel", "bundleId": "com.swishx.academy" })),
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap_err();
+        assert!(unauth.contains("USB debugging"), "{unauth}");
+        assert_eq!(std::fs::read_to_string(&tries).unwrap(), "1");
     }
 }
