@@ -30,23 +30,27 @@ use crate::tab::{ParentView, ProfileStore, TabSpec};
 use crate::{PageLoad, TabEvents};
 
 thread_local! {
-    static PROFILE_CONTEXTS: RefCell<HashMap<uuid::Uuid, wry::WebContext>> =
+    static PROFILE_CONTEXTS: RefCell<HashMap<ProfileStore, wry::WebContext>> =
         RefCell::new(HashMap::new());
 }
 
-fn profile_dir(uuid: uuid::Uuid) -> PathBuf {
+fn profile_dir(profile: ProfileStore) -> PathBuf {
+    let name = match profile {
+        ProfileStore::Default => "default".to_owned(),
+        ProfileStore::Named(uuid) => uuid.to_string(),
+    };
     sikemux_process::paths::data_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("browser-profiles")
-        .join(uuid.to_string())
+        .join(name)
 }
 
 pub fn clear_data(profile: ProfileStore) {
-    if let ProfileStore::Named(uuid) = profile {
-        let dir = profile_dir(uuid);
+    if let ProfileStore::Named(_) = profile {
+        let dir = profile_dir(profile);
         on_gtk(move || {
             PROFILE_CONTEXTS.with(|contexts| {
-                contexts.borrow_mut().remove(&uuid);
+                contexts.borrow_mut().remove(&profile);
             });
             let _ = std::fs::remove_dir_all(&dir);
         });
@@ -415,17 +419,18 @@ impl Tab {
                     .build_as_child(&X11Parent(clip.window))
                     .map_err(|error| error.to_string())
             };
-            let view = match (private, store) {
-                (false, ProfileStore::Named(uuid)) => PROFILE_CONTEXTS.with(|contexts| {
+            let view = if private {
+                build(wry::WebViewBuilder::new())?
+            } else {
+                PROFILE_CONTEXTS.with(|contexts| {
                     let mut contexts = contexts.borrow_mut();
-                    let ctx = contexts.entry(uuid).or_insert_with(|| {
-                        let dir = profile_dir(uuid);
+                    let ctx = contexts.entry(store).or_insert_with(|| {
+                        let dir = profile_dir(store);
                         let _ = std::fs::create_dir_all(&dir);
                         wry::WebContext::new(Some(dir))
                     });
                     build(wry::WebViewBuilder::new_with_web_context(ctx))
-                })?,
-                _ => build(wry::WebViewBuilder::new())?,
+                })?
             };
             // wry sizes a new child window by the screen's DPI over 96, but every later
             // placement by GTK's own scale, so the page is sized once more the later way.
