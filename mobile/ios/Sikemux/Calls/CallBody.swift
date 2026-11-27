@@ -39,7 +39,8 @@ struct CallBody: View {
                 .textSelection(.enabled)
                 .padding(.top, 10)
             ForEach(Array(asked.rest.enumerated()), id: \.offset) { _, line in
-                Text(CallMarks.line(line, strong: palette.ink)).font(Theme.ui(15)).foregroundStyle(palette.secondary).textSelection(.enabled)
+                Text(CallMarks.line(line, strong: palette.ink)).font(Theme.ui(15)).foregroundStyle(palette.secondary)
+                    .textSelection(.enabled)
                     .padding(.top, 10)
             }
             if let link = call.link {
@@ -197,10 +198,12 @@ struct CallBody: View {
             SectionLabel(CallWords.whyItCameUp).padding(.horizontal, -8).padding(.top, 10)
             VStack(alignment: .leading, spacing: 8) {
                 if let context {
-                    Text(CallMarks.line(context, strong: palette.ink)).font(Theme.ui(14.5)).lineSpacing(3).foregroundStyle(palette.secondary)
+                    Text(CallMarks.line(context, strong: palette.ink)).font(Theme.ui(14.5)).lineSpacing(3)
+                        .foregroundStyle(palette.secondary)
                 }
                 ForEach(Array(evidence.enumerated()), id: \.offset) {
-                    Text(CallMarks.line($0.element.what, strong: palette.secondary)).font(Theme.ui(14)).foregroundStyle(palette.tertiary)
+                    Text(CallMarks.line($0.element.what, strong: palette.secondary)).font(Theme.ui(14)).foregroundStyle(
+                        palette.tertiary)
                 }
             }
             .textSelection(.enabled)
