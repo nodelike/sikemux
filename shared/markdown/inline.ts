@@ -1,6 +1,7 @@
 import type { MdNode } from "./types";
 
-const MARKS = /`([^`\n]+)`|\*\*(.+?)\*\*|__(.+?)__|\[([^\]\n]+)\]\(([^)\s]+)\)|\*([^*\s](?:[^*\n]*[^*\s])?)\*|(?<![\w])_([^_\s](?:[^_\n]*[^_\s])?)_(?![\w])/g;
+const MARKS =
+    /`([^`\n]+)`|\*\*(.+?)\*\*|__(.+?)__|\[([^\]\n]+)\]\(([^)\s]+)\)|\*([^*\s](?:[^*\n]*[^*\s])?)\*|(?<![\w])_([^_\s](?:[^_\n]*[^_\s])?)_(?![\w])/g;
 
 /** One line of a call's words as the tree the transcript draws: code, bold, italics and links, the rest as written. */
 export function inlineNodes(text: string): MdNode[] {
