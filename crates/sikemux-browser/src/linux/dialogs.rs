@@ -7,7 +7,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use gtk::prelude::*;
-use webkit2gtk::{ScriptDialog, ScriptDialogType, WebView, WebViewExt};
+use webkit2gtk::{
+    FileChooserRequest, FileChooserRequestExt, ScriptDialog, ScriptDialogType, WebView, WebViewExt,
+};
 
 use crate::burst::Burst;
 use crate::{PageDialog, TabEvents};
@@ -24,6 +26,7 @@ struct Open {
 
 pub(crate) fn attach(webview: &WebView, tab_id: &str, events: Arc<dyn TabEvents>) {
     let flood = RefCell::new(Burst::new(crate::DIALOG_LIMIT, crate::DIALOG_WINDOW));
+    let uploads = events.clone();
     let (asking, told) = (tab_id.to_owned(), events);
     webview.connect_script_dialog(move |_view, dialog| {
         match dialog.dialog_type() {
@@ -44,6 +47,24 @@ pub(crate) fn attach(webview: &WebView, tab_id: &str, events: Arc<dyn TabEvents>
     });
     let gone = tab_id.to_owned();
     webview.connect_destroy(move |_| finish(&gone, false, None));
+    webview.connect_run_file_chooser(move |_view, request| choose_files(request, &uploads));
+}
+
+/// Hands the page the files an agent offered through `browser_upload`. With none offered,
+/// WebKit shows its own chooser for the person.
+fn choose_files(request: &FileChooserRequest, events: &Arc<dyn TabEvents>) -> bool {
+    let Some(mut paths) = events.upload() else {
+        return false;
+    };
+    if !request.selects_multiple() {
+        paths.truncate(1);
+    }
+    let paths: Vec<String> = (paths.iter())
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
+    let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
+    request.select_files(&paths);
+    true
 }
 
 fn hold(dialog: &ScriptDialog, tab_id: &str, events: Arc<dyn TabEvents>) {
