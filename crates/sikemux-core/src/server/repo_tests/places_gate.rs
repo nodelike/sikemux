@@ -456,25 +456,38 @@ fn a_tool_call_is_covered_once_exactly() {
     );
 }
 
-/// A workflow nobody could read was listed again with each run.
+/// An unplaced workflow is listed once however often it runs, while one that cannot be read asks.
 #[test]
 fn an_unread_workflow_is_listed_once_however_often_it_runs() {
     let project = "/tmp/sikemux-gate-workflow";
     let core = core_at(None, project, Vec::new());
     for _ in 0..3 {
-        let ships = crate::ship::of_command(
-            "gh workflow run 4211 --repo acme/infra",
-            &[],
-            crate::ship::Looks::Every,
-            Path::new("/nowhere"),
-            &|_| None,
-        );
-        assert!(run(&core, ships[0].clone(), Path::new("/nowhere")).is_ok());
+        let ship = Ship {
+            kind: ShipKind::Deploy,
+            what: "gh workflow run preview.yml".into(),
+            target: Some(Target::Workflow {
+                file: "preview.yml".into(),
+                environments: vec!["staging".into()],
+                inputs: Vec::new(),
+                rerun: None,
+                unread: false,
+            }),
+        };
+        assert!(run(&core, ship, Path::new("/nowhere")).is_ok());
     }
     let read = of(&core, project);
     assert_eq!(read.seen.len(), 1);
     assert_eq!(read.seen[0].times, 3);
     assert!(crate::server::person_calls::shown(&core).is_empty());
+
+    let unreadable = crate::ship::of_command(
+        "gh workflow run 4211 --repo acme/infra",
+        &[],
+        crate::ship::Looks::Every,
+        Path::new("/nowhere"),
+        &|_| None,
+    );
+    assert!(run(&core, unreadable[0].clone(), Path::new("/nowhere")).is_err());
 }
 
 /// Nightly tags went to the release workflow with no way to stop being asked each night.
@@ -568,6 +581,7 @@ jobs:
             environments: vec!["release".into()],
             inputs: vec!["sha=14ef39ced".into()],
             rerun: None,
+            unread: false,
         }),
     };
     let refused = run(&core, by_hand, dir.path()).err().unwrap_or_default();

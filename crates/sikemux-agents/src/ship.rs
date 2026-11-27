@@ -108,6 +108,9 @@ pub enum Target {
         /// The past run or job it starts again, as `run 123`, when it isn't a new run.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         rerun: Option<String>,
+        /// True when the workflow GitHub will run could not be resolved or read.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        unread: bool,
     },
     /// A past workflow run started again whose workflow couldn't be read, by the `owner/name`
     /// of its repository, `{owner}/{repo}` included, and the run or job it names.
@@ -444,13 +447,19 @@ pub(crate) fn target_of(
             let args: Vec<String> = gh_args(args).into_iter().skip(1).collect();
             let call = github_api(&args);
             let repo = call.as_ref().and_then(ApiCall::repo).unwrap_or_default();
-            if let Some(file) = call.as_ref().and_then(ApiCall::dispatches) {
-                return Some(Target::Workflow {
-                    file,
-                    environments: Vec::new(),
-                    inputs: args.to_vec(),
-                    rerun: None,
-                });
+            if let Some(named) = call.as_ref().and_then(ApiCall::dispatches) {
+                let reference = call
+                    .as_ref()
+                    .and_then(|call| call.field("ref", cwd).ok().flatten());
+                let target_repo = (!repo.is_empty()).then_some(repo.as_str());
+                return Some(resolve_workflow(
+                    Some(&named),
+                    target_repo,
+                    reference.as_deref(),
+                    args.to_vec(),
+                    env,
+                    cwd,
+                ));
             }
             if let Some(named) = call.as_ref().and_then(ApiCall::reruns) {
                 return Some(rerun(&repo, named, env, cwd));
@@ -1005,29 +1014,58 @@ fn run_named(words: &[String]) -> Option<String> {
     None
 }
 
+fn repo_api_prefix(repo: &str) -> String {
+    if repo.starts_with("repositories/") {
+        repo.to_owned()
+    } else {
+        format!("repos/{repo}")
+    }
+}
+
+fn gh_api_read(
+    endpoint: &str,
+    jq: Option<&str>,
+    env: &dyn Fn(&str) -> Option<String>,
+    cwd: &Path,
+) -> Option<String> {
+    let mut command = sikemux_process::user_environment::command("gh");
+    command
+        .current_dir(cwd)
+        .env("GH_PROMPT_DISABLED", "1")
+        .args(["api", endpoint]);
+    match jq {
+        Some(jq) => command.args(["--jq", jq]),
+        None => command.args(["-H", "Accept: application/vnd.github.raw"]),
+    };
+    for name in ["GH_HOST", "GH_REPO", "GH_TOKEN", "GITHUB_TOKEN"] {
+        match env(name) {
+            Some(value) => command.env(name, value),
+            None => command.env_remove(name),
+        };
+    }
+    let output = (command.output().ok()).filter(|output| output.status.success())?;
+    String::from_utf8(output.stdout).ok()
+}
+
+fn has_remote_host(cwd: &Path) -> bool {
+    if !cwd.is_dir() {
+        return false;
+    }
+    let remotes = crate::git::Git::quick(cwd)
+        .trimmed(&["remote", "-v"])
+        .unwrap_or_default();
+    remotes
+        .lines()
+        .filter_map(|line| line.split_whitespace().nth(1))
+        .any(|url| url.contains("://") || url.contains('@'))
+}
+
 /// The workflow a past run of `repo` is of, as GitHub runs it again: its file at the commit
 /// the run was of, asked of GitHub as the person's `gh`. A run whose file, or whose
 /// environments, can't be read that way stays a rerun by its id.
 fn rerun(repo: &str, named: Rerun, env: &dyn Fn(&str) -> Option<String>, cwd: &Path) -> Target {
-    let gh = |endpoint: &str, jq: Option<&str>| -> Option<String> {
-        let mut command = sikemux_process::user_environment::command("gh");
-        command
-            .current_dir(cwd)
-            .env("GH_PROMPT_DISABLED", "1")
-            .args(["api", endpoint]);
-        match jq {
-            Some(jq) => command.args(["--jq", jq]),
-            None => command.args(["-H", "Accept: application/vnd.github.raw"]),
-        };
-        for name in ["GH_HOST", "GH_REPO"] {
-            match env(name) {
-                Some(value) => command.env(name, value),
-                None => command.env_remove(name),
-            };
-        }
-        let output = (command.output().ok()).filter(|output| output.status.success())?;
-        String::from_utf8(output.stdout).ok()
-    };
+    let prefix = repo_api_prefix(repo);
+    let gh = |endpoint: &str, jq: Option<&str>| gh_api_read(endpoint, jq, env, cwd);
     let of = match &named {
         Rerun::Run(run) => format!("run {run}"),
         Rerun::Job(job) => format!("job {job}"),
@@ -1035,18 +1073,18 @@ fn rerun(repo: &str, named: Rerun, env: &dyn Fn(&str) -> Option<String>, cwd: &P
     let read = || {
         let run = match named {
             Rerun::Run(run) => run,
-            Rerun::Job(job) => gh(&format!("repos/{repo}/actions/jobs/{job}"), Some(".run_id"))?
+            Rerun::Job(job) => gh(&format!("{prefix}/actions/jobs/{job}"), Some(".run_id"))?
                 .trim()
                 .to_owned(),
         };
         let found = gh(
-            &format!("repos/{repo}/actions/runs/{run}"),
+            &format!("{prefix}/actions/runs/{run}"),
             Some(r#".path + " " + .head_sha"#),
         )?;
         let (path, sha) = found.trim().split_once(' ')?;
         let path = path.split('@').next()?;
         let file = path.strip_prefix(".github/workflows/")?;
-        let at = |path: &str| gh(&format!("repos/{repo}/contents/{path}?ref={sha}"), None);
+        let at = |path: &str| gh(&format!("{prefix}/contents/{path}?ref={sha}"), None);
         let mut text = at(path)?;
         for called in called_workflows(&text.clone()) {
             text.push('\n');
@@ -1061,6 +1099,7 @@ fn rerun(repo: &str, named: Rerun, env: &dyn Fn(&str) -> Option<String>, cwd: &P
             environments,
             inputs: Vec::new(),
             rerun: Some(of.clone()),
+            unread: false,
         })
     };
     read().unwrap_or_else(|| Target::Rerun {
@@ -1070,8 +1109,8 @@ fn rerun(repo: &str, named: Rerun, env: &dyn Fn(&str) -> Option<String>, cwd: &P
 }
 
 /// The workflow `gh workflow run` starts, read as GitHub will run it: from the ref `--ref`
-/// names, or the default branch, as the remote last showed it. Read is false when it names
-/// another repository or its file can't be read that way.
+/// names, or the default branch, resolved locally or through GitHub when named by id or in
+/// another repository.
 fn workflow(args: &[String], env: &dyn Fn(&str) -> Option<String>, cwd: &Path) -> Target {
     let at = (args.windows(2).position(|pair| pair == ["workflow", "run"])).unwrap_or_default();
     let rest = args.get(at + 2..).unwrap_or_default();
@@ -1093,56 +1132,177 @@ fn workflow(args: &[String], env: &dyn Fn(&str) -> Option<String>, cwd: &Path) -
             word => inputs.push(word.to_owned()),
         }
     }
-    let file = named.clone().unwrap_or_default();
+    let repo = flag_value(args, &["-R", "--repo"]).or_else(|| env("GH_REPO"));
+    let reference = flag_value(args, &["--ref", "-r"]);
+    resolve_workflow(
+        named.as_deref(),
+        repo.as_deref(),
+        reference.as_deref(),
+        inputs,
+        env,
+        cwd,
+    )
+}
+
+fn resolve_workflow(
+    named: Option<&str>,
+    repo: Option<&str>,
+    reference: Option<&str>,
+    inputs: Vec<String>,
+    env: &dyn Fn(&str) -> Option<String>,
+    cwd: &Path,
+) -> Target {
+    let raw = named.unwrap_or_default();
+    let normalised = raw
+        .trim_start_matches("./")
+        .strip_prefix(".github/workflows/")
+        .unwrap_or(raw);
     let unread = Target::Workflow {
-        file,
+        file: normalised.to_owned(),
         environments: Vec::new(),
         inputs: inputs.clone(),
         rerun: None,
+        unread: true,
     };
-    let elsewhere = has_flag(args, &["-R", "--repo"]) || env("GH_REPO").is_some();
-    let Some(named) = named.filter(|_| !elsewhere) else {
+    if normalised.is_empty() {
+        return unread;
+    }
+    let local_repo = repo.is_none() || repo == Some("{owner}/{repo}");
+    let numeric = normalised.chars().all(|c| c.is_ascii_digit());
+    if local_repo && !numeric {
+        if let Some(found) = read_local_workflow(normalised, reference, cwd) {
+            return Target::Workflow {
+                file: found.0,
+                environments: found.1,
+                inputs,
+                rerun: None,
+                unread: found.2,
+            };
+        }
+    }
+    if local_repo && !has_remote_host(cwd) {
+        return unread;
+    }
+    let api_repo = repo.unwrap_or("{owner}/{repo}");
+    let prefix = repo_api_prefix(api_repo);
+    let path = gh_api_read(
+        &format!("{prefix}/actions/workflows/{normalised}"),
+        Some(".path"),
+        env,
+        cwd,
+    )
+    .and_then(|out| {
+        let trimmed = out.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_owned())
+    })
+    .or_else(|| {
+        let listed = gh_api_read(
+            &format!("{prefix}/actions/workflows?per_page=100"),
+            Some(r#".workflows[] | .name + "\t" + .path"#),
+            env,
+            cwd,
+        )?;
+        listed.lines().find_map(|line| {
+            let (title, path) = line.split_once('\t')?;
+            (title == raw || title == normalised).then(|| path.to_owned())
+        })
+    });
+    let Some(path) = path else {
         return unread;
     };
+    let file = path
+        .strip_prefix(".github/workflows/")
+        .unwrap_or(&path)
+        .to_owned();
+    if local_repo {
+        if let Some(found) = read_local_workflow(&file, reference, cwd) {
+            return Target::Workflow {
+                file: found.0,
+                environments: found.1,
+                inputs,
+                rerun: None,
+                unread: found.2,
+            };
+        }
+    }
+    let query = reference.map(|r| format!("?ref={r}")).unwrap_or_default();
+    let fetch = |file_path: &str| {
+        gh_api_read(
+            &format!("{prefix}/contents/{file_path}{query}"),
+            None,
+            env,
+            cwd,
+        )
+    };
+    let Some(mut text) = fetch(&path) else {
+        return Target::Workflow {
+            file,
+            environments: Vec::new(),
+            inputs,
+            rerun: None,
+            unread: true,
+        };
+    };
+    let mut missing_called = false;
+    for called in called_workflows(&text.clone()) {
+        match fetch(&called) {
+            Some(more) => {
+                text.push('\n');
+                text.push_str(&more);
+            }
+            None => missing_called = true,
+        }
+    }
+    let environments = read_workflow(&text).environments;
+    let dynamic = environments.iter().any(|name| name.contains("${{"));
+    Target::Workflow {
+        file,
+        environments,
+        inputs,
+        rerun: None,
+        unread: missing_called || dynamic,
+    }
+}
+
+fn read_local_workflow(
+    named: &str,
+    reference: Option<&str>,
+    cwd: &Path,
+) -> Option<(String, Vec<String>, bool)> {
     let git = || crate::git::Git::quick(cwd);
-    let reference = match flag_value(args, &["--ref", "-r"]) {
+    let git_ref = match reference {
         Some(reference) => format!("origin/{reference}"),
-        None => match git().trimmed(&["rev-parse", "--abbrev-ref", "origin/HEAD"]) {
-            Ok(reference) => reference,
-            Err(_) => return unread,
-        },
+        None => git()
+            .trimmed(&["rev-parse", "--abbrev-ref", "origin/HEAD"])
+            .ok()?,
     };
-    let Ok(listed) = git().trimmed(&["ls-tree", "--name-only", &reference, ".github/workflows/"])
-    else {
-        return unread;
-    };
-    let found = listed.lines().find_map(|path| {
+    let listed = git()
+        .trimmed(&["ls-tree", "--name-only", &git_ref, ".github/workflows/"])
+        .ok()?;
+    let (file, mut text) = listed.lines().find_map(|path| {
         let name = path.rsplit('/').next()?;
         let text = git()
-            .trimmed(&["show", &format!("{reference}:{path}")])
+            .trimmed(&["show", &format!("{git_ref}:{path}")])
             .ok()?;
         let titled = text.lines().any(|line| {
             line.strip_prefix("name:")
                 .is_some_and(|title| title.trim().trim_matches(['"', '\'']) == named)
         });
         (name == named || titled).then(|| (name.to_owned(), text))
-    });
-    let Some((file, mut text)) = found else {
-        return unread;
-    };
+    })?;
+    let mut missing_called = false;
     for called in called_workflows(&text.clone()) {
-        if let Ok(more) = git().trimmed(&["show", &format!("{reference}:{called}")]) {
-            text.push('\n');
-            text.push_str(&more);
+        match git().trimmed(&["show", &format!("{git_ref}:{called}")]) {
+            Ok(more) => {
+                text.push('\n');
+                text.push_str(&more);
+            }
+            Err(_) => missing_called = true,
         }
     }
-    let read = read_workflow(&text);
-    Target::Workflow {
-        file,
-        environments: read.environments,
-        inputs,
-        rerun: None,
-    }
+    let environments = read_workflow(&text).environments;
+    let dynamic = environments.iter().any(|name| name.contains("${{"));
+    Some((file, environments, missing_called || dynamic))
 }
 
 /// The programs besides git the shim stands in for, so a deploy one of them makes, or a write

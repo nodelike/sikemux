@@ -241,19 +241,21 @@ fn says_production_anywhere(ship: &Ship) -> bool {
     says_production(selecting_words(ship))
 }
 
-/// Whether a workflow run reaches production: one that names a production environment, or
-/// whose file name or inputs say production.
+/// Whether a workflow run reaches production: one that couldn't be read, one that names a
+/// production environment, or whose file name or inputs say production.
 pub fn workflow_asks(target: &Target) -> bool {
     let Target::Workflow {
         file,
         environments,
         inputs,
+        unread,
         ..
     } = target
     else {
         return false;
     };
-    environments.iter().any(|name| says_production(name))
+    *unread
+        || environments.iter().any(|name| says_production(name))
         || std::iter::once(file)
             .chain(inputs)
             .any(|word| says_production(word))
@@ -336,16 +338,23 @@ fn production_fact(ship: &Ship, addresses: &str, found_in: Option<String>) -> Op
             ))
         }
         Target::Workflow {
-            file, environments, ..
+            file,
+            environments,
+            unread,
+            ..
         } if workflow_asks(target) => {
-            let words = Recognise::Command {
-                words: format!("gh workflow run {file}"),
-            };
             let name = match environments.iter().find(|name| says_production(name)) {
                 Some(environment) => format!("{environment} on GitHub"),
+                None if file.is_empty() => "A workflow on GitHub".to_owned(),
                 None => format!("The {file} workflow on GitHub"),
             };
-            Some(place(name, words))
+            let facts = (!unread && !file.is_empty())
+                .then(|| Recognise::Command {
+                    words: format!("gh workflow run {file}"),
+                })
+                .into_iter()
+                .collect();
+            Some(new_place(&name, true, facts, found_in))
         }
         Target::Rerun { of, .. } => Some(place(
             format!("The workflow of {of} on GitHub"),

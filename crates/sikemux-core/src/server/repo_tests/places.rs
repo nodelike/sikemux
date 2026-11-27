@@ -276,14 +276,14 @@ fn a_workflow_is_read_as_github_will_run_it() {
     assert_eq!(goes("gh workflow run deploy.yml", &[]), Goes::Asks);
     assert_eq!(goes("gh workflow run preview.yml", &[]), Goes::Unplaced);
     assert_eq!(goes("gh workflow run docs.yml", &[]), Goes::Unplaced);
-    assert_eq!(goes("gh workflow run 4211", &[]), Goes::Unplaced);
+    assert_eq!(goes("gh workflow run 4211", &[]), Goes::Asks);
     assert_eq!(
         goes("gh workflow run preview.yml -f target=prod", &[]),
         Goes::Asks
     );
     assert_eq!(
         goes("gh workflow run release.yml --repo acme/web", &[]),
-        Goes::Unplaced
+        Goes::Asks
     );
     assert_eq!(
         goes("gh workflow run prod-site.yml", &[("GH_REPO", "acme/web")]),

@@ -188,14 +188,18 @@ fn workflows(root: &Path, found: &mut Vec<Place>) {
             ));
         }
     }
-    if let (Some(mut facts), Some(stable)) = (releases, stable.and_then(|at| found.get_mut(at))) {
+    if let Some(mut facts) = releases {
         facts.insert(
             0,
             Recognise::Package {
                 registry: GITHUB_RELEASES.to_owned(),
             },
         );
-        stable.recognise.extend(facts);
+        if let Some(stable) = stable.and_then(|at| found.get_mut(at)) {
+            stable.recognise.extend(facts);
+        } else {
+            found.push(new_place("Releases on GitHub", true, facts, None));
+        }
     }
 }
 
