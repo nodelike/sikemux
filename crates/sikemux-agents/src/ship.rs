@@ -536,7 +536,8 @@ pub(crate) fn target_of(
                 return Some(stage("Cloudflare", &name));
             }
             let name = file_app("Cloudflare", &cwd.join("wrangler.toml"))
-                .or_else(|| file_app("Cloudflare", &cwd.join("wrangler.json")));
+                .or_else(|| file_app("Cloudflare", &cwd.join("wrangler.json")))
+                .or_else(|| file_app("Cloudflare", &cwd.join("wrangler.jsonc")));
             Some(from_file("Cloudflare", name, "the wrangler config", cwd))
         }
         "firebase" => {
@@ -551,10 +552,14 @@ pub(crate) fn target_of(
                 &cwd.join(".firebaserc"),
             ))
         }
-        "railway" => Some(stage(
-            "Railway",
-            &named(&["--environment", "-e"]).unwrap_or_default(),
-        )),
+        "railway" => Some(match named(&["--environment", "-e"]) {
+            Some(name) => stage("Railway", &name),
+            None => resolved(
+                "Railway's default environment",
+                cwd,
+                stage("Railway", "default"),
+            ),
+        }),
         "netlify" => Some(stage(
             "Netlify",
             &named(&["--site"]).unwrap_or_else(|| "production".to_owned()),

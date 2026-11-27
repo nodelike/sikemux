@@ -6,8 +6,7 @@ use std::path::Path;
 
 use sikemux_view::places::Recognise;
 
-use super::judge::stage_place;
-use super::place::{new_place, says_production, Place, GITHUB_RELEASES};
+use super::place::{new_place, says_not_production, says_production, Place, GITHUB_RELEASES};
 
 /// Every production place the files of the project at `root` name.
 pub fn in_files(root: &Path) -> Vec<Place> {
@@ -24,7 +23,30 @@ pub fn in_files(root: &Path) -> Vec<Place> {
             continue;
         };
         if let Some(name) = crate::ship::app_named(tool, &text) {
-            found.push(stage_place(tool, &name, Some(file.to_owned())));
+            if !says_not_production(&name) {
+                found.push(production_stage(tool, &name, file));
+            }
+        }
+        if tool == "Cloudflare" {
+            for env in wrangler_envs(&text) {
+                if !says_not_production(&env) {
+                    found.push(production_stage("Cloudflare", &env, file));
+                }
+            }
+        }
+    }
+    for file in ["railway.json", "railway.toml"] {
+        if read(root, file).is_some() {
+            found.push(new_place(
+                &format!("{} on Railway", folder(root)),
+                true,
+                vec![Recognise::Stage {
+                    tool: "Railway".to_owned(),
+                    name: "default".to_owned(),
+                }],
+                Some(file.to_owned()),
+            ));
+            break;
         }
     }
     workflows(root, &mut found);
@@ -44,6 +66,45 @@ pub fn in_files(root: &Path) -> Vec<Place> {
         super::keep(&mut places, place);
     }
     places
+}
+
+fn production_stage(tool: &str, name: &str, file: &str) -> Place {
+    let fact = Recognise::Stage {
+        tool: tool.to_owned(),
+        name: name.to_owned(),
+    };
+    new_place(
+        &format!("{name} on {tool}"),
+        true,
+        vec![fact],
+        Some(file.to_owned()),
+    )
+}
+
+/// Environment names declared under `[env.<name>]` in `wrangler.toml` or `"env": { "<name>": ... }`
+/// in `wrangler.json`/`wrangler.jsonc`.
+fn wrangler_envs(text: &str) -> Vec<String> {
+    let mut envs = Vec::new();
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
+        if let Some(map) = value.get("env").and_then(serde_json::Value::as_object) {
+            envs.extend(map.keys().cloned());
+        }
+        return envs;
+    }
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed
+            .strip_prefix("[env.")
+            .and_then(|rest| rest.strip_suffix(']'))
+        {
+            let name = rest.split('.').next().unwrap_or_default().trim();
+            let name = name.trim_matches(['"', '\'']);
+            if !name.is_empty() && !envs.iter().any(|seen| seen == name) {
+                envs.push(name.to_owned());
+            }
+        }
+    }
+    envs
 }
 
 fn read(root: &Path, file: &str) -> Option<String> {
@@ -176,12 +237,25 @@ fn workflows(root: &Path, found: &mut Vec<Place>) {
             releases.get_or_insert_with(Vec::new).push(words.clone());
         }
         let production: Vec<&String> = (read.environments.iter())
-            .filter(|name| says_production(name))
+            .filter(|name| says_production(name) || (read.deploys && !says_not_production(name)))
             .collect();
-        for environment in production {
+        for environment in &production {
             let name = format!("{environment} on GitHub");
             found.push(new_place(
                 &name,
+                true,
+                vec![words.clone()],
+                Some(shown.clone()),
+            ));
+        }
+        if production.is_empty()
+            && read.environments.is_empty()
+            && read.deploys
+            && !read.publishes
+            && !says_not_production(&file)
+        {
+            found.push(new_place(
+                &format!("The {file} workflow on GitHub"),
                 true,
                 vec![words.clone()],
                 Some(shown.clone()),

@@ -307,6 +307,15 @@ fn production_fact(ship: &Ship, addresses: &str, found_in: Option<String>) -> Op
             format!("Terraform workspace {name}"),
             Recognise::TerraformWorkspace { name: name.clone() },
         )),
+        Target::Stage { tool, name } if tool == "Netlify" => Some(new_place(
+            &format!("{name} on Netlify"),
+            true,
+            vec![Recognise::Stage {
+                tool: tool.clone(),
+                name: name.clone(),
+            }],
+            found_in,
+        )),
         Target::Stage { tool, name } if says_production(name) => {
             Some(stage_place(tool, name, found_in))
         }
