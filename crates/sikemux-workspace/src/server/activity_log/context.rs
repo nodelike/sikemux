@@ -92,7 +92,7 @@ impl ActivityLog {
         let today = epoch_ms() as i64 / DAY_MS;
         let rolls = self.rolled_day.swap(today, Ordering::AcqRel) < today;
         in_background(move || {
-            log.with_database(|db| {
+            log.with_database_write(|db| {
                 let saving = db.unchecked_transaction()?;
                 for call in &calls {
                     saving.execute(

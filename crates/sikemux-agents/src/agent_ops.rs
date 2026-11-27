@@ -117,7 +117,9 @@ pub trait AgentOps: Sync {
 
     /// When what was said in `found` last changed.
     fn prose_stamp(&self, found: &Found) -> Option<FileStamp> {
-        Some(sessions::file_stamp(found.place.as_deref()?))
+        found
+            .stamp
+            .or_else(|| Some(sessions::file_stamp(found.place.as_deref()?)))
     }
 
     /// What one line of its transcript says, for agents that write a line per entry.

@@ -106,7 +106,9 @@ pub(super) fn append_line(path: &Path, line: &str) -> Result<(), String> {
         format!("{line}\n")
     };
     file.write_all(text.as_bytes())
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    super::dir_cache::invalidate_path(path);
+    Ok(())
 }
 
 pub(super) fn now_iso8601() -> String {

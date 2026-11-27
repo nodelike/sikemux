@@ -41,6 +41,7 @@ const MARK_END: char = '\u{3}';
 const FRESH_SEARCH_SESSIONS: usize = 64;
 const FRESH_FILE_BYTES: u64 = 512 * 1024;
 const COMMIT_BATCH: usize = 16;
+const BACKGROUND_COOLDOWN: Duration = Duration::from_secs(60);
 
 /// A line of a session that holds the words looked for, in runs that alternate between
 /// the words found and what is around them.
@@ -184,9 +185,21 @@ pub fn heed(providers: Vec<RecentProvider>) {
 
 fn read_in_background(asked: Receiver<Vec<RecentProvider>>) {
     lower_priority();
+    let mut last_run: Option<Instant> = None;
     while let Ok(first) = asked.recv() {
-        let providers = asked.try_iter().last().unwrap_or(first);
+        let mut providers = asked.try_iter().last().unwrap_or(first);
+        if let Some(wait) = last_run.and_then(|at| BACKGROUND_COOLDOWN.checked_sub(at.elapsed())) {
+            let deadline = Instant::now() + wait;
+            while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+                match asked.recv_timeout(remaining) {
+                    Ok(newer) => providers = newer,
+                    Err(mpsc::RecvTimeoutError::Timeout) => break,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                }
+            }
+        }
         catch_up(&providers, None, MAX_SESSIONS, None);
+        last_run = Some(Instant::now());
     }
 }
 

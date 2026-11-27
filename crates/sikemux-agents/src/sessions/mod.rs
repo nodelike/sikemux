@@ -24,6 +24,7 @@ pub mod claude;
 pub mod codex;
 pub mod context;
 pub mod delete;
+mod dir_cache;
 pub mod for_agent;
 pub mod found_projects;
 pub mod grok;
@@ -171,19 +172,6 @@ impl FileStamp {
     }
 }
 
-/// Stats each transcript once and hands back the newest first, which is all the
-/// ordering, the mtime and the index need.
-fn stamped_transcripts(paths: impl Iterator<Item = PathBuf>) -> Vec<(PathBuf, FileStamp)> {
-    let mut stamped: Vec<(PathBuf, FileStamp)> = paths
-        .map(|path| {
-            let stamp = file_stamp(&path);
-            (path, stamp)
-        })
-        .collect();
-    stamped.sort_unstable_by_key(|(_, stamp)| std::cmp::Reverse(stamp.modified_ns));
-    stamped
-}
-
 pub(crate) fn file_stamp(path: &Path) -> FileStamp {
     let metadata = fs::metadata(path).ok();
     FileStamp {
@@ -326,24 +314,4 @@ pub(crate) fn decoded_window(
         start = decoded - max;
     }
     Some((window, start.min(decoded), decoded))
-}
-
-fn collect_transcripts(dir: &Path, wanted: fn(&Path) -> bool, out: &mut Vec<PathBuf>, depth: u32) {
-    if depth > 6 || out.len() >= MAX_AGENT_TRANSCRIPT_PATHS {
-        return;
-    }
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        if out.len() >= MAX_AGENT_TRANSCRIPT_PATHS {
-            break;
-        }
-        let path = entry.path();
-        if path.is_dir() {
-            collect_transcripts(&path, wanted, out, depth + 1);
-        } else if wanted(&path) {
-            out.push(path);
-        }
-    }
 }

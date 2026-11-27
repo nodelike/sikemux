@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 
 use super::context::{last_line_matching, session_transcript_path, SessionContext};
+use super::dir_cache;
 use super::index::{indexed, Indexed};
 use super::is_jsonl;
 use super::recent::{Found, Hit, Listed, PageScan};
@@ -17,8 +18,8 @@ use super::tokens::{ModelTally, ReadState, TokenCount};
 use super::transcript::{self, written, Said};
 use super::AgentSession;
 use super::{
-    condense, file_stamp, push_texts, read_prefix, read_suffix, stamped_transcripts,
-    text_from_content, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
+    condense, file_stamp, push_texts, read_prefix, read_suffix, text_from_content, FileStamp,
+    MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
 use crate::agent_accounts::defaults::{clean_model, json_effort, json_model};
 use crate::agent_accounts::folders;
@@ -75,21 +76,23 @@ pub(super) fn claude_sessions(cwd: &str, config_path: Option<&str>) -> Vec<Agent
         return Vec::new();
     };
     let dir = claude_project_dir(&root, cwd);
-    let Ok(entries) = fs::read_dir(&dir) else {
-        return Vec::new();
-    };
-    let mut paths = stamped_transcripts(
-        entries
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("jsonl")),
-    );
-    paths.truncate(MAX_AGENT_TRANSCRIPTS_INSPECTED);
+    let mut files = dir_cache::list_dir(&dir, is_jsonl, true);
+    files.sort_unstable_by_key(|file| std::cmp::Reverse(file.stamp.modified_ns));
+    files.truncate(MAX_AGENT_TRANSCRIPTS_INSPECTED);
     // Titles come from reading each transcript, so fan the per-file work out
     // across rayon's pool instead of scanning sessions one at a time.
-    let mut out: Vec<AgentSession> = paths
+    let mut out: Vec<AgentSession> = files
         .par_iter()
-        .filter_map(|(path, stamp)| claude_session(path, *stamp))
+        .filter_map(|file| {
+            let id = file.path.file_stem().and_then(|s| s.to_str())?;
+            let read = claude_read_cached(&file.path, file.stamp, file.indexed.as_ref());
+            let title = read.title.clone()?;
+            Some(AgentSession {
+                id: id.to_string(),
+                title,
+                mtime: file.stamp.unix_secs(),
+            })
+        })
         .collect();
     out.sort_by_key(|item| std::cmp::Reverse(item.mtime));
     out
@@ -110,38 +113,29 @@ pub(super) fn claude_recent(scan: &PageScan<'_>, config_path: Option<&str>) -> V
     let Some(root) = agent_config_root("claude", config_path) else {
         return Vec::new();
     };
+    let explicit = scan.projects().is_some();
     let folders: Vec<(PathBuf, Option<String>)> = match scan.projects() {
         Some(projects) => projects
             .map(|project| (claude_project_dir(&root, project), Some(project.clone())))
             .collect(),
-        None => fs::read_dir(root.join("projects"))
+        None => dir_cache::list_subdirs(&root.join("projects"))
             .into_iter()
-            .flatten()
-            .flatten()
-            .map(|entry| (entry.path(), None))
+            .map(|path| (path, None))
             .collect(),
     };
     let mut listed = Vec::new();
     for (folder, project) in folders {
-        let Ok(entries) = fs::read_dir(folder) else {
-            continue;
-        };
-        for path in entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
-        {
-            let stamp = file_stamp(&path);
+        for file in dir_cache::list_dir(&folder, is_jsonl, explicit) {
             listed.push(Listed {
-                at_ms: stamp.unix_millis(),
-                key: path.to_string_lossy().into_owned(),
-                item: (path, stamp, project.clone()),
+                at_ms: file.stamp.unix_millis(),
+                key: file.key,
+                item: (file.path, file.stamp, file.indexed, project.clone()),
             });
         }
     }
-    scan.collect(listed, |(path, stamp, project)| {
+    scan.collect(listed, |(path, stamp, cached, project)| {
         let id = path.file_stem().and_then(|s| s.to_str())?;
-        let read = claude_read(path, *stamp);
+        let read = claude_read_cached(path, *stamp, cached.as_ref());
         let title = read.title.clone()?;
         let project = project.clone().or_else(|| read.cwd.clone())?;
         Some(Found {
@@ -152,8 +146,22 @@ pub(super) fn claude_recent(scan: &PageScan<'_>, config_path: Option<&str>) -> V
                 mtime: stamp.unix_secs(),
             },
             place: Some(path.clone()),
+            stamp: Some(*stamp),
         })
     })
+}
+
+fn claude_read_cached(
+    path: &Path,
+    stamp: FileStamp,
+    cached: Option<&Arc<Indexed>>,
+) -> Arc<Indexed> {
+    if let Some(read) = cached {
+        return read.clone();
+    }
+    let read = claude_read(path, stamp);
+    dir_cache::remember_indexed(path, stamp, read.clone());
+    read
 }
 
 fn claude_read(path: &Path, stamp: FileStamp) -> Arc<Indexed> {

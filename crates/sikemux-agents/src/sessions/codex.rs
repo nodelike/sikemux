@@ -13,6 +13,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
 use tokio::process::ChildStdin;
 
 use super::context::{last_line_matching, SessionContext};
+use super::dir_cache;
 use super::index::{indexed, Indexed};
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::roots::agent_config_root;
@@ -22,8 +23,8 @@ use super::transcript::{self, Said};
 use super::AgentSession;
 use super::{apply_login_environment, apply_process_config};
 use super::{
-    collect_transcripts, condense, file_stamp, is_compressed, is_jsonl, stamped_transcripts,
-    transcript_lines, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
+    condense, file_stamp, is_compressed, is_jsonl, transcript_lines, FileStamp,
+    MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
 use crate::agent_accounts::defaults::{toml_effort, toml_model};
 use crate::agent_accounts::sign_in::{self, SignIn};
@@ -143,15 +144,21 @@ pub(super) fn codex_sessions(cwd: &str, config_path: Option<&str>) -> Vec<AgentS
         return Vec::new();
     };
     let indexed_titles = codex_indexed_titles(&root);
-    let mut paths = Vec::new();
-    collect_transcripts(&root.join("sessions"), is_rollout, &mut paths, 0);
-    let mut files = stamped_transcripts(paths.into_iter());
+    let mut files = dir_cache::list_tree(&root.join("sessions"), is_rollout, false);
+    files.sort_unstable_by_key(|file| std::cmp::Reverse(file.stamp.modified_ns));
     files.truncate(MAX_AGENT_TRANSCRIPTS_INSPECTED);
 
     let mut out: Vec<AgentSession> = files
         .par_iter()
-        .filter_map(|(path, stamp)| {
-            codex_session(path, *stamp, &indexed_titles, Some(cwd)).map(|found| found.session)
+        .filter_map(|file| {
+            codex_session(
+                &file.path,
+                file.stamp,
+                file.indexed.as_ref(),
+                &indexed_titles,
+                Some(cwd),
+            )
+            .map(|found| found.session)
         })
         .collect();
     out.sort_by_key(|item| std::cmp::Reverse(item.mtime));
@@ -166,7 +173,8 @@ pub(super) fn codex_session_at(
 ) -> Option<AgentSession> {
     let root = agent_config_root("codex", config_path)?;
     let indexed_titles = codex_indexed_titles(&root);
-    codex_session(path, file_stamp(path), &indexed_titles, Some(cwd)).map(|found| found.session)
+    codex_session(path, file_stamp(path), None, &indexed_titles, Some(cwd))
+        .map(|found| found.session)
 }
 
 /// Rollouts for every project share one folder, so the page lists them all
@@ -176,21 +184,16 @@ pub(super) fn codex_recent(scan: &PageScan<'_>, config_path: Option<&str>) -> Ve
         return Vec::new();
     };
     let indexed_titles = codex_indexed_titles(&root);
-    let mut paths = Vec::new();
-    collect_transcripts(&root.join("sessions"), is_rollout, &mut paths, 0);
-    let listed = paths
+    let listed = dir_cache::list_tree(&root.join("sessions"), is_rollout, false)
         .into_iter()
-        .map(|path| {
-            let stamp = file_stamp(&path);
-            Listed {
-                at_ms: stamp.unix_millis(),
-                key: path.to_string_lossy().into_owned(),
-                item: (path, stamp),
-            }
+        .map(|file| Listed {
+            at_ms: file.stamp.unix_millis(),
+            key: file.key,
+            item: (file.path, file.stamp, file.indexed),
         })
         .collect();
-    scan.collect(listed, |(path, stamp)| {
-        codex_session(path, *stamp, &indexed_titles, None)
+    scan.collect(listed, |(path, stamp, cached)| {
+        codex_session(path, *stamp, cached.as_ref(), &indexed_titles, None)
     })
 }
 
@@ -198,10 +201,18 @@ pub(super) fn codex_recent(scan: &PageScan<'_>, config_path: Option<&str>) -> Ve
 fn codex_session(
     path: &Path,
     stamp: FileStamp,
+    cached: Option<&Arc<Indexed>>,
     indexed_titles: &CodexTitles,
     project: Option<&str>,
 ) -> Option<Found> {
-    let read = indexed(AgentKind::Codex, path, stamp, || read_rollout(path));
+    let read = match cached {
+        Some(read) => read.clone(),
+        None => {
+            let read = indexed(AgentKind::Codex, path, stamp, || read_rollout(path));
+            dir_cache::remember_indexed(path, stamp, read.clone());
+            read
+        }
+    };
     let (Some(id), Some(cwd)) = (&read.id, &read.cwd) else {
         return None;
     };
@@ -221,6 +232,7 @@ fn codex_session(
             mtime: stamp.unix_secs(),
         },
         place: Some(path.to_path_buf()),
+        stamp: Some(stamp),
     })
 }
 

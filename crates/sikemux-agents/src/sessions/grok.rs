@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use crate::agent_catalog::AgentKind;
 
+use super::dir_cache;
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::rename::now_iso8601;
 use super::search::{each_line, Hear, Speaker};
@@ -25,25 +26,11 @@ use notify::RecursiveMode;
 
 fn collect_grok_session_dirs(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let Ok(groups) = fs::read_dir(root.join("sessions")) else {
-        return out;
-    };
-    for group in groups
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
-    {
+    for group in dir_cache::list_subdirs(&root.join("sessions")) {
         if out.len() >= MAX_AGENT_TRANSCRIPT_PATHS {
             break;
         }
-        let Ok(sessions) = fs::read_dir(group) else {
-            continue;
-        };
-        for session in sessions
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.is_dir())
-        {
+        for session in dir_cache::list_subdirs(&group) {
             if out.len() >= MAX_AGENT_TRANSCRIPT_PATHS {
                 break;
             }
@@ -179,6 +166,10 @@ pub(super) fn grok_session(session_dir: &Path, cwd: &str) -> Option<AgentSession
 
 /// The session in one folder and the project Grok recorded for it.
 fn grok_found(session_dir: &Path) -> Option<Found> {
+    grok_found_with_mtime(session_dir, grok_session_mtime(session_dir))
+}
+
+fn grok_found_with_mtime(session_dir: &Path, mtime: u64) -> Option<Found> {
     let summary_path = session_dir.join("summary.json");
     let summary = fs::read_to_string(&summary_path)
         .ok()
@@ -213,9 +204,10 @@ fn grok_found(session_dir: &Path) -> Option<Found> {
         session: AgentSession {
             id: id.to_string(),
             title,
-            mtime: grok_session_mtime(session_dir),
+            mtime,
         },
         place: Some(session_dir.to_path_buf()),
+        stamp: None,
     })
 }
 
@@ -240,13 +232,16 @@ pub(super) fn grok_recent(scan: &PageScan<'_>) -> Vec<Hit> {
     };
     let listed = collect_grok_session_dirs(&root)
         .into_iter()
-        .map(|dir| Listed {
-            at_ms: grok_session_mtime(&dir) * 1000,
-            key: dir.to_string_lossy().into_owned(),
-            item: dir,
+        .map(|dir| {
+            let mtime = grok_session_mtime(&dir);
+            Listed {
+                at_ms: mtime * 1000,
+                key: dir.to_string_lossy().into_owned(),
+                item: (dir, mtime),
+            }
         })
         .collect();
-    scan.collect(listed, |dir| grok_found(dir))
+    scan.collect(listed, |(dir, mtime)| grok_found_with_mtime(dir, *mtime))
 }
 
 /// Names a session the way Grok's `/rename` does: a title marked manual, so generated titles never replace it.

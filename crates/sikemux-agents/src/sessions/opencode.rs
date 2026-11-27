@@ -150,6 +150,7 @@ pub(super) fn opencode_recent(scan: &PageScan<'_>) -> Vec<Hit> {
                     project,
                     session,
                     place: Some(db.clone()),
+                    stamp: None,
                 },
             });
         }

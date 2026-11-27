@@ -29,6 +29,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -52,6 +53,8 @@ const HEATMAP_DAYS: i64 = 371;
 const MAX_TRANSCRIPT_READ: u64 = 64 * 1024 * 1024;
 const MAX_TURN_COMMITS: usize = 500;
 const GIT_TIMEOUT: Duration = Duration::from_secs(5);
+const BUSY_TIMEOUT: Duration = Duration::from_secs(3);
+const CHECKPOINT_EVERY_WRITES: usize = 256;
 pub const DATABASE: &str = "activity.sqlite3";
 const PRICES: &str = "activity-prices.json";
 
@@ -168,7 +171,8 @@ pub struct ActivityLog {
     uses: Mutex<features::Uses>,
     feed: Option<Feed>,
     /// The last UTC day whose chats' model calls were added up.
-    rolled_day: std::sync::atomic::AtomicI64,
+    rolled_day: AtomicI64,
+    writes_since_checkpoint: AtomicUsize,
 }
 
 impl ActivityLog {
@@ -181,7 +185,8 @@ impl ActivityLog {
             turns: Mutex::new(HashMap::new()),
             uses: Mutex::default(),
             feed: data_dir.map(Feed::new),
-            rolled_day: std::sync::atomic::AtomicI64::new(0),
+            rolled_day: AtomicI64::new(0),
+            writes_since_checkpoint: AtomicUsize::new(0),
         }
     }
 
@@ -200,10 +205,40 @@ impl ActivityLog {
         result.ok()
     }
 
+    fn with_database_write<T>(
+        &self,
+        work: impl FnOnce(&Connection) -> rusqlite::Result<T>,
+    ) -> Option<T> {
+        let path = self.path.as_ref()?;
+        let mut cache = self.database.locked();
+        if cache.is_none() {
+            *cache = Some(open(path).ok()?);
+        }
+        let result = work(cache.as_ref()?);
+        match result {
+            Ok(value) => {
+                if self.writes_since_checkpoint.fetch_add(1, Ordering::Relaxed) + 1
+                    >= CHECKPOINT_EVERY_WRITES
+                {
+                    self.writes_since_checkpoint.store(0, Ordering::Relaxed);
+                    if let Some(db) = cache.as_ref() {
+                        checkpoint_truncate(db);
+                    }
+                }
+                Some(value)
+            }
+            Err(_) => {
+                *cache = None;
+                None
+            }
+        }
+    }
+
     pub fn checkpoint(&self) {
         let cache = self.database.locked();
         if let Some(db) = cache.as_ref() {
-            let _ = db.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
+            self.writes_since_checkpoint.store(0, Ordering::Relaxed);
+            checkpoint_truncate(db);
         }
     }
 
@@ -219,7 +254,7 @@ impl ActivityLog {
     }
 
     fn record_launched(&self, place: &Place, transport: &'static str, resumed: bool, at_ms: i64) {
-        self.with_database(|db| {
+        self.with_database_write(|db| {
             db.execute(
                 "INSERT INTO launches (at_ms, agent, project, transport, resumed) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![at_ms, place.agent, project_at(&place.cwd), transport, resumed],
@@ -240,7 +275,7 @@ impl ActivityLog {
             Some(state) => (state.model, state.speed),
             None => (String::new(), String::new()),
         };
-        self.with_database(|db| {
+        self.with_database_write(|db| {
             db.execute(
                 "INSERT INTO transcripts (session, path, offset, mark, model, speed)
                  VALUES (?1, ?2, ?3, '', ?4, CASE WHEN ?5 = '' THEN 'standard' ELSE ?5 END)
@@ -291,7 +326,7 @@ impl ActivityLog {
         let log = self.clone();
         in_background(move || {
             let project = project_at(&place.cwd);
-            log.with_database(|db| {
+            log.with_database_write(|db| {
                 db.execute(
                     "INSERT INTO turns (started_ms, ended_ms, agent, project) VALUES (?1, ?2, ?3, ?4)",
                     params![turn.started_ms, ended_ms, place.agent, project],
@@ -324,7 +359,7 @@ impl ActivityLog {
         if commits.is_empty() {
             return;
         }
-        self.with_database(|db| {
+        self.with_database_write(|db| {
             let mut insert = db.prepare_cached(
                 "INSERT OR IGNORE INTO commits (sha, at_ms, project, agent) VALUES (?1, ?2, ?3, ?4)",
             )?;
@@ -402,10 +437,23 @@ impl ActivityLog {
     }
 }
 
+fn checkpoint_truncate(db: &Connection) {
+    let _ = db.busy_timeout(Duration::ZERO);
+    let busy = db
+        .query_row("PRAGMA wal_checkpoint(TRUNCATE);", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap_or(1);
+    let _ = db.busy_timeout(BUSY_TIMEOUT);
+    if busy != 0 {
+        let _ = db.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
+    }
+}
+
 fn open(path: &Path) -> rusqlite::Result<Connection> {
     let _ = sikemux_process::files::private_database(path);
     let connection = Connection::open(path)?;
-    connection.busy_timeout(Duration::from_secs(3))?;
+    connection.busy_timeout(BUSY_TIMEOUT)?;
     connection.execute_batch(
         "PRAGMA journal_mode = WAL;
          PRAGMA synchronous = NORMAL;
@@ -446,6 +494,7 @@ fn open(path: &Path) -> rusqlite::Result<Connection> {
          );",
     )?;
     migrate(&connection)?;
+    checkpoint_truncate(&connection);
     Ok(connection)
 }
 
@@ -482,6 +531,13 @@ const MIGRATIONS: &[&str] = &[
      UPDATE tokens SET project = substr(project, 1, instr(project, '.worktrees/') - 1) WHERE instr(project, '.worktrees/') > 0;",
     "UPDATE tokens SET model = substr(model, instr(model, '/') + 1)
      WHERE model GLOB 'sikemux-*/*' AND instr(model, '/') > 9 AND length(model) > instr(model, '/');",
+    "CREATE INDEX IF NOT EXISTS launches_by_time ON launches (at_ms);
+     CREATE INDEX IF NOT EXISTS launches_by_project ON launches (project, at_ms);
+     CREATE INDEX IF NOT EXISTS turns_by_time ON turns (started_ms);
+     CREATE INDEX IF NOT EXISTS turns_by_project ON turns (project, started_ms);
+     CREATE INDEX IF NOT EXISTS commits_by_time ON commits (at_ms);
+     CREATE INDEX IF NOT EXISTS commits_by_project ON commits (project, at_ms);
+     CREATE INDEX IF NOT EXISTS tokens_by_time ON tokens (at_ms);",
 ];
 
 fn migrate(connection: &Connection) -> rusqlite::Result<()> {
@@ -558,7 +614,7 @@ impl ActivityLog {
             }
         }
         let (tally, next) = count(&text, state);
-        self.with_database(|db| {
+        self.with_database_write(|db| {
             db.execute(
                 "INSERT INTO transcripts (session, path, offset, mark, model, speed) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(session) DO UPDATE SET path = excluded.path, offset = excluded.offset,
@@ -643,7 +699,7 @@ impl ActivityLog {
         let log = self.clone();
         in_background(move || {
             let project = project_at(&cwd.to_string_lossy());
-            log.with_database(|db| {
+            log.with_database_write(|db| {
                 db.execute(
                     "INSERT INTO tokens (at_ms, agent, project, input, output, cache_read, cache_write, model, speed, account, chat)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'standard', ?9, ?10)",
@@ -688,12 +744,36 @@ fn read_complete_lines(path: &Path, offset: u64) -> Option<(String, u64)> {
 
 // ---- summary -----------------------------------------------------------
 
-/// A query yielding `(at_ms, agent, project, amount)` rows, and where each amount adds up.
-type Tally = (
-    &'static str,
-    fn(&mut ActivityDay, i64),
-    fn(&mut ActivityShare, i64),
-);
+fn filter_clause(project: Option<&str>, since_ms: Option<i64>, time_col: &str) -> String {
+    match (project, since_ms) {
+        (Some(_), Some(_)) => format!(" WHERE project = ?1 AND {time_col} >= ?2"),
+        (Some(_), None) => " WHERE project = ?1".to_owned(),
+        (None, Some(_)) => format!(" WHERE {time_col} >= ?1"),
+        (None, None) => String::new(),
+    }
+}
+
+fn query_filtered(
+    db: &Connection,
+    select: &str,
+    time_col: &str,
+    project: Option<&str>,
+    since_ms: Option<i64>,
+    mut visit: impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<()>,
+) -> rusqlite::Result<()> {
+    let sql = format!("{select}{}", filter_clause(project, since_ms, time_col));
+    let mut statement = db.prepare(&sql)?;
+    let mut rows = match (project, since_ms) {
+        (Some(project), Some(since)) => statement.query(params![project, since])?,
+        (Some(project), None) => statement.query(params![project])?,
+        (None, Some(since)) => statement.query(params![since])?,
+        (None, None) => statement.query([])?,
+    };
+    while let Some(row) = rows.next()? {
+        visit(row)?;
+    }
+    Ok(())
+}
 
 fn summarize(
     db: &Connection,
@@ -703,181 +783,224 @@ fn summarize(
     since_ms: Option<i64>,
     prices: &Prices,
 ) -> rusqlite::Result<ActivitySummary> {
-    let since = since_ms.unwrap_or(i64::MIN);
-    let mut totals = db.query_row(
-        "SELECT COUNT(*), COALESCE(SUM(resumed), 0), MIN(at_ms) FROM launches
-         WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
-        params![project, since],
-        |row| {
-            Ok(ActivityTotals {
-                sessions: row.get(0)?,
-                resumed: row.get(1)?,
-                first_at_ms: row.get(2)?,
-                ..ActivityTotals::default()
-            })
-        },
-    )?;
-    (totals.turns, totals.agent_ms) = db.query_row(
-        "SELECT COUNT(*), COALESCE(SUM(ended_ms - started_ms), 0) FROM turns
-         WHERE (?1 IS NULL OR project = ?1) AND started_ms >= ?2",
-        params![project, since],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )?;
-    (totals.commits, totals.agent_commits) = db.query_row(
-        "SELECT COUNT(*), COUNT(agent) FROM commits WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
-        params![project, since],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )?;
-    (
-        totals.input,
-        totals.output,
-        totals.cache_read,
-        totals.cache_write,
-    ) = db.query_row(
-        "SELECT COALESCE(SUM(input), 0), COALESCE(SUM(output), 0),
-                COALESCE(SUM(cache_read), 0), COALESCE(SUM(cache_write), 0) FROM tokens
-         WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
-        params![project, since],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-    )?;
-
+    let mut totals = ActivityTotals::default();
     let first_day = (now_ms + offset_ms).div_euclid(DAY_MS) - HEATMAP_DAYS;
     let mut days: HashMap<i64, ActivityDay> = HashMap::new();
     let mut agents: HashMap<String, ActivityShare> = HashMap::new();
     let mut projects: HashMap<String, ActivityShare> = HashMap::new();
-    let queries: [Tally; 4] = [
-        (
-            "SELECT at_ms, agent, project, 1 FROM launches WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
-            |day, n| day.sessions += n,
-            |share, n| share.sessions += n,
-        ),
-        (
-            "SELECT started_ms, agent, project, ended_ms - started_ms FROM turns
-             WHERE (?1 IS NULL OR project = ?1) AND started_ms >= ?2",
-            |day, n| day.agent_ms += n,
-            |share, n| share.agent_ms += n,
-        ),
-        (
-            "SELECT at_ms, agent, project, 1 FROM commits WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
-            |day, n| day.commits += n,
-            |share, n| share.commits += n,
-        ),
-        (
-            "SELECT at_ms, agent, project, input + output + cache_write FROM tokens
-             WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
-            |day, n| day.tokens += n,
-            |share, n| share.tokens += n,
-        ),
-    ];
-    for (sql, add_day, add_share) in queries {
-        let mut statement = db.prepare(sql)?;
-        let mut rows = statement.query(params![project, since])?;
-        while let Some(row) = rows.next()? {
-            let at_ms: i64 = row.get(0)?;
-            let agent: Option<String> = row.get(1)?;
-            let project: String = row.get(2)?;
-            let amount: i64 = row.get(3)?;
-            let day = (at_ms + offset_ms).div_euclid(DAY_MS);
-            if day > first_day {
-                add_day(
-                    days.entry(day).or_insert_with(|| ActivityDay {
-                        day,
-                        ..ActivityDay::default()
-                    }),
-                    amount,
-                );
-            }
-            if let Some(agent) = agent {
-                add_share(
-                    agents
-                        .entry(agent.clone())
-                        .or_insert_with(|| ActivityShare {
-                            name: agent,
-                            ..ActivityShare::default()
-                        }),
-                    amount,
-                );
-            }
+
+    let bucket = |days: &mut HashMap<i64, ActivityDay>,
+                  agents: &mut HashMap<String, ActivityShare>,
+                  projects: &mut HashMap<String, ActivityShare>,
+                  at_ms: i64,
+                  agent: Option<&str>,
+                  project: &str,
+                  amount: i64,
+                  add_day: fn(&mut ActivityDay, i64),
+                  add_share: fn(&mut ActivityShare, i64)| {
+        let day = (at_ms + offset_ms).div_euclid(DAY_MS);
+        if day > first_day {
+            add_day(
+                days.entry(day).or_insert_with(|| ActivityDay {
+                    day,
+                    ..ActivityDay::default()
+                }),
+                amount,
+            );
+        }
+        if let Some(agent) = agent {
             add_share(
-                projects
-                    .entry(project.clone())
+                agents
+                    .entry(agent.to_owned())
                     .or_insert_with(|| ActivityShare {
-                        name: project,
+                        name: agent.to_owned(),
                         ..ActivityShare::default()
                     }),
                 amount,
             );
         }
-    }
-    let mut models: HashMap<String, ActivityModel> = HashMap::new();
-    let mut statement = db.prepare(
-        "SELECT at_ms, agent, project, model, speed, input, output, cache_read, cache_write FROM tokens
-         WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
+        add_share(
+            projects
+                .entry(project.to_owned())
+                .or_insert_with(|| ActivityShare {
+                    name: project.to_owned(),
+                    ..ActivityShare::default()
+                }),
+            amount,
+        );
+    };
+
+    query_filtered(
+        db,
+        "SELECT at_ms, agent, project, resumed FROM launches",
+        "at_ms",
+        project,
+        since_ms,
+        |row| {
+            let at_ms: i64 = row.get(0)?;
+            let agent: String = row.get(1)?;
+            let project: String = row.get(2)?;
+            let resumed: i64 = row.get(3)?;
+            totals.sessions += 1;
+            totals.resumed += resumed;
+            totals.first_at_ms = Some(totals.first_at_ms.map_or(at_ms, |first| first.min(at_ms)));
+            bucket(
+                &mut days,
+                &mut agents,
+                &mut projects,
+                at_ms,
+                Some(&agent),
+                &project,
+                1,
+                |day, n| day.sessions += n,
+                |share, n| share.sessions += n,
+            );
+            Ok(())
+        },
     )?;
-    let mut rows = statement.query(params![project, since])?;
-    while let Some(row) = rows.next()? {
-        let at_ms: i64 = row.get(0)?;
-        let agent: String = row.get(1)?;
-        let project: String = row.get(2)?;
-        let model: String = row.get(3)?;
-        let speed: String = row.get(4)?;
-        let [input, output, cache_read, cache_write]: [i64; 4] =
-            [row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?];
-        let tokens = input + output + cache_write;
-        let rate = prices.lookup(&model);
-        if model.is_empty() {
-            totals.unpriced_tokens += tokens;
-            continue;
-        }
-        let entry = models
-            .entry(model.clone())
-            .or_insert_with(|| ActivityModel {
-                model,
-                agent: agent.clone(),
-                ..ActivityModel::default()
-            });
-        entry.input += input;
-        entry.output += output;
-        entry.cache_read += cache_read;
-        entry.cache_write += cache_write;
-        let Some(rate) = rate else {
-            totals.unpriced_tokens += tokens;
-            continue;
-        };
-        entry.priced = true;
-        let rates = rate.at(&speed);
-        let costs = TokenCosts {
-            input: input as f64 * rates.input,
-            output: output as f64 * rates.output,
-            cache_read: cache_read as f64 * rates.cache_read,
-            cache_write: cache_write as f64 * rates.cache_write,
-        };
-        let cost = costs.total();
-        entry.cost_usd += cost;
-        entry.costs.add(&costs);
-        totals.costs.add(&costs);
-        if speed != "standard" {
-            entry.fast_cost_usd += cost;
-        }
-        totals.cost_usd += cost;
-        let day = (at_ms + offset_ms).div_euclid(DAY_MS);
-        if day > first_day {
-            days.entry(day)
-                .or_insert_with(|| ActivityDay {
-                    day,
-                    ..ActivityDay::default()
-                })
-                .cost_usd += cost;
-        }
-        if let Some(share) = agents.get_mut(&agent) {
-            share.cost_usd += cost;
-        }
-        if let Some(share) = projects.get_mut(&project) {
-            share.cost_usd += cost;
-        }
-    }
-    drop(rows);
-    drop(statement);
+
+    query_filtered(
+        db,
+        "SELECT started_ms, agent, project, ended_ms - started_ms FROM turns",
+        "started_ms",
+        project,
+        since_ms,
+        |row| {
+            let started_ms: i64 = row.get(0)?;
+            let agent: String = row.get(1)?;
+            let project: String = row.get(2)?;
+            let elapsed: i64 = row.get(3)?;
+            totals.turns += 1;
+            totals.agent_ms += elapsed;
+            bucket(
+                &mut days,
+                &mut agents,
+                &mut projects,
+                started_ms,
+                Some(&agent),
+                &project,
+                elapsed,
+                |day, n| day.agent_ms += n,
+                |share, n| share.agent_ms += n,
+            );
+            Ok(())
+        },
+    )?;
+
+    query_filtered(
+        db,
+        "SELECT at_ms, agent, project FROM commits",
+        "at_ms",
+        project,
+        since_ms,
+        |row| {
+            let at_ms: i64 = row.get(0)?;
+            let agent: Option<String> = row.get(1)?;
+            let project: String = row.get(2)?;
+            totals.commits += 1;
+            if agent.is_some() {
+                totals.agent_commits += 1;
+            }
+            bucket(
+                &mut days,
+                &mut agents,
+                &mut projects,
+                at_ms,
+                agent.as_deref(),
+                &project,
+                1,
+                |day, n| day.commits += n,
+                |share, n| share.commits += n,
+            );
+            Ok(())
+        },
+    )?;
+
+    let mut models: HashMap<String, ActivityModel> = HashMap::new();
+    query_filtered(
+        db,
+        "SELECT at_ms, agent, project, model, speed, input, output, cache_read, cache_write FROM tokens",
+        "at_ms",
+        project,
+        since_ms,
+        |row| {
+            let at_ms: i64 = row.get(0)?;
+            let agent: String = row.get(1)?;
+            let project: String = row.get(2)?;
+            let model: String = row.get(3)?;
+            let speed: String = row.get(4)?;
+            let [input, output, cache_read, cache_write]: [i64; 4] =
+                [row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?];
+            totals.input += input;
+            totals.output += output;
+            totals.cache_read += cache_read;
+            totals.cache_write += cache_write;
+            let tokens = input + output + cache_write;
+            bucket(
+                &mut days,
+                &mut agents,
+                &mut projects,
+                at_ms,
+                Some(&agent),
+                &project,
+                tokens,
+                |day, n| day.tokens += n,
+                |share, n| share.tokens += n,
+            );
+            let rate = prices.lookup(&model);
+            if model.is_empty() {
+                totals.unpriced_tokens += tokens;
+                return Ok(());
+            }
+            let entry = models
+                .entry(model.clone())
+                .or_insert_with(|| ActivityModel {
+                    model,
+                    agent: agent.clone(),
+                    ..ActivityModel::default()
+                });
+            entry.input += input;
+            entry.output += output;
+            entry.cache_read += cache_read;
+            entry.cache_write += cache_write;
+            let Some(rate) = rate else {
+                totals.unpriced_tokens += tokens;
+                return Ok(());
+            };
+            entry.priced = true;
+            let rates = rate.at(&speed);
+            let costs = TokenCosts {
+                input: input as f64 * rates.input,
+                output: output as f64 * rates.output,
+                cache_read: cache_read as f64 * rates.cache_read,
+                cache_write: cache_write as f64 * rates.cache_write,
+            };
+            let cost = costs.total();
+            entry.cost_usd += cost;
+            entry.costs.add(&costs);
+            totals.costs.add(&costs);
+            if speed != "standard" {
+                entry.fast_cost_usd += cost;
+            }
+            totals.cost_usd += cost;
+            let day = (at_ms + offset_ms).div_euclid(DAY_MS);
+            if day > first_day {
+                days.entry(day)
+                    .or_insert_with(|| ActivityDay {
+                        day,
+                        ..ActivityDay::default()
+                    })
+                    .cost_usd += cost;
+            }
+            if let Some(share) = agents.get_mut(&agent) {
+                share.cost_usd += cost;
+            }
+            if let Some(share) = projects.get_mut(&project) {
+                share.cost_usd += cost;
+            }
+            Ok(())
+        },
+    )?;
     let mut models: Vec<ActivityModel> = models.into_values().collect();
     models.sort_by(|a, b| {
         b.cost_usd
@@ -1145,12 +1268,11 @@ mod tests {
         let db = open(&db_path).unwrap();
         let day = 20_000 * DAY_MS;
         db.execute_batch(&format!(
-            "PRAGMA user_version = {};
+            "PRAGMA user_version = 6;
              INSERT INTO tokens (at_ms, agent, project, input, output, cache_read, cache_write, model)
                  VALUES ({day}, 'omp', '/repo', 10, 5, 0, 0, 'sikemux-local-3425/workbuddy/hy4flash-free'),
                         ({day}, 'omp', '/repo', 20, 10, 0, 0, 'workbuddy/hy4flash-free'),
-                        ({day}, 'omp', '/repo', 30, 15, 0, 0, 'anthropic/claude-sonnet-4');",
-            MIGRATIONS.len() - 1
+                        ({day}, 'omp', '/repo', 30, 15, 0, 0, 'anthropic/claude-sonnet-4');"
         ))
         .unwrap();
         drop(db);
@@ -1277,5 +1399,99 @@ mod tests {
         assert_eq!(days[0].tokens[0].speed, "fast");
         assert_eq!(days[0].tokens[0].input, 240);
         assert_eq!(days[0].tokens[0].output, 60);
+    }
+
+    #[test]
+    fn activity_queries_use_indexes_and_checkpoint_truncates_wal() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join(DATABASE);
+        let db = open(&db_path).unwrap();
+        let day = 20_000 * DAY_MS;
+        db.execute_batch(&format!(
+            "INSERT INTO launches VALUES ({day}, 'claude', '/p/a', 'chat', 0);
+             INSERT INTO turns VALUES ({day}, {}, 'claude', '/p/a');
+             INSERT INTO commits VALUES ('sha-1', {day}, '/p/a', 'claude');
+             INSERT INTO tokens (at_ms, agent, project, input, output, cache_read, cache_write)
+                 VALUES ({day}, 'claude', '/p/a', 10, 5, 0, 0);",
+            day + 1_000
+        ))
+        .unwrap();
+
+        let plan_of = |sql: &str, bound: &[&dyn rusqlite::ToSql]| -> Vec<String> {
+            let mut stmt = db.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+            stmt.query_map(bound, |row| row.get::<_, String>(3))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+
+        let tables = [
+            ("SELECT at_ms, agent, project, resumed FROM launches", "at_ms"),
+            (
+                "SELECT started_ms, agent, project, ended_ms - started_ms FROM turns",
+                "started_ms",
+            ),
+            ("SELECT at_ms, agent, project FROM commits", "at_ms"),
+            (
+                "SELECT at_ms, agent, project, model, speed, input, output, cache_read, cache_write FROM tokens",
+                "at_ms",
+            ),
+        ];
+        let project_name = "/p/a";
+        for (select, time_col) in tables {
+            for (project, since) in [
+                (Some(project_name), None),
+                (Some(project_name), Some(day)),
+                (None, Some(day)),
+            ] {
+                let sql = format!("{select}{}", filter_clause(project, since, time_col));
+                let plan = match (project, since) {
+                    (Some(project), Some(since)) => plan_of(&sql, &[&project, &since]),
+                    (Some(project), None) => plan_of(&sql, &[&project]),
+                    (None, Some(since)) => plan_of(&sql, &[&since]),
+                    (None, None) => plan_of(&sql, &[]),
+                };
+                assert!(
+                    plan.iter().any(|line| line.contains("USING INDEX")
+                        || line.contains("USING COVERING INDEX")),
+                    "expected index usage for `{sql}`, got {plan:?}"
+                );
+                assert!(
+                    !plan.iter().any(|line| line.starts_with("SCAN ")),
+                    "unexpected full table scan for `{sql}`, got {plan:?}"
+                );
+            }
+        }
+
+        let end_day = day + DAY_MS;
+        for sql in [
+            "SELECT at_ms, transport, resumed, agent FROM launches WHERE at_ms >= ?1 AND at_ms < ?2",
+            "SELECT started_ms, ended_ms, agent FROM turns WHERE started_ms >= ?1 AND started_ms < ?2",
+            "SELECT at_ms, agent IS NOT NULL FROM commits WHERE at_ms >= ?1 AND at_ms < ?2",
+            "SELECT at_ms, agent, model, speed, input, output, cache_read, cache_write FROM tokens WHERE at_ms >= ?1 AND at_ms < ?2",
+        ] {
+            let plan = plan_of(sql, &[&day, &end_day]);
+            assert!(
+                plan.iter()
+                    .any(|line| line.contains("USING INDEX") || line.contains("USING COVERING INDEX")),
+                "expected index usage for `{sql}`, got {plan:?}"
+            );
+            assert!(
+                !plan.iter().any(|line| line.starts_with("SCAN ")),
+                "unexpected full table scan for `{sql}`, got {plan:?}"
+            );
+        }
+
+        let wal_path = PathBuf::from(format!("{}-wal", db_path.display()));
+        assert!(
+            fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0) > 0,
+            "expected non-empty WAL after inserts before checkpoint"
+        );
+        checkpoint_truncate(&db);
+        assert_eq!(
+            fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0),
+            0,
+            "expected checkpoint_truncate to shrink WAL to 0 bytes"
+        );
     }
 }

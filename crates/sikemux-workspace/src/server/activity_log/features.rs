@@ -152,7 +152,7 @@ impl ActivityLog {
         if counts.is_empty() {
             return;
         }
-        self.with_database(|db| {
+        self.with_database_write(|db| {
             let mut add = db.prepare_cached(
                 "INSERT INTO features (day, feature, via, count) VALUES (?1, ?2, ?3, ?4)
                  ON CONFLICT(day, feature, via) DO UPDATE SET count = count + excluded.count",

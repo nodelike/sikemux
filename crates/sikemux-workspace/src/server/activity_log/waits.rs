@@ -29,7 +29,7 @@ impl ActivityLog {
         let answer = via.map(|via| (kind.to_owned(), via));
         let log = self.clone();
         in_background(move || {
-            log.with_database(|db| {
+            log.with_database_write(|db| {
                 db.prepare_cached(
                     "INSERT INTO waited (day, ms) VALUES (?1, ?2)
                      ON CONFLICT(day) DO UPDATE SET ms = ms + excluded.ms",

@@ -92,6 +92,7 @@ fn muse_sessions_in(conn: &Connection, projects: Option<&[&str]>) -> Vec<Found> 
                 project,
                 session,
                 place: None,
+                stamp: None,
             })
         })
         .collect()

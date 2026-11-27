@@ -7,7 +7,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::said::{self, FoundLine, Words};
-use super::AgentSession;
+use super::{AgentSession, FileStamp};
 use crate::agent_catalog::AgentKind;
 
 const MAX_PAGE: usize = 100;
@@ -105,6 +105,7 @@ pub struct Found {
     pub session: AgentSession,
     /// The file, folder or database its conversation is read from, when it is not found by id.
     pub place: Option<PathBuf>,
+    pub(crate) stamp: Option<FileStamp>,
 }
 
 pub struct Hit {
@@ -414,6 +415,7 @@ mod tests {
                 project: project.into(),
                 session: session(id, title, at_ms / 1000),
                 place: None,
+                stamp: None,
             },
         }
     }

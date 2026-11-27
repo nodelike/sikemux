@@ -1,19 +1,21 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rayon::prelude::*;
 use serde_json::Value;
 
 use crate::agent_catalog::AgentKind;
 
+use super::dir_cache;
 use super::index::{indexed, Indexed};
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::rename::{append_line, now_iso8601};
 use super::search::{Hear, Speaker};
 use super::{
-    collect_transcripts, condense, file_stamp, is_jsonl, push_texts, read_suffix,
-    stamped_transcripts, text_from_content, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
+    condense, file_stamp, is_jsonl, push_texts, read_suffix, text_from_content, FileStamp,
+    MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
 
 const PI_TAIL_BYTES: u64 = 128 * 1024;
@@ -42,15 +44,14 @@ pub(super) fn pi_sessions(cwd: &str) -> Vec<AgentSession> {
     let Some(root) = pi_session_dir() else {
         return Vec::new();
     };
-    let mut files = Vec::new();
-    collect_transcripts(&root, is_jsonl, &mut files, 0);
-    let mut files = stamped_transcripts(files.into_iter());
+    let mut files = dir_cache::list_tree(&root, is_jsonl, false);
+    files.sort_unstable_by_key(|file| std::cmp::Reverse(file.stamp.modified_ns));
     files.truncate(MAX_AGENT_TRANSCRIPTS_INSPECTED);
 
     let mut out: Vec<AgentSession> = files
         .par_iter()
-        .filter_map(|(path, stamp)| {
-            pi_session(path, *stamp)
+        .filter_map(|file| {
+            pi_session_cached(&file.path, file.stamp, file.indexed.as_ref())
                 .filter(|found| found.project == cwd)
                 .map(|found| found.session)
         })
@@ -63,25 +64,37 @@ pub(super) fn pi_recent(scan: &PageScan<'_>) -> Vec<Hit> {
     let Some(root) = pi_session_dir() else {
         return Vec::new();
     };
-    let mut files = Vec::new();
-    collect_transcripts(&root, is_jsonl, &mut files, 0);
-    let listed = files
+    let listed = dir_cache::list_tree(&root, is_jsonl, false)
         .into_iter()
-        .map(|path| {
-            let stamp = file_stamp(&path);
-            Listed {
-                at_ms: stamp.unix_millis(),
-                key: path.to_string_lossy().into_owned(),
-                item: (path, stamp),
-            }
+        .map(|file| Listed {
+            at_ms: file.stamp.unix_millis(),
+            key: file.key,
+            item: (file.path, file.stamp, file.indexed),
         })
         .collect();
-    scan.collect(listed, |(path, stamp)| pi_session(path, *stamp))
+    scan.collect(listed, |(path, stamp, cached)| {
+        pi_session_cached(path, *stamp, cached.as_ref())
+    })
 }
 
 /// The session in one transcript and the project its header names.
 pub(super) fn pi_session(path: &Path, stamp: FileStamp) -> Option<Found> {
-    let read = indexed(AgentKind::Pi, path, stamp, || read_pi(path));
+    pi_session_cached(path, stamp, None)
+}
+
+fn pi_session_cached(
+    path: &Path,
+    stamp: FileStamp,
+    cached: Option<&Arc<Indexed>>,
+) -> Option<Found> {
+    let read = match cached {
+        Some(read) => read.clone(),
+        None => {
+            let read = indexed(AgentKind::Pi, path, stamp, || read_pi(path));
+            dir_cache::remember_indexed(path, stamp, read.clone());
+            read
+        }
+    };
     let project = read.cwd.clone()?;
     let title = read.title.clone().unwrap_or_else(|| {
         path.file_stem()
@@ -99,6 +112,7 @@ pub(super) fn pi_session(path: &Path, stamp: FileStamp) -> Option<Found> {
             mtime: stamp.unix_secs(),
         },
         place: Some(path.to_path_buf()),
+        stamp: Some(stamp),
     })
 }
 

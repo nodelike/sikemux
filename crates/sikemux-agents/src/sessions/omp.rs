@@ -1,6 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use rayon::prelude::*;
@@ -8,6 +9,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use super::claude::{CLAUDE_HEAD_BYTES, CLAUDE_TAIL_BYTES};
+use super::dir_cache;
 use super::history;
 use super::in_project;
 use super::index::{indexed, Indexed};
@@ -19,8 +21,8 @@ use super::roots::{omp_agent_root, omp_session_dirs};
 use super::search::Hear;
 use super::AgentSession;
 use super::{
-    collect_transcripts, condense, file_stamp, is_jsonl, read_prefix, read_suffix,
-    stamped_transcripts, text_from_content, FileStamp, MAX_AGENT_TRANSCRIPTS_INSPECTED,
+    condense, file_stamp, is_jsonl, read_prefix, read_suffix, text_from_content, FileStamp,
+    MAX_AGENT_TRANSCRIPTS_INSPECTED,
 };
 use crate::agent_accounts::defaults::{clean_effort, clean_model, yaml_top_level_scalar};
 use crate::agent_catalog::AgentKind;
@@ -42,17 +44,17 @@ pub(super) fn omp_sessions(cwd: &str) -> Vec<AgentSession> {
 fn omp_sessions_from_dirs(cwd: &str, roots: Vec<PathBuf>) -> Vec<AgentSession> {
     let mut files = Vec::new();
     for root in roots {
-        collect_transcripts(&root, is_jsonl, &mut files, 0);
+        files.extend(dir_cache::list_tree(&root, is_jsonl, false));
     }
-    files.sort_unstable();
-    files.dedup();
-    let mut files = stamped_transcripts(files.into_iter());
+    files.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+    files.dedup_by(|a, b| a.path == b.path);
+    files.sort_unstable_by_key(|file| std::cmp::Reverse(file.stamp.modified_ns));
     files.truncate(MAX_AGENT_TRANSCRIPTS_INSPECTED);
 
     let mut out: Vec<AgentSession> = files
         .par_iter()
-        .filter_map(|(path, stamp)| {
-            omp_session(path, *stamp)
+        .filter_map(|file| {
+            omp_session_cached(&file.path, file.stamp, file.indexed.as_ref())
                 .filter(|found| found.project == cwd)
                 .map(|found| found.session)
         })
@@ -64,27 +66,41 @@ fn omp_sessions_from_dirs(cwd: &str, roots: Vec<PathBuf>) -> Vec<AgentSession> {
 pub(super) fn omp_recent(scan: &PageScan<'_>) -> Vec<Hit> {
     let mut files = Vec::new();
     for root in omp_session_dirs() {
-        collect_transcripts(&root, is_jsonl, &mut files, 0);
+        files.extend(dir_cache::list_tree(&root, is_jsonl, false));
     }
-    files.sort_unstable();
-    files.dedup();
+    files.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+    files.dedup_by(|a, b| a.path == b.path);
     let listed = files
         .into_iter()
-        .map(|path| {
-            let stamp = file_stamp(&path);
-            Listed {
-                at_ms: stamp.unix_millis(),
-                key: path.to_string_lossy().into_owned(),
-                item: (path, stamp),
-            }
+        .map(|file| Listed {
+            at_ms: file.stamp.unix_millis(),
+            key: file.key,
+            item: (file.path, file.stamp, file.indexed),
         })
         .collect();
-    scan.collect(listed, |(path, stamp)| omp_session(path, *stamp))
+    scan.collect(listed, |(path, stamp, cached)| {
+        omp_session_cached(path, *stamp, cached.as_ref())
+    })
 }
 
 /// The session in one transcript and the project its header names.
 pub(super) fn omp_session(path: &Path, stamp: FileStamp) -> Option<Found> {
-    let read = indexed(AgentKind::Omp, path, stamp, || read_omp(path));
+    omp_session_cached(path, stamp, None)
+}
+
+fn omp_session_cached(
+    path: &Path,
+    stamp: FileStamp,
+    cached: Option<&Arc<Indexed>>,
+) -> Option<Found> {
+    let read = match cached {
+        Some(read) => read.clone(),
+        None => {
+            let read = indexed(AgentKind::Omp, path, stamp, || read_omp(path));
+            dir_cache::remember_indexed(path, stamp, read.clone());
+            read
+        }
+    };
     let project = read.cwd.clone()?;
     let title = read.title.clone().unwrap_or_else(|| {
         path.file_stem()
@@ -102,6 +118,7 @@ pub(super) fn omp_session(path: &Path, stamp: FileStamp) -> Option<Found> {
             mtime: stamp.unix_secs(),
         },
         place: Some(path.to_path_buf()),
+        stamp: Some(stamp),
     })
 }
 
@@ -219,6 +236,7 @@ pub(super) fn rename_omp_session(
         .map_err(|error| error.to_string())?;
     file.write_all(line.as_bytes())
         .map_err(|error| error.to_string())?;
+    dir_cache::invalidate_path(path);
     if let (Some(db), Some(session_id)) = (title_index, omp_session_id(path)) {
         record_omp_title(db, &session_id, name);
     }

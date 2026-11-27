@@ -82,6 +82,8 @@ fn rewrite(from: &Path, to: &Path, from_cwd: &str, to_cwd: &str) -> Result<(), S
             .open(to)
             .and_then(|file| file.set_modified(modified));
     }
+    super::dir_cache::invalidate_path(from);
+    super::dir_cache::invalidate_path(to);
     Ok(())
 }
 

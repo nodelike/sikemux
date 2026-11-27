@@ -58,6 +58,7 @@ fn hermes_sessions_in(conn: &Connection, projects: Option<&[&str]>) -> Vec<Found
                 mtime: row.get::<_, i64>(2).unwrap_or(0).max(0) as u64,
             },
             place: None,
+            stamp: None,
         })
     }) else {
         return Vec::new();

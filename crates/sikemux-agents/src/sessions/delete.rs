@@ -85,6 +85,7 @@ fn delete_session_files(
 ) -> Result<(), String> {
     let (root, transcript) = saved_transcript(agent, cwd, session_id, config_path)?;
     fs::remove_file(&transcript).map_err(|error| error.to_string())?;
+    super::dir_cache::invalidate_path(&transcript);
     agent.ops().delete_leftovers(&root, &transcript, session_id);
     Ok(())
 }
