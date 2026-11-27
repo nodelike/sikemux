@@ -1904,7 +1904,7 @@ pub(super) fn popover_dismissed_note(
 /// The element `name` labels or identifies. An exact label or identifier wins
 /// over a partial label, and more than one equally good match is an error, so a
 /// tap never lands on an element the agent did not mean.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(super) fn labelled(elements: &[Numbered], name: &str) -> Result<(f64, f64), String> {
     labelled_element(elements, name).map(|element| element.center)
 }
@@ -1942,7 +1942,7 @@ fn labelled_element<'a>(elements: &'a [Numbered], name: &str) -> Result<&'a Elem
 }
 
 /// Where to tap: an element by its number, or a point.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(super) fn tap_point(
     elements: &[Numbered],
     index: Option<u64>,
