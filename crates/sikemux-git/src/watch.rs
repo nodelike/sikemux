@@ -56,38 +56,44 @@ pub fn repo_key(repo: &str) -> Result<String, String> {
 /// Folders of build output, dependencies and caches, whose churn nobody wants
 /// to hear of and which the file palette never lists.
 pub fn should_skip_dir(name: &str) -> bool {
-    matches!(
-        name,
-        // dependency / package managers
-        "node_modules" | "bower_components" | "vendor"
-        | ".pnpm-store" | ".yarn" | ".npm" | ".pnpm" | ".bun" | ".deno"
-        // VCS
-        | ".git" | ".hg" | ".svn"
-        // build outputs (js / rust / swift / generic)
-        | "target" | "dist" | "build" | ".build" | "out" | "_build"
-        | ".next" | ".nuxt" | ".svelte-kit" | ".vercel" | ".turbo" | ".astro"
-        | ".output"
-        // caches (js / generic)
-        | ".cache" | ".parcel-cache" | ".eslintcache" | ".vite"
-        | "coverage" | ".nyc_output"
-        // go
-        | ".gocache" | ".go-cache" | "gocache" | "go-build"
-        // rust
-        | ".cargo" | ".rustup"
-        // python
-        | ".venv" | "venv" | ".env_venv" | "__pycache__"
-        | ".pytest_cache" | ".mypy_cache" | ".ruff_cache" | ".tox"
-        // jvm / scala
-        | ".gradle" | ".m2" | ".bloop" | ".metals" | ".bsp"
-        // infra / cloud
-        | ".terraform" | ".serverless" | ".firebase" | ".vagrant"
-        // ios / xcode
-        | "Pods" | "Carthage" | "DerivedData" | "xcuserdata"
-        // editor / OS junk
-        | ".idea" | ".vscode-test" | ".DS_Store"
-        // cmake / clion
-        | "cmake-build-debug" | "cmake-build-release"
-    )
+    name.starts_with(".gemini")
+        || matches!(
+            name,
+            // dependency / package managers
+            "node_modules" | "bower_components" | "vendor"
+            | ".pnpm-store" | ".yarn" | ".npm" | ".pnpm" | ".bun" | ".deno"
+            // VCS
+            | ".git" | ".hg" | ".svn"
+            // build outputs (js / rust / swift / generic)
+            | "target" | "dist" | "build" | ".build" | "out" | "_build"
+            | ".next" | ".nuxt" | ".svelte-kit" | ".vercel" | ".turbo" | ".astro"
+            | ".output"
+            // caches (js / generic)
+            | ".cache" | ".parcel-cache" | ".eslintcache" | ".vite"
+            | "coverage" | ".nyc_output"
+            // go
+            | ".gocache" | ".go-cache" | "gocache" | "go-build"
+            // rust
+            | ".cargo" | ".rustup"
+            // python
+            | ".venv" | "venv" | ".env_venv" | "__pycache__"
+            | ".pytest_cache" | ".mypy_cache" | ".ruff_cache" | ".tox"
+            // jvm / scala
+            | ".gradle" | ".m2" | ".bloop" | ".metals" | ".bsp"
+            // infra / cloud
+            | ".terraform" | ".serverless" | ".firebase" | ".vagrant"
+            // ios / xcode
+            | "Pods" | "Carthage" | "DerivedData" | "xcuserdata"
+            // editor / OS / home / agent state
+            | ".idea" | ".vscode-test" | ".DS_Store"
+            | "Library" | ".Trash" | ".local" | ".config"
+            | ".claude" | ".codex" | ".cursor" | ".amp" | ".antigravity"
+            | ".docker" | ".orbstack" | ".colima" | ".lima"
+            | ".nvm" | ".pyenv" | ".rbenv" | ".asdf" | ".mise" | ".volta"
+            | ".zsh_sessions"
+            // cmake / clion
+            | "cmake-build-debug" | "cmake-build-release"
+        )
 }
 
 /// Each watched repo's latest change number, and for its last few changes the
@@ -115,11 +121,38 @@ fn generations() -> MutexGuard<'static, Generations> {
     G.get_or_init(Mutex::default).locked()
 }
 
+fn covering_watcher<'a>(
+    generations: &'a Generations,
+    repo_key: &str,
+) -> Option<(&'a RepoChanges, Option<String>)> {
+    if let Some(repo) = generations.repos.get(repo_key) {
+        return Some((repo, None));
+    }
+    let target = Path::new(repo_key);
+    let mut ancestor = target.parent();
+    while let Some(parent) = ancestor {
+        if let Some(parent_str) = parent.to_str() {
+            if let Some(repo) = generations.repos.get(parent_str) {
+                let rel = target.strip_prefix(parent).ok()?;
+                let mut parts = Vec::new();
+                for component in rel.components() {
+                    let name = component.as_os_str().to_str()?;
+                    if should_skip_dir(name) {
+                        return None;
+                    }
+                    parts.push(name);
+                }
+                return Some((repo, Some(parts.join("/"))));
+            }
+        }
+        ancestor = parent.parent();
+    }
+    None
+}
+
 pub fn scan_generation(repo_key: &str) -> Option<u64> {
-    generations()
-        .repos
-        .get(repo_key)
-        .map(|repo| repo.generation)
+    let generations = generations();
+    covering_watcher(&generations, repo_key).map(|(repo, _)| repo.generation)
 }
 
 /// Every path the watcher saw move after change `since`, up to the latest;
@@ -127,21 +160,48 @@ pub fn scan_generation(repo_key: &str) -> Option<u64> {
 /// remembered.
 pub fn changed_paths_since(repo_key: &str, since: u64) -> Option<Vec<String>> {
     let generations = generations();
-    let repo = generations.repos.get(repo_key)?;
+    let (repo, prefix) = covering_watcher(&generations, repo_key)?;
     if since < repo.forgotten || since > repo.generation {
+        return None;
+    }
+    if since == repo.generation {
+        return Some(Vec::new());
+    }
+    let known = (repo.forgotten > 0 && since == repo.forgotten)
+        || repo.recent.iter().any(|(at, _)| *at == since);
+    if !known {
         return None;
     }
     let mut paths: Vec<String> = Vec::new();
     for (_, changed) in repo.recent.iter().filter(|(at, _)| *at > since) {
-        paths.extend(changed.as_ref()?.iter().cloned());
+        let changed = changed.as_ref()?;
+        match &prefix {
+            None => paths.extend(changed.iter().cloned()),
+            Some(prefix) => {
+                for path in changed.iter() {
+                    if path == prefix
+                        || prefix
+                            .strip_prefix(path.as_str())
+                            .is_some_and(|rest| rest.starts_with('/'))
+                    {
+                        return None;
+                    }
+                    if let Some(rest) = path
+                        .strip_prefix(prefix.as_str())
+                        .and_then(|rest| rest.strip_prefix('/'))
+                    {
+                        paths.push(rest.to_owned());
+                    }
+                }
+            }
+        }
     }
     paths.sort_unstable();
     paths.dedup();
     Some(paths)
 }
 
-fn bump(repo_key: &str, paths: Option<&[String]>) {
-    let mut generations = generations();
+fn bump_locked(generations: &mut Generations, repo_key: &str, paths: Option<&[String]>) {
     generations.last += 1;
     let generation = generations.last;
     let repo = generations.repos.entry(repo_key.to_string()).or_default();
@@ -154,11 +214,40 @@ fn bump(repo_key: &str, paths: Option<&[String]>) {
     repo.recent.push_back((generation, paths.map(Arc::from)));
 }
 
+fn bump(repo_key: &str, paths: Option<&[String]>) {
+    let mut generations = generations();
+    bump_locked(&mut generations, repo_key, paths);
+}
+
 /// A change the core made itself, counted now so the next read sees it
 /// rather than waiting for the watcher to report it.
 pub fn note_own_change(repo_key: &str, paths: Option<&[String]>) {
-    if scan_generation(repo_key).is_some() {
-        bump(repo_key, paths);
+    let mut generations = generations();
+    let target = Path::new(repo_key);
+    let affected: Vec<(String, Option<Vec<String>>)> = generations
+        .repos
+        .keys()
+        .filter_map(|watched| {
+            let rel = target.strip_prefix(Path::new(watched)).ok()?;
+            let mapped = if rel.as_os_str().is_empty() {
+                paths.map(|p| p.to_vec())
+            } else {
+                let mut parts = Vec::new();
+                for component in rel.components() {
+                    let name = component.as_os_str().to_str()?;
+                    if should_skip_dir(name) {
+                        return None;
+                    }
+                    parts.push(name);
+                }
+                let prefix = parts.join("/");
+                paths.map(|p| p.iter().map(|item| format!("{prefix}/{item}")).collect())
+            };
+            Some((watched.clone(), mapped))
+        })
+        .collect();
+    for (key, mapped) in affected {
+        bump_locked(&mut generations, &key, mapped.as_deref());
     }
 }
 
@@ -365,18 +454,15 @@ fn moved_paths(repo: &Path, changes: &[PathBuf], rescan: bool) -> Option<Vec<Str
     }
     let mut paths = Vec::with_capacity(changes.len());
     for path in changes {
-        if path.ends_with(".git/config") {
-            paths.push(GIT_CONFIG.to_owned());
-            continue;
-        }
-        if is_git_signal(path) {
-            paths.push(GIT_STATE.to_owned());
-            continue;
-        }
-        let relative = path.strip_prefix(repo).ok()?.to_str()?;
-        if relative.is_empty() {
+        let relative = path.strip_prefix(repo).ok()?;
+        if relative.as_os_str().is_empty() {
             return None;
         }
+        if let Some(signal) = git_signal_entry(relative) {
+            paths.push(signal);
+            continue;
+        }
+        let relative = relative.to_str()?;
         paths.push(relative.replace('\\', "/"));
     }
     paths.sort_unstable();
@@ -384,42 +470,56 @@ fn moved_paths(repo: &Path, changes: &[PathBuf], rescan: bool) -> Option<Vec<Str
     Some(paths)
 }
 
-fn is_git_signal(path: &Path) -> bool {
-    let mut after_git = false;
-    for component in path.components() {
-        // A name that is not UTF-8 cannot be one of the names below.
+fn is_git_signal_name(name: &str) -> bool {
+    matches!(
+        name,
+        "HEAD"
+            | "config"
+            | "index"
+            | "packed-refs"
+            | "MERGE_HEAD"
+            | "REBASE_HEAD"
+            | "CHERRY_PICK_HEAD"
+            | "BISECT_LOG"
+            | "refs"
+            | "logs"
+            | "rebase-merge"
+            | "rebase-apply"
+    )
+}
+
+fn git_signal_entry(relative: &Path) -> Option<String> {
+    let mut prefix = Vec::new();
+    let mut components = relative.components();
+    while let Some(component) = components.next() {
         let name = component.as_os_str().to_str().unwrap_or_default();
-        if !after_git {
-            if name == ".git" {
-                after_git = true;
-            }
+        if name != ".git" {
+            prefix.push(name);
             continue;
         }
-        return matches!(
-            name,
-            "HEAD"
-                | "config"
-                | "index"
-                | "packed-refs"
-                | "MERGE_HEAD"
-                | "REBASE_HEAD"
-                | "CHERRY_PICK_HEAD"
-                | "BISECT_LOG"
-                | "refs"
-                | "logs"
-                | "rebase-merge"
-                | "rebase-apply"
-        );
+        let next = components.next()?.as_os_str().to_str().unwrap_or_default();
+        if next == "config" && components.next().is_none() {
+            return Some(if prefix.is_empty() {
+                GIT_CONFIG.to_owned()
+            } else {
+                format!("{}/{GIT_CONFIG}", prefix.join("/"))
+            });
+        }
+        if is_git_signal_name(next) {
+            return Some(if prefix.is_empty() {
+                GIT_STATE.to_owned()
+            } else {
+                format!("{}/{GIT_STATE}", prefix.join("/"))
+            });
+        }
+        return None;
     }
-    false
+    None
 }
 
 /// Build output, dependencies and the rest of `.git` would fire thousands of
 /// events for every `cargo test` or `npm run build` nobody wants to hear of.
 fn should_ignore(repo: &Path, path: &Path) -> bool {
-    if is_git_signal(path) {
-        return false;
-    }
     let Ok(relative) = path.strip_prefix(repo) else {
         // Outside the root: the batch cannot say what moved, so it rescans.
         return false;
@@ -432,8 +532,17 @@ fn should_ignore(repo: &Path, path: &Path) -> bool {
         }
         // The denied folder itself still counts: a file named `target` may
         // just have been replaced by one, and the file palette must drop it.
-        if components.peek().is_some() && should_skip_dir(name) {
-            return true;
+        if components.peek().is_some() {
+            if name == ".git" {
+                let next = components
+                    .next()
+                    .and_then(|component| component.as_os_str().to_str())
+                    .unwrap_or_default();
+                return !is_git_signal_name(next);
+            }
+            if should_skip_dir(name) {
+                return true;
+            }
         }
     }
     false
@@ -780,12 +889,59 @@ mod fsevent {
     }
 
     pub(super) fn exclusion_paths(root: &Path) -> Vec<PathBuf> {
-        let mut excluded = vec![
-            root.join("target"),
-            root.join("node_modules"),
-            root.join(".build"),
-            root.join(".git/worktrees"),
-        ];
+        let mut excluded = Vec::with_capacity(MAX_EXCLUSION_PATHS);
+        if root.join("Library").is_dir() {
+            const HOME_EXCLUDED: [&str; 6] = [
+                "Library", ".claude", ".cache", ".local", ".config", ".codex",
+            ];
+            for name in HOME_EXCLUDED {
+                let candidate = root.join(name);
+                if candidate.is_dir() {
+                    excluded.push(candidate);
+                    if excluded.len() >= MAX_EXCLUSION_PATHS {
+                        return excluded;
+                    }
+                }
+            }
+            if let Ok(entries) = std::fs::read_dir(root) {
+                let mut gemini: Vec<PathBuf> = entries
+                    .flatten()
+                    .filter(|entry| {
+                        entry.file_type().is_ok_and(|kind| kind.is_dir())
+                            && entry
+                                .file_name()
+                                .to_str()
+                                .is_some_and(|name| name.starts_with(".gemini"))
+                    })
+                    .map(|entry| entry.path())
+                    .collect();
+                gemini.sort();
+                for path in gemini {
+                    if excluded.len() >= MAX_EXCLUSION_PATHS {
+                        return excluded;
+                    }
+                    excluded.push(path);
+                }
+            }
+            for name in [".Trash", ".cargo"] {
+                if excluded.len() >= MAX_EXCLUSION_PATHS {
+                    return excluded;
+                }
+                let candidate = root.join(name);
+                if candidate.is_dir() {
+                    excluded.push(candidate);
+                }
+            }
+        }
+        for name in ["target", "node_modules", ".build", ".git/worktrees"] {
+            if excluded.len() >= MAX_EXCLUSION_PATHS {
+                return excluded;
+            }
+            let candidate = root.join(name);
+            if !excluded.contains(&candidate) {
+                excluded.push(candidate);
+            }
+        }
         const NESTED_EXCLUDED: [&str; 5] =
             ["node_modules", ".build", "target", "DerivedData", ".gradle"];
         let mut queue = VecDeque::from([(root.to_path_buf(), 0usize)]);

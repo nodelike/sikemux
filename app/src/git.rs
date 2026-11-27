@@ -51,6 +51,8 @@ pub struct GitTab {
     /// The repository changed while the Git pane was out of sight, so it reads it and its
     /// review again once it shows rather than on every change.
     pub(crate) behind: bool,
+    /// Child repository statuses changed while the repository picker was out of sight.
+    pub(crate) repos_behind: bool,
     /// A commit to show once the Git pane is made.
     pub(crate) wanted: Option<String>,
 }
@@ -663,7 +665,38 @@ impl Workbench {
     pub(crate) fn list_git_repos(&mut self, cx: &mut Context<Self>) {
         let was = self.git_repo();
         self.git.listing = true;
+        self.git.repos_behind = false;
         self.follow_git_repo(was, cx);
+        self.refresh_git_repos(cx);
+    }
+
+    pub(crate) fn refresh_git_repos(&mut self, cx: &mut Context<Self>) {
+        let Some(folder) = self.watched.project.clone() else {
+            return;
+        };
+        let place = self.place();
+        let finding =
+            self.target()
+                .request_typed::<git_call::DiscoverRepos>(git_call::DiscoverRepos {
+                    root: folder.clone(),
+                });
+        cx.spawn(async move |bench, cx| {
+            let Ok(repos) = finding.await else {
+                return;
+            };
+            let _ = bench.update(cx, |bench, cx| {
+                if bench.watched.project.as_deref() != Some(folder.as_str())
+                    || bench.place() != place
+                {
+                    return;
+                }
+                if let Some(found) = bench.feeds.at_mut(&place).git_project_repo.as_mut() {
+                    found.repos = Some(repos);
+                    bench.parts.redraw_stage(cx);
+                }
+            });
+        })
+        .detach();
     }
 
     /// Points the git overview at the repository shown, when it moved from `was`.
@@ -700,12 +733,15 @@ impl Workbench {
         let Some(project) = self.project() else {
             return;
         };
-        let Some(repo) = self.git_repo() else {
-            return;
-        };
         if project.path.to_string_lossy() != *self.watched.project.as_deref().unwrap_or_default() {
             return;
         }
+        let Some(repo) = self.git_repo() else {
+            if std::mem::take(&mut self.git.repos_behind) && self.git_repos().is_some() {
+                self.refresh_git_repos(cx);
+            }
+            return;
+        };
         let target = self.target();
         if let Some(pane) = self.git.pane.as_ref().filter(|pane| {
             let pane = pane.read(cx);

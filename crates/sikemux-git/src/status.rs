@@ -260,7 +260,7 @@ fn read_files(repo: &Repository, paths: &[String]) -> Result<Vec<GitFile>, Strin
 ///
 /// A repo with no watcher running is never cached — nothing would tell us when
 /// the answer stopped being true.
-const REPO_WALK_CACHE_REPOS: usize = 32;
+const REPO_WALK_CACHE_REPOS: usize = 128;
 
 /// How long a status may be carried forward by reading again only the paths
 /// the watcher saw move. The watcher skips build and dependency folders and
@@ -348,7 +348,7 @@ pub(super) fn watched_status(
 pub(super) fn moves_only_itself(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
     path.is_ascii()
-        && path.split('/').next() != Some(".git")
+        && !path.split('/').any(|part| part == ".git")
         && !matches!(name, ".gitignore" | ".gitattributes" | ".gitmodules")
 }
 
@@ -360,6 +360,10 @@ fn patched_status(
     since: u64,
     walk: &StatusWalk,
 ) -> Option<GitStatus> {
+    let moved = moved_since(repo, key, since)?;
+    if moved.is_empty() {
+        return Some(walk.status.clone());
+    }
     if walk.walked_at.elapsed() > PATCHED_STATUS_LIFETIME {
         return None;
     }
@@ -373,12 +377,7 @@ fn patched_status(
     {
         return None;
     }
-    let moved = moved_since(repo, key, since)?;
     let mut status = walk.status.clone_head();
-    if moved.is_empty() {
-        status.files = walk.status.files.clone();
-        return Some(status);
-    }
     let ignore_case = repo
         .config()
         .and_then(|config| config.get_bool("core.ignorecase"))
@@ -459,35 +458,57 @@ fn merge_files(
 
 // Not `files::should_skip_dir`: it hides `vendor`, `build` and `out`, which are ordinary repository names.
 fn skip_repo_scan_dir(name: &str) -> bool {
-    matches!(name, "node_modules" | ".git")
+    matches!(name, "node_modules" | ".git" | "Library" | ".Trash")
+}
+
+fn discover_repo_entries(root: &str) -> Result<Vec<(String, String)>, String> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(root)
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if skip_repo_scan_dir(&name) {
+            continue;
+        }
+        let path = entry.path();
+        if !path.join(".git").exists() && !path.join("HEAD").is_file() {
+            continue;
+        }
+        // `open`, not `discover`, so a plain folder never reports the repository it sits in.
+        let Ok(repo) = Repository::open(&path) else {
+            continue;
+        };
+        if repo.is_bare() {
+            continue;
+        }
+        found.push((path.to_string_lossy().to_string(), name));
+    }
+    found.sort_by_cached_key(|(_, name)| name.to_lowercase());
+    Ok(found)
+}
+
+fn discover_flights() -> &'static Flights<Vec<DiscoveredRepo>> {
+    static F: OnceLock<Flights<Vec<DiscoveredRepo>>> = OnceLock::new();
+    F.get_or_init(Default::default)
 }
 
 /// The repositories directly inside `root`, one level down like VS Code's default scan.
 pub async fn git_discover_repos(root: String) -> Result<Vec<DiscoveredRepo>, String> {
-    let _permit = git_walk_permit().await?;
-    run_blocking(move || -> Result<Vec<DiscoveredRepo>, String> {
-        let mut found: Vec<DiscoveredRepo> = Vec::new();
-        for entry in std::fs::read_dir(&root)
-            .map_err(|e| e.to_string())?
-            .flatten()
-        {
-            if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                continue;
-            }
-            let name = entry.file_name().to_string_lossy().to_string();
-            if skip_repo_scan_dir(&name) {
-                continue;
-            }
-            let path = entry.path();
-            // `open`, not `discover`, so a plain folder never reports the repository it sits in.
-            let Ok(repo) = Repository::open(&path) else {
-                continue;
-            };
-            let Ok(status) = read_status(&repo) else {
+    let watched = watched_generation(&root);
+    let flight = flight_key(&root, watched.as_ref());
+    shared(discover_flights(), flight, async move {
+        let entries = run_blocking(move || discover_repo_entries(&root)).await?;
+        let mut found = Vec::with_capacity(entries.len());
+        for (path, name) in entries {
+            let Ok(status) = git_status(path.clone()).await else {
                 continue;
             };
             found.push(DiscoveredRepo {
-                path: path.to_string_lossy().to_string(),
+                path,
                 name,
                 branch: status.branch,
                 ahead: status.ahead,
@@ -495,7 +516,6 @@ pub async fn git_discover_repos(root: String) -> Result<Vec<DiscoveredRepo>, Str
                 changes: status.files.len(),
             });
         }
-        found.sort_by_cached_key(|repo| repo.name.to_lowercase());
         Ok(found)
     })
     .await
@@ -524,15 +544,40 @@ pub async fn git_project_repo(
             repos: None,
         });
     }
-    let repos = git_discover_repos(project).await?;
-    let repo = chosen
-        .filter(|chosen| repos.iter().any(|repo| &repo.path == chosen))
-        .or_else(|| match repos.as_slice() {
-            [only] => Some(only.path.clone()),
+    let root = project.clone();
+    let entries = run_blocking(move || discover_repo_entries(&root)).await?;
+    if entries.is_empty() {
+        return Ok(ProjectRepo {
+            repo: None,
+            repos: Some(Vec::new()),
+        });
+    }
+    let resolved = chosen
+        .filter(|chosen| entries.iter().any(|(path, _)| path == chosen))
+        .or_else(|| match entries.as_slice() {
+            [(only, _)] => Some(only.clone()),
             _ => None,
         });
+    if let Some(repo) = resolved {
+        let repos = entries
+            .into_iter()
+            .map(|(path, name)| DiscoveredRepo {
+                path,
+                name,
+                branch: String::new(),
+                ahead: 0,
+                behind: 0,
+                changes: 0,
+            })
+            .collect();
+        return Ok(ProjectRepo {
+            repo: Some(repo),
+            repos: Some(repos),
+        });
+    }
+    let repos = git_discover_repos(project).await?;
     Ok(ProjectRepo {
-        repo,
+        repo: None,
         repos: Some(repos),
     })
 }

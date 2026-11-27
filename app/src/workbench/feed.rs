@@ -6,7 +6,7 @@ use sikemux_calls::drafts::DraftsParams;
 use sikemux_calls::git::call as git_call;
 use sikemux_calls::ports::PortsParams;
 use sikemux_calls::tasks::ProjectParams;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use gpui_kit::Context;
 use sikemux_view::changed::Topic;
@@ -530,6 +530,25 @@ impl Workbench {
                 (Some(_), false) => self.git.behind = true,
                 (None, _) => {}
             }
+            if self.git_repo().is_none() && self.git_repos().is_some() {
+                let affects = match (self.watched.project.as_deref(), project, paths) {
+                    (Some(folder), Some(changed), Some(paths)) => {
+                        crate::core::paths_affect_folder(folder, changed, paths, false)
+                    }
+                    (Some(folder), Some(changed), None) => {
+                        Path::new(folder).starts_with(changed)
+                            || Path::new(changed).starts_with(folder)
+                    }
+                    _ => true,
+                };
+                if affects {
+                    if self.git_in_front() {
+                        self.refresh_git_repos(cx);
+                    } else {
+                        self.git.repos_behind = true;
+                    }
+                }
+            }
         }
         if topic == Topic::Git {
             let root = (self.files.root.as_ref()).map(|root| root.to_string_lossy().into_owned());
@@ -600,6 +619,7 @@ impl Workbench {
         feed.git_project_repo = None;
         feed.git_draft = None;
         self.git.listing = false;
+        self.git.repos_behind = false;
         match &path {
             Some(path) => {
                 let of_project = || ProjectParams {

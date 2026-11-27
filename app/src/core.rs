@@ -237,7 +237,13 @@ impl Watch {
     /// Whether `topic` changing for the project folder `project`, or for every project when
     /// none, could move what `read` reads. Git, code host and board changes name the folder
     /// that moved, so a watch on another project's folder lets them pass.
-    fn moved_by(&self, read: Read, topic: Topic, project: Option<&str>) -> bool {
+    fn moved_by(
+        &self,
+        read: Read,
+        topic: Topic,
+        project: Option<&str>,
+        paths: Option<&[String]>,
+    ) -> bool {
         if !read.topics().contains(&topic) {
             return false;
         }
@@ -245,13 +251,86 @@ impl Watch {
             .folder
             .as_deref()
             .filter(|_| matches!(topic, Topic::Git | Topic::CodeHost | Topic::Boards));
-        match (folder, project) {
+        let in_scope = match (folder, project) {
             (Some(folder), Some(project)) => {
                 Path::new(folder).starts_with(project) || Path::new(project).starts_with(folder)
             }
             _ => true,
+        };
+        if !in_scope {
+            return false;
         }
+        if topic == Topic::Git {
+            if let (Some(folder), Some(project), Some(paths)) = (folder, project, paths) {
+                return paths_affect_folder(folder, project, paths, read == Read::GitProjectRepo);
+            }
+        }
+        true
     }
+}
+
+fn relative_slash_path(base: &Path, path: &Path) -> Option<String> {
+    let rel = path.strip_prefix(base).ok()?;
+    let mut parts = Vec::new();
+    for component in rel.components() {
+        parts.push(component.as_os_str().to_str()?);
+    }
+    Some(parts.join("/"))
+}
+
+fn is_structural_repo_path(path: &str) -> bool {
+    if path == ".git" || path == ".git/config" || path.starts_with(".git/") {
+        return true;
+    }
+    match path.split_once('/') {
+        None => !path.starts_with('.'),
+        Some((_, rest)) => rest == ".git" || rest == ".git/config",
+    }
+}
+
+pub(crate) fn paths_affect_folder(
+    folder: &str,
+    project: &str,
+    paths: &[String],
+    structural_only: bool,
+) -> bool {
+    let (folder_path, project_path) = (Path::new(folder), Path::new(project));
+    if folder_path == project_path {
+        if !structural_only {
+            return !paths.is_empty();
+        }
+        return paths.iter().any(|path| is_structural_repo_path(path));
+    }
+    if let Some(rel) = relative_slash_path(project_path, folder_path) {
+        return paths.iter().any(|path| {
+            if path == &rel
+                || rel
+                    .strip_prefix(path.as_str())
+                    .is_some_and(|rest| rest.starts_with('/'))
+            {
+                return true;
+            }
+            let Some(inside) = path
+                .strip_prefix(rel.as_str())
+                .and_then(|rest| rest.strip_prefix('/'))
+            else {
+                return false;
+            };
+            !structural_only || is_structural_repo_path(inside)
+        });
+    }
+    if let Some(rel) = relative_slash_path(folder_path, project_path) {
+        if !structural_only {
+            return !paths.is_empty();
+        }
+        if rel.contains('/') {
+            return false;
+        }
+        return paths
+            .iter()
+            .any(|path| path == ".git" || path == ".git/config");
+    }
+    false
 }
 
 /// What the core is asked about how it detects agents.
@@ -1498,7 +1577,7 @@ async fn run(
                             Some(ClientEvent::Event(Event::Changed { topic, project, paths })) => {
                                 let topic = Topic::of_json(&topic);
                                 stopping |= topic == Topic::Stopping;
-                                for (&key, watch) in watches.here.iter().filter(|(&key, watch)| watch.moved_by(key, topic, project.as_deref())) {
+                                for (&key, watch) in watches.here.iter().filter(|(&key, watch)| watch.moved_by(key, topic, project.as_deref(), paths.as_deref())) {
                                     read(&client, key, watch, (&current, &failed), &updates);
                                 }
                                 let _ = updates.send(Update::Changed { place: Place::This, topic, project, paths });
@@ -1573,7 +1652,7 @@ async fn run(
                                         .get(&host)
                                         .into_iter()
                                         .flatten()
-                                        .filter(|(&key, watch)| watch.moved_by(key, topic, project.as_deref()));
+                                        .filter(|(&key, watch)| watch.moved_by(key, topic, project.as_deref(), paths.as_deref()));
                                     for (&key, watch) in changed {
                                         read_on(&linked, &host, key, watch, &current, &updates);
                                     }
