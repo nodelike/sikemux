@@ -34,6 +34,11 @@ pub fn in_files(root: &Path) -> Vec<Place> {
                 }
             }
         }
+        if tool == "Firebase" {
+            for project in firebase_projects(&text) {
+                found.push(production_stage("Firebase", &project, file));
+            }
+        }
     }
     for file in ["railway.json", "railway.toml"] {
         if read(root, file).is_some() {
@@ -85,7 +90,8 @@ fn production_stage(tool: &str, name: &str, file: &str) -> Place {
 /// in `wrangler.json`/`wrangler.jsonc`.
 fn wrangler_envs(text: &str) -> Vec<String> {
     let mut envs = Vec::new();
-    if let Ok(value) = serde_json::from_str::<serde_json::Value>(text) {
+    let cleaned = strip_jsonc(text);
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&cleaned) {
         if let Some(map) = value.get("env").and_then(serde_json::Value::as_object) {
             envs.extend(map.keys().cloned());
         }
@@ -105,6 +111,110 @@ fn wrangler_envs(text: &str) -> Vec<String> {
         }
     }
     envs
+}
+
+/// Non-staging Firebase project IDs listed under `projects` in `.firebaserc`.
+fn firebase_projects(text: &str) -> Vec<String> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(map) = value.get("projects").and_then(serde_json::Value::as_object) else {
+        return Vec::new();
+    };
+    let mut projects = Vec::new();
+    for (alias, project) in map {
+        let Some(id) = project.as_str() else {
+            continue;
+        };
+        if !id.is_empty()
+            && !says_not_production(alias)
+            && !says_not_production(id)
+            && !projects.iter().any(|seen| seen == id)
+        {
+            projects.push(id.to_owned());
+        }
+    }
+    projects
+}
+
+/// Strips `//` and `/* */` comments and trailing commas from JSONC so `serde_json` can read it.
+fn strip_jsonc(text: &str) -> String {
+    let mut no_comments = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
+    while let Some(c) = chars.next() {
+        if in_string {
+            no_comments.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if c == '"' {
+            in_string = true;
+            no_comments.push(c);
+        } else if c == '/' && chars.peek() == Some(&'/') {
+            chars.next();
+            for next in chars.by_ref() {
+                if next == '\n' {
+                    no_comments.push('\n');
+                    break;
+                }
+            }
+        } else if c == '/' && chars.peek() == Some(&'*') {
+            chars.next();
+            while let Some(next) = chars.next() {
+                if next == '*' && chars.peek() == Some(&'/') {
+                    chars.next();
+                    break;
+                }
+            }
+        } else {
+            no_comments.push(c);
+        }
+    }
+    let bytes = no_comments.as_bytes();
+    let mut out = String::with_capacity(no_comments.len());
+    let mut in_string = false;
+    let mut escaped = false;
+    for (at, ch) in no_comments.char_indices() {
+        if in_string {
+            out.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+            out.push(ch);
+            continue;
+        }
+        if ch == ',' {
+            let mut look = at + 1;
+            while let Some(&b) = bytes.get(look) {
+                if b.is_ascii_whitespace() {
+                    look += 1;
+                } else {
+                    break;
+                }
+            }
+            if matches!(bytes.get(look), Some(b'}' | b']')) {
+                continue;
+            }
+        }
+        out.push(ch);
+    }
+    out
 }
 
 fn read(root: &Path, file: &str) -> Option<String> {

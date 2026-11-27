@@ -685,6 +685,7 @@ pub(crate) fn target_of(
 fn program_name(word: &str) -> &str {
     match base_name(word) {
         "vc" => "vercel",
+        "ntl" => "netlify",
         name => name,
     }
 }
@@ -1158,6 +1159,7 @@ const DEPLOY_STEPS: &[&str] = &[
     "vercel deploy",
     "vercel --prod",
     "netlify deploy",
+    "ntl deploy",
     "actions-netlify",
     "flyctl-actions",
     "flyctl deploy",
@@ -1179,6 +1181,7 @@ const DEPLOY_STEPS: &[&str] = &[
     "cdk deploy",
     "serverless deploy",
     "railway up",
+    "railway redeploy",
     "heroku",
     "eas update",
     "eas submit",
@@ -1627,6 +1630,7 @@ pub(crate) const PROGRAMS: &[&str] = &[
     "vercel",
     "vc",
     "netlify",
+    "ntl",
     "fly",
     "flyctl",
     "firebase",
@@ -1735,6 +1739,18 @@ const RULES: &[Rule] = &[
         ShipKind::Deploy,
     ),
     rule(
+        &["netlify"],
+        &["deploy"],
+        Needs::Flag("--prodIfUnlocked"),
+        ShipKind::Deploy,
+    ),
+    rule(
+        &["netlify"],
+        &["deploy"],
+        Needs::Flag("--prod-if-unlocked"),
+        ShipKind::Deploy,
+    ),
+    rule(
         &["fly", "flyctl"],
         &["deploy"],
         Needs::Nothing,
@@ -1749,6 +1765,12 @@ const RULES: &[Rule] = &[
         ShipKind::Deploy,
     ),
     rule(&["railway"], &["up"], Needs::Nothing, ShipKind::Deploy),
+    rule(
+        &["railway"],
+        &["redeploy"],
+        Needs::Nothing,
+        ShipKind::Deploy,
+    ),
     rule(KUBECTL, &["apply"], Needs::Nothing, ShipKind::Deploy),
     rule(KUBECTL, &["rollout"], Needs::Nothing, ShipKind::Deploy),
     rule(KUBECTL, &["set"], Needs::Nothing, ShipKind::Deploy),
@@ -2420,7 +2442,8 @@ const VERCEL_READS: [&str; 20] = [
 ];
 
 /// Vercel's commands that change what is live without a deploy.
-const VERCEL_TAKES_AWAY: [[&str; 2]; 20] = [
+const VERCEL_TAKES_AWAY: [[&str; 2]; 21] = [
+    ["env", "add"],
     ["env", "rm"],
     ["env", "remove"],
     ["project", "rm"],

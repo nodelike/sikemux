@@ -317,6 +317,11 @@ fn production_fact(ship: &Ship, addresses: &str, found_in: Option<String>) -> Op
             }],
             found_in,
         )),
+        Target::Stage { tool, name }
+            if tool == "Railway" && !name.is_empty() && !says_not_production(name) =>
+        {
+            Some(stage_place(tool, name, found_in))
+        }
         Target::Stage { tool, name } if says_production(name) => {
             Some(stage_place(tool, name, found_in))
         }
