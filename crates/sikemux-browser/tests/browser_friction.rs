@@ -161,24 +161,67 @@ fn main() {
                 let _ = stream.write_all(reply.as_bytes());
                 continue;
             }
-            let body = r#"<!doctype html>
-<html><body>
-  <form>
-    <div>
-      <label>Where from?</label>
-      <input id="origin" type="text" placeholder="Where from?" />
-    </div>
-    <div>
-      <label for="dest"><span>Where to?</span></label>
-      <input id="dest" type="text" />
-    </div>
-    <label>Notes <textarea id="notes"></textarea></label>
-    <div>
-      <label for="cabin">Cabin class</label>
-      <select id="cabin"><option value="eco">Economy</option><option value="biz">Business</option></select>
-    </div>
-  </form>
-</body></html>"#;
+            let body = r##"<!doctype html>
+<html>
+<head>
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  .sticky-top { position: fixed; top: 0; left: 220px; right: 0; height: 60px; background: #222; color: #fff; z-index: 100; }
+  #remove-saved { position: fixed; top: 0; left: 0; width: 220px; bottom: 0; z-index: 200; }
+  #send-msg { position: absolute; top: 100px; left: 10px; width: 180px; height: 40px; }
+  #partial-btn { position: absolute; top: 160px; left: 120px; width: 200px; height: 40px; }
+  main { margin-left: 240px; padding-top: 80px; }
+  .tall-spacer { height: 900px; }
+  #sticky-target { display: block; margin-top: 10px; }
+</style>
+</head>
+<body>
+  <div class="sticky-top">Header</div>
+  <button id="send-msg" type="button">Send message</button>
+  <button id="partial-btn" type="button">Partial action</button>
+  <button id="remove-saved" type="button">Remove from Saved</button>
+  <main>
+    <form>
+      <div>
+        <label>Where from?</label>
+        <input id="origin" type="text" placeholder="Where from?" />
+      </div>
+      <div>
+        <label for="dest"><span>Where to?</span></label>
+        <input id="dest" type="text" />
+      </div>
+      <label>Notes <textarea id="notes"></textarea></label>
+      <div>
+        <label for="cabin">Cabin class</label>
+        <select id="cabin"><option value="eco">Economy</option><option value="biz">Business</option></select>
+      </div>
+      <div>
+        <input name="subject" class="subject-field" type="text" />
+        <button id="submit-btn" type="submit">Save Draft</button>
+      </div>
+      <ul id="recipients">
+        <li class="rc-input"><input id="to-chip" type="text" placeholder="To" /></li>
+      </ul>
+      <a id="channel-link" href="#general">#general</a>
+    </form>
+    <div class="tall-spacer"></div>
+    <button id="sticky-target" type="button">Below Sticky</button>
+    <div class="tall-spacer"></div>
+  </main>
+  <script>
+    const toChip = document.getElementById("to-chip");
+    const list = document.getElementById("recipients");
+    toChip.addEventListener("change", () => {
+      const val = toChip.value.trim();
+      if (!val) return;
+      const li = document.createElement("li");
+      li.className = "recipient";
+      li.textContent = val;
+      list.insertBefore(li, toChip.parentElement);
+      toChip.value = "";
+    });
+  </script>
+</body></html>"##;
             let reply = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 body.len(),
@@ -245,7 +288,7 @@ fn main() {
     };
 
     let focus_script = format!(
-        r#"{PAGE_SCRIPT}
+        r##"{PAGE_SCRIPT}
         const results = {{}};
         window.__sikemux.focus({{ text: "Where from?" }});
         results.sibling = document.activeElement && document.activeElement.id;
@@ -255,7 +298,37 @@ fn main() {
         results.wrapped = document.activeElement && document.activeElement.id;
         const sel = window.__sikemux.focus({{ text: "Cabin class" }});
         results.selectIsSelect = Boolean(sel && sel.isSelect);
-        return JSON.stringify(results);"#
+
+        // Bug 1: covered button reports covering control instead of claiming uncovered;
+        // partially covered button finds exposed point; element near sticky top bar scrolls clear.
+        const cov = window.__sikemux.point({{ text: "Send message" }});
+        results.coveredBy = cov.covered;
+        results.coveredTag = cov.coveredTag;
+        const partial = window.__sikemux.point({{ text: "Partial action" }});
+        results.partialCleared = partial.covered === null && partial.x >= 220;
+        const clear = window.__sikemux.point({{ text: "Below Sticky" }});
+        results.stickyCleared = clear.covered === null;
+
+        // Bug 3: CSS selector strings resolve for both clicks and types, with literal text fallback.
+        const submitPoint = window.__sikemux.point({{ text: "button[type=submit]" }});
+        results.selectorClickLabel = submitPoint.label;
+        results.selectorMayNavigate = submitPoint.mayNavigate;
+        window.__sikemux.focus({{ text: "input[name=subject]" }});
+        results.selectorTypeName = document.activeElement && document.activeElement.name;
+        const chanPoint = window.__sikemux.point({{ text: "#general" }});
+        results.literalFallbackLabel = chanPoint.label;
+
+        // Bug 5: auto-clearing chip input marks consumed: true and does not duplicate chips.
+        window.__sikemux.focus({{ text: "#to-chip" }});
+        const toEl = document.getElementById("to-chip");
+        toEl.value = "alice@example.com";
+        toEl.dispatchEvent(new Event("input", {{ bubbles: true }}));
+        const committed = window.__sikemux.commitField({{ text: "#to-chip" }}, "alice@example.com", true, false);
+        results.chipValue = committed.value;
+        results.chipConsumed = Boolean(committed.consumed);
+        results.chipCount = document.querySelectorAll("#recipients .recipient").length;
+
+        return JSON.stringify(results);"##
     );
     let raw_focus = eval_in(World::Helper, &focus_script);
     let parsed_focus: Value = serde_json::from_str(&raw_focus).expect("valid JSON");
@@ -274,6 +347,56 @@ fn main() {
     assert_eq!(
         parsed_focus.get("selectIsSelect").and_then(Value::as_bool),
         Some(true)
+    );
+    assert_eq!(
+        parsed_focus.get("coveredBy").and_then(Value::as_str),
+        Some("Remove from Saved")
+    );
+    assert_eq!(
+        parsed_focus.get("coveredTag").and_then(Value::as_str),
+        Some("button")
+    );
+    assert_eq!(
+        parsed_focus.get("partialCleared").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        parsed_focus.get("stickyCleared").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        parsed_focus
+            .get("selectorClickLabel")
+            .and_then(Value::as_str),
+        Some("Save Draft")
+    );
+    assert_eq!(
+        parsed_focus
+            .get("selectorMayNavigate")
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        parsed_focus.get("selectorTypeName").and_then(Value::as_str),
+        Some("subject")
+    );
+    assert_eq!(
+        parsed_focus
+            .get("literalFallbackLabel")
+            .and_then(Value::as_str),
+        Some("#general")
+    );
+    assert_eq!(
+        parsed_focus.get("chipValue").and_then(Value::as_str),
+        Some("")
+    );
+    assert_eq!(
+        parsed_focus.get("chipConsumed").and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        parsed_focus.get("chipCount").and_then(Value::as_u64),
+        Some(1)
     );
 
     let pending_script = format!(

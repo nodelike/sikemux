@@ -234,6 +234,7 @@ impl TabEvents for TabListener {
             facts.documents.note(event)
         };
         if started {
+            self.note(|page| page.loading = true);
             manager.load_changed.notify_waiters();
         }
         if failed {

@@ -301,6 +301,8 @@ const DRIVE_SDK_JS: &str = r##"
                 p = { field: first, text: String(second), ...(third || {}) };
             } else if (typeof second === "object" && second !== null && second.text !== undefined) {
                 p = { field: first, ...second };
+            } else if (typeof second === "object" && second !== null && second.value !== undefined) {
+                throw new Error(`tab.${name} requires text (use "text", not "value"): ${sig}`);
             } else {
                 p = { text: first, ...(typeof second === "object" && second !== null ? second : {}) };
             }
@@ -315,6 +317,19 @@ const DRIVE_SDK_JS: &str = r##"
         return p;
     };
 
+    const serializeEvalFn = (fn, args) => {
+        const src = Function.prototype.toString.call(fn);
+        if (/\{\s*\[native code\]\s*\}\s*$/.test(src)) {
+            throw new Error("tab.eval cannot serialize a native function; pass a JS function or string");
+        }
+        const serializedArgs = args.map((v) => {
+            if (v === undefined) return "undefined";
+            const encoded = JSON.stringify(v);
+            return encoded === undefined ? "undefined" : encoded;
+        });
+        return `(\n${src}\n)(${serializedArgs.join(", ")})`;
+    };
+
     const TAB_METHODS = "goto, click, hover, type, fill, select, upload, dialog, download, press, scroll, wait, state, find, eval, screenshot, console, network, viewport, close";
     const TAB_HINTS = {
         navigate: "use tab.goto(url, opts?)",
@@ -322,9 +337,9 @@ const DRIVE_SDK_JS: &str = r##"
         back: "use tab.goto({ go: 'back' })",
         forward: "use tab.goto({ go: 'forward' })",
         reload: "use tab.goto({ go: 'reload' })",
-        evaluate: "use tab.eval(script, opts?)",
+        evaluate: "use tab.eval(fnOrScript, ...argsOrOpts)",
         waitFor: "use tab.wait(arg)",
-        querySelector: 'use tab.eval("document.querySelector(...)") or tab.find(query)',
+        querySelector: 'use tab.eval(() => document.querySelector(...)) or tab.find(query)',
         setValue: "use tab.fill(target, text, opts?)",
     };
 
@@ -363,7 +378,7 @@ const DRIVE_SDK_JS: &str = r##"
             click(target, opts) {
                 const p = normalizeTarget(target, opts);
                 if (p.index === undefined && p.text === undefined && p.selector === undefined && (p.x === undefined || p.y === undefined)) {
-                    throw new Error('tab.click requires a target: tab.click(target, opts?) where target is index, text, or { selector|text|index|x,y }');
+                    throw new Error('tab.click requires a target: tab.click(target, opts?) where target is index, text, CSS selector, or { selector|text|index|x,y }');
                 }
                 if (p.report === undefined) p.report = "outcome";
                 return callOnTab("browser.click", p);
@@ -371,7 +386,7 @@ const DRIVE_SDK_JS: &str = r##"
             hover(target, opts) {
                 const p = normalizeTarget(target, opts);
                 if (p.index === undefined && p.text === undefined && p.selector === undefined && (p.x === undefined || p.y === undefined)) {
-                    throw new Error('tab.hover requires a target: tab.hover(target, opts?) where target is index, text, or { selector|text|index|x,y }');
+                    throw new Error('tab.hover requires a target: tab.hover(target, opts?) where target is index, text, CSS selector, or { selector|text|index|x,y }');
                 }
                 p.hover = true;
                 if (p.report === undefined) p.report = "outcome";
@@ -498,19 +513,48 @@ const DRIVE_SDK_JS: &str = r##"
                 }
                 return callOnTab("browser.find", p);
             },
-            eval(script, opts) {
+            async eval(script, ...rest) {
+                const sig = "tab.eval(() => ...) or tab.eval(script, opts?) or tab.eval({ script, timeoutMs? })";
                 let p;
-                if (typeof script === "string") {
-                    p = { script, ...(opts || {}) };
+                if (typeof script === "function") {
+                    const arity = script.length;
+                    const fnArgs = arity > 0 ? rest.slice(0, arity) : [];
+                    const opts = rest[arity];
+                    p = {
+                        ...(typeof opts === "object" && opts !== null ? opts : {}),
+                        script: serializeEvalFn(script, fnArgs),
+                    };
+                } else if (typeof script === "string") {
+                    const opts = rest[0];
+                    p = { script, ...(typeof opts === "object" && opts !== null ? opts : {}) };
                 } else if (typeof script === "object" && script !== null) {
-                    p = { ...script, ...(opts || {}) };
+                    const opts = rest[0];
+                    p = { ...script, ...(typeof opts === "object" && opts !== null ? opts : {}) };
+                    if (typeof p.script === "function") {
+                        const fnArgs =
+                            p.args !== undefined
+                                ? Array.isArray(p.args)
+                                    ? p.args
+                                    : [p.args]
+                                : p.arg !== undefined
+                                  ? [p.arg]
+                                  : [];
+                        delete p.arg;
+                        delete p.args;
+                        p.script = serializeEvalFn(p.script, fnArgs);
+                    }
                 } else {
-                    throw new Error('tab.eval requires a JS string: tab.eval(script, opts?) or tab.eval({ script, timeoutMs? })');
+                    throw new Error(`tab.eval requires a JS function or string: ${sig}`);
                 }
                 if (typeof p.script !== "string" || !p.script.trim()) {
-                    throw new Error('tab.eval requires a JS string: tab.eval(script, opts?) or tab.eval({ script, timeoutMs? })');
+                    throw new Error(`tab.eval requires a JS function or string: ${sig}`);
                 }
-                return callOnTab("browser.evaluate", p);
+                const res = await callOnTab("browser.evaluate", p);
+                if (res && typeof res === "object") {
+                    if (res.skipped === true) return res;
+                    if ("result" in res) return res.result;
+                }
+                return res;
             },
             screenshot(opts) {
                 return callOnTab("browser.screenshot", opts || {});
@@ -1374,6 +1418,7 @@ mod tests {
         max_concurrent: AtomicUsize,
         call_delay: Duration,
         hold_on_text: Option<String>,
+        last_eval_timeout: Mutex<Option<u64>>,
     }
 
     impl MockBackend {
@@ -1387,6 +1432,7 @@ mod tests {
                 max_concurrent: AtomicUsize::new(0),
                 call_delay: Duration::from_millis(40),
                 hold_on_text: None,
+                last_eval_timeout: Mutex::new(None),
             }
         }
     }
@@ -1498,11 +1544,15 @@ mod tests {
                         "url": params.get("url").cloned().unwrap_or(Value::Null),
                         "filename": params.get("filename").cloned().unwrap_or(Value::Null),
                     })),
-                    "browser.evaluate" => Ok(json!({
-                        "tabId": params.get("tabId").and_then(Value::as_str).unwrap_or("tab-1"),
-                        "result": params.get("script").cloned().unwrap_or(Value::Null),
-                        "timeoutMs": params.get("timeoutMs").cloned().unwrap_or(Value::Null),
-                    })),
+                    "browser.evaluate" => {
+                        *self.last_eval_timeout.locked() =
+                            params.get("timeoutMs").and_then(Value::as_u64);
+                        Ok(json!({
+                            "tabId": params.get("tabId").and_then(Value::as_str).unwrap_or("tab-1"),
+                            "result": params.get("script").cloned().unwrap_or(Value::Null),
+                            "timeoutMs": params.get("timeoutMs").cloned().unwrap_or(Value::Null),
+                        }))
+                    }
                     _ => Ok(json!({ "ok": true })),
                 }
             })
@@ -1841,7 +1891,11 @@ mod tests {
         let script = r##"
             const tab = browser.tab("tab-1");
             const e1 = await tab.eval("document.title");
+            const e1Unwrapped = e1.includes("document.title");
             const e2 = await tab.eval({ script: "location.href", timeoutMs: 3000 });
+            const e3 = await tab.eval(() => document.title);
+            const e4 = await tab.eval((sel, idx) => `${sel}:${idx}`, ".price", 2, { timeoutMs: 2500 });
+            const e5 = await tab.eval(async () => 42);
             const t1 = await tab.type("Where from?", "SFO");
             const t2 = await tab.type("Price", 500, { replace: true });
             const t3 = await tab.type(3, "NYC");
@@ -1849,8 +1903,10 @@ mod tests {
             const errors = {};
             for (const [key, fn] of [
                 ["valueKey", () => tab.type({ selector: "#q", value: "SFO" })],
+                ["positionalValueKey", () => tab.type("input[name=q]", { value: "SFO" })],
                 ["missingText", () => tab.type({ selector: "#q" })],
                 ["missingScript", () => tab.eval({})],
+                ["nativeFn", () => tab.eval(Array.isArray)],
                 ["unknownNavigate", () => tab.navigate("https://a.test")],
                 ["unknownFoo", () => tab.foo()],
             ]) {
@@ -1860,13 +1916,29 @@ mod tests {
                     errors[key] = err.message;
                 }
             }
-            return { e1, e2, t1, t2, t3, t4, errors };
+            return { e1, e1Unwrapped, e2, e3, e4, e5, t1, t2, t3, t4, errors };
         "##;
         let out = run_drive(&backend, script, Duration::from_secs(5)).await;
         assert_eq!(out["ok"], json!(true), "unexpected output: {out}");
-        assert_eq!(out["result"]["e1"]["result"], json!("document.title"));
-        assert_eq!(out["result"]["e2"]["result"], json!("location.href"));
-        assert_eq!(out["result"]["e2"]["timeoutMs"], json!(3000));
+        assert_eq!(out["result"]["e1"], json!("document.title"));
+        assert_eq!(out["result"]["e1Unwrapped"], json!(true));
+        assert_eq!(out["result"]["e2"], json!("location.href"));
+        assert!(out["result"]["e3"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("document.title"));
+        assert!(out["result"]["e3"]
+            .as_str()
+            .unwrap_or_default()
+            .ends_with("()"));
+        assert!(out["result"]["e4"]
+            .as_str()
+            .unwrap_or_default()
+            .ends_with("(\".price\", 2)"));
+        assert!(out["result"]["e5"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("async"));
         assert_eq!(out["result"]["t1"]["field"], json!("Where from?"));
         assert_eq!(out["result"]["t1"]["text"], json!("SFO"));
         assert_eq!(out["result"]["t2"]["field"], json!("Price"));
@@ -1879,6 +1951,10 @@ mod tests {
             .as_str()
             .unwrap_or_default()
             .contains("use \"text\", not \"value\""));
+        assert!(out["result"]["errors"]["positionalValueKey"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("use \"text\", not \"value\""));
         assert!(out["result"]["errors"]["missingText"]
             .as_str()
             .unwrap_or_default()
@@ -1886,7 +1962,11 @@ mod tests {
         assert!(out["result"]["errors"]["missingScript"]
             .as_str()
             .unwrap_or_default()
-            .contains("tab.eval(script, opts?)"));
+            .contains("tab.eval(() => ...)"));
+        assert!(out["result"]["errors"]["nativeFn"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("native function"));
         assert!(out["result"]["errors"]["unknownNavigate"]
             .as_str()
             .unwrap_or_default()

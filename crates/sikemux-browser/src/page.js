@@ -163,12 +163,101 @@
         bottom = Math.min(bottom, innerHeight);
         return right - left >= 1 && bottom - top >= 1 ? { left, top, right, bottom, width: right - left, height: bottom - top } : null;
     };
-    const reaches = (element, x, y) => {
-        const top = elementAt(x, y);
+    const sameControl = (element, top) => {
         if (!top) return false;
         const root = top === top.ownerDocument.documentElement || top === top.ownerDocument.body;
-        return within(top, element) || (!root && within(element, top));
+        if (within(top, element) || (!root && within(element, top))) return true;
+        const topLabel = top.tagName === "LABEL" ? top : top.closest && top.closest("label");
+        if (topLabel && topLabel.control === element) return true;
+        const elLabel = element.tagName === "LABEL" ? element : element.closest && element.closest("label");
+        if (elLabel && elLabel.control && within(top, elLabel.control)) return true;
+        return false;
     };
+    const CLICK_PROBES = [
+        [0.5, 0.5],
+        [0.5, 0.25],
+        [0.5, 0.75],
+        [0.25, 0.5],
+        [0.75, 0.5],
+        [0.2, 0.2],
+        [0.8, 0.2],
+        [0.2, 0.8],
+        [0.8, 0.8],
+    ];
+    const probeUncovered = (element) => {
+        const rect = visibleRect(element);
+        if (!rect) return null;
+        const clamp = (v, lo, hi) => (hi > lo ? Math.min(Math.max(v, lo), hi) : (lo + hi) / 2);
+        const minX = Math.max(0, rect.left + (rect.width >= 2 ? 1 : 0));
+        const maxX = Math.min(innerWidth - 1, rect.right - (rect.width >= 2 ? 1 : 0));
+        const minY = Math.max(0, rect.top + (rect.height >= 2 ? 1 : 0));
+        const maxY = Math.min(innerHeight - 1, rect.bottom - (rect.height >= 2 ? 1 : 0));
+        for (const [across, down] of CLICK_PROBES) {
+            const x = clamp(rect.left + rect.width * across, minX, maxX);
+            const y = clamp(rect.top + rect.height * down, minY, maxY);
+            if (sameControl(element, elementAt(x, y))) return { x, y };
+        }
+        return null;
+    };
+    const coverLayerRect = (top) => {
+        for (let node = top; node && node !== document.body && node !== document.documentElement; node = parentAcross(node)) {
+            const pos = styleOf(node).position;
+            if (pos === "fixed" || pos === "sticky") {
+                const r = rectOf(node);
+                if (r.width < innerWidth * 0.9 || r.height < innerHeight * 0.9) return r;
+            }
+        }
+        return rectOf(top);
+    };
+    const scrollClearOfCover = (element, coverRect) => {
+        const scroller = scrollerOf(element);
+        const elRect = rectOf(element);
+        if (coverRect && scroller) {
+            const vMoves = [];
+            if (coverRect.top <= 4 && coverRect.bottom < innerHeight * 0.75) {
+                vMoves.push(-(coverRect.bottom - elRect.top + 16));
+            }
+            if (coverRect.bottom >= innerHeight - 4 && coverRect.top > innerHeight * 0.25) {
+                vMoves.push(elRect.bottom - coverRect.top + 16);
+            }
+            for (const dy of vMoves) {
+                const prev = scroller.scrollTop;
+                scroller.scrollTop = prev + dy;
+                const hit = probeUncovered(element);
+                if (hit) return hit;
+                scroller.scrollTop = prev;
+            }
+            if (scroller.scrollWidth > scroller.clientWidth) {
+                const hMoves = [];
+                if (coverRect.right >= innerWidth - 4 && coverRect.left > innerWidth * 0.25) {
+                    hMoves.push(elRect.right - coverRect.left + 16);
+                }
+                if (coverRect.left <= 4 && coverRect.right < innerWidth * 0.75) {
+                    hMoves.push(-(coverRect.right - elRect.left + 16));
+                }
+                for (const dx of hMoves) {
+                    const prev = scroller.scrollLeft;
+                    scroller.scrollLeft = prev + dx;
+                    const hit = probeUncovered(element);
+                    if (hit) return hit;
+                    scroller.scrollLeft = prev;
+                }
+            }
+        }
+        for (const block of ["start", "end"]) {
+            element.scrollIntoView({ block, inline: "nearest", behavior: "instant" });
+            const hit = probeUncovered(element);
+            if (hit) return hit;
+        }
+        return null;
+    };
+    const coveringControl = (top) => {
+        for (let node = top; node && node !== document.body && node !== document.documentElement; node = parentAcross(node)) {
+            if (node.matches && node.matches(INTERACTIVE)) return node;
+        }
+        return top;
+    };
+    const reaches = (element, x, y) => sameControl(element, elementAt(x, y));
     const PROBES = [
         [0.5, 0.5],
         [0.2, 0.2],
@@ -615,7 +704,18 @@
         return inner.length === 1 ? inner[0] : null;
     };
     const unwrapForType = (element) => (isFillable(element) ? element : controlOfLabel(element) || element);
-    const looksLikeSelector = (text) => typeof text === "string" && /^[#.\[]|[>\[:+]/.test(text.trim());
+    const CSS_PSEUDO = /:(?:first|last|nth|only|not|is|where|has|checked|disabled|enabled|focus|hover|active|empty|root|target|visited|link|placeholder-shown|required|optional|valid|invalid)/i;
+    const looksLikeSelector = (text) => {
+        if (typeof text !== "string") return false;
+        const s = text.trim();
+        if (!s || s.length > 512) return false;
+        if (/^(?:[#\.][a-zA-Z_-]|\[[^\]]+\])/.test(s)) return true;
+        if (/^[a-zA-Z*][\w-]*(?:[#\.][a-zA-Z_-][\w-]*|\[[^\]]+\])/.test(s)) return true;
+        if (/[>+~]/.test(s) && /^[a-zA-Z0-9_*#.\[\]="':()\-,\s>+~]+$/.test(s)) return true;
+        if (CSS_PSEUDO.test(s) || s.includes("::")) return true;
+        if (/\s+(?:[#\.][a-zA-Z_-]|\[[^\]]+\]|[a-zA-Z][\w-]*(?:[#\.][a-zA-Z_-]|\[[^\]]+\]))/.test(s)) return true;
+        return false;
+    };
     // The numbered elements a call names by `selector` or `text`, and what to
     // say when that is not exactly one.
     const named = (target, fillable = false) => {
@@ -626,7 +726,8 @@
             return { found, none: `nothing shown matches "${target.selector}"`, many: `${found.length} shown elements match "${target.selector}"`, narrower: "a narrower selector" };
         }
         if (target.text == null) return null;
-        if (fillable && looksLikeSelector(target.text)) {
+        const selectorLike = !target.role && looksLikeSelector(target.text);
+        if (selectorLike) {
             try {
                 const bySel = selected(target.text).filter(shown);
                 if (bySel.length) {
@@ -639,8 +740,15 @@
         const labelled = matching(target.text, target.role);
         const found = labelled.length || target.role ? labelled : textHolders(target.text);
         const otherRoles = target.role && !found.length ? matching(target.text, null) : [];
-        const hint = otherRoles.length ? `; these have that text with another role:\n${lines(otherRoles.slice(0, 10))}` : "; try browser_find with part of the words";
-        return { found, none: `nothing${scope} shows or is labelled "${target.text}"${hint}`, many: `${found.length} elements${scope} match "${target.text}"`, narrower: "a role or fuller text" };
+        const hint = otherRoles.length
+            ? `; these have that text with another role:\n${lines(otherRoles.slice(0, 10))}`
+            : selectorLike
+              ? "; try browser_find or browser_state"
+              : "; try browser_find with part of the words";
+        const none = selectorLike
+            ? `nothing shown matches selector or text "${target.text}"${hint}`
+            : `nothing${scope} shows or is labelled "${target.text}"${hint}`;
+        return { found, none, many: `${found.length} elements${scope} match "${target.text}"`, narrower: "a role or fuller text" };
     };
     const narrowFillable = (found) => {
         const deduped = [];
@@ -681,6 +789,51 @@
         const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
         if (setter) setter.call(element, value);
         else element.value = value;
+    };
+    let typingSession = null;
+    const typingContainer = (element) => {
+        let best = element.parentElement || element;
+        for (let node = element.parentElement, hops = 0; node && hops < 3; node = node.parentElement, hops++) {
+            if (node === node.ownerDocument.body || node === node.ownerDocument.documentElement) break;
+            best = node;
+            if (node.matches("form, tr, ul, ol, fieldset, [role='combobox'], [role='listbox']")) break;
+        }
+        return best;
+    };
+    const startTypingSession = (element) => {
+        if (typingSession) typingSession.cleanup();
+        typingSession = null;
+        if (!element || isFrame(element)) return;
+        const doc = element.ownerDocument;
+        const container = typingContainer(element);
+        const onInput = (event) => {
+            if (event.target === element || within(event.target, element)) session.sawInput = true;
+        };
+        const session = {
+            element,
+            container,
+            textBefore: container ? compact(container.innerText || container.textContent || "").toLowerCase() : "",
+            sawInput: false,
+            mutated: false,
+            observer: null,
+            cleanup() {
+                doc.removeEventListener("beforeinput", onInput, true);
+                doc.removeEventListener("input", onInput, true);
+                if (this.observer) {
+                    this.observer.disconnect();
+                    this.observer = null;
+                }
+            },
+        };
+        doc.addEventListener("beforeinput", onInput, true);
+        doc.addEventListener("input", onInput, true);
+        if (container && typeof MutationObserver === "function") {
+            session.observer = new MutationObserver(() => {
+                session.mutated = true;
+            });
+            session.observer.observe(container, { childList: true, subtree: true, characterData: true });
+        }
+        typingSession = session;
     };
     const describeOption = (option) => {
         const text = compact(option.textContent || option.label || "");
@@ -1382,12 +1535,30 @@
             if (expectLabel != null && !names(element).some((name) => name.includes(compact(expectLabel).toLowerCase()))) {
                 throw new Error(`element [${index}] is "${describe(element)}", not "${expectLabel}"; nothing was done`);
             }
+            const link = element.closest && element.closest("a[href]");
+            const href = link ? compact(link.getAttribute("href")) : "";
+            const mayNavigate = Boolean((link && href && !href.startsWith("#") && !/^javascript:/i.test(href)) || submitControl(element));
             element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
             standAside();
-            const point = centre(element);
+            let hit = probeUncovered(element);
+            if (!hit) {
+                const vis = visibleRect(element);
+                const probe = vis ? { x: vis.left + vis.width / 2, y: vis.top + vis.height / 2 } : centre(element);
+                const top = elementAt(probe.x, probe.y);
+                hit = scrollClearOfCover(element, top && !sameControl(element, top) ? coverLayerRect(top) : null);
+                if (!hit) element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+            }
+            if (hit) {
+                return { index, x: hit.x, y: hit.y, label: label(element), covered: null, mayNavigate };
+            }
+            const vis = visibleRect(element);
+            const point = vis ? { x: vis.left + vis.width / 2, y: vis.top + vis.height / 2 } : centre(element);
             const top = elementAt(point.x, point.y);
-            const covered = top && !within(top, element) && !within(element, top) ? describe(top) : null;
-            return { index, x: point.x, y: point.y, label: label(element), covered };
+            if (top && !sameControl(element, top)) {
+                const cover = coveringControl(top);
+                return { index, x: point.x, y: point.y, label: label(element), covered: describe(cover), coveredTag: cover.tagName.toLowerCase(), mayNavigate };
+            }
+            return { index, x: point.x, y: point.y, label: label(element), covered: "outside the visible area", mayNavigate };
         },
         // The part of an element a person can see, scrolled into view, for a
         // picture of just that element.
@@ -1433,13 +1604,17 @@
                 return { isSelect: true, index: numberFor(element), label: describe(element) };
             }
             const into = describe(element);
-            if (target == null) return { replacing: replace ? selectContents(element) : false, into };
+            if (target == null) {
+                startTypingSession(element);
+                return { replacing: replace ? selectContents(element) : false, into };
+            }
             element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
             if (isFrame(element)) {
                 standAside();
                 return { replacing: false, clickFirst: centre(element), into };
             }
             element.focus({ preventScroll: true });
+            startTypingSession(element);
             return { replacing: selectContents(element), into };
         },
         select(target, value) {
@@ -1501,12 +1676,29 @@
             };
         },
         commitField(target, expectedValue, replace, blind) {
-            const element = target == null ? focused() : unwrapForType(pick(typeof target === "number" ? target : this.resolve(target, true)));
+            const session = typingSession;
+            typingSession = null;
+            let element = null;
+            try {
+                element = target == null ? focused() : unwrapForType(pick(typeof target === "number" ? target : this.resolve(target, true)));
+            } catch (err) {
+                if (session && session.element) element = session.element;
+                else {
+                    if (session) session.cleanup();
+                    throw err;
+                }
+            }
             if (element && blind) {
                 blindElements.add(element);
             }
+            const activeSession = session && (!element || session.element === element) ? session : null;
+            const sawInput = Boolean(activeSession && activeSession.sawInput);
+            const preRecords = activeSession && activeSession.observer ? activeSession.observer.takeRecords() : [];
+            const preMutated = Boolean(activeSession && (activeSession.mutated || preRecords.length > 0));
+            let hadValueBeforeChange = false;
             if (
                 element &&
+                element.isConnected &&
                 !isFrame(element) &&
                 (element.tagName === "INPUT" || element.tagName === "TEXTAREA") &&
                 !["checkbox", "radio", "button", "submit", "reset", "image", "file", "hidden"].includes(element.type)
@@ -1515,7 +1707,9 @@
                     element.tagName === "INPUT" &&
                     ["date", "time", "datetime-local", "month", "week", "color", "range", "number"].includes(element.type);
                 const want = expectedValue == null ? null : String(expectedValue);
+                const alreadyConsumed = want != null && want.length > 0 && element.value.length === 0 && (sawInput || preMutated);
                 const missed =
+                    !alreadyConsumed &&
                     want != null &&
                     ((special && element.value !== want) ||
                         (replace && element.value !== want) ||
@@ -1524,9 +1718,24 @@
                     setNativeValue(element, want);
                     element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
                 }
-                element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+                hadValueBeforeChange = element.value.length > 0;
+                if (!alreadyConsumed) {
+                    element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+                }
             }
-            return this.valueOf(target);
+            const postRecords = activeSession && activeSession.observer ? activeSession.observer.takeRecords() : [];
+            const mutated = preMutated || postRecords.length > 0;
+            const container = activeSession ? activeSession.container : null;
+            const textBefore = activeSession ? activeSession.textBefore : "";
+            if (session) session.cleanup();
+            const out = element && element.isConnected ? this.valueOf(target) : { value: "" };
+            const needle = compact(String(expectedValue ?? "").replace(/[\r\n\t,;]+$/g, "")).toLowerCase();
+            if (out.value === "" && needle.length > 0 && (sawInput || hadValueBeforeChange)) {
+                const containerAfter = container && container.isConnected ? compact(container.innerText || container.textContent || "").toLowerCase() : "";
+                const gainedText = Boolean(containerAfter && containerAfter.split(needle).length > textBefore.split(needle).length);
+                if (mutated || gainedText) out.consumed = true;
+            }
+            return out;
         },
         // WebKit only acts on a bare pointer move while its page is active, so
         // when the real move left nothing hovered the page is told by hand.

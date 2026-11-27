@@ -592,7 +592,39 @@ async fn run(
         "browser.click" => {
             let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
             let (x, y, mut result) = target(&view, params, "index", "x", "y").await?;
+            let may_navigate = result
+                .as_object_mut()
+                .and_then(|map| map.remove("mayNavigate"))
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let covered_tag = result
+                .as_object_mut()
+                .and_then(|map| map.remove("coveredTag"))
+                .and_then(|value| value.as_str().map(str::to_owned));
             let hover = params.get("hover").and_then(Value::as_bool) == Some(true);
+            if !hover {
+                if let Some(covered_by) = result
+                    .get("covered")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                {
+                    let idx = result.get("index").and_then(Value::as_u64);
+                    let lbl = result.get("label").and_then(Value::as_str).unwrap_or("");
+                    let target_desc = match (idx, lbl.is_empty()) {
+                        (Some(i), false) => format!("element [{i}] (\"{lbl}\")"),
+                        (Some(i), true) => format!("element [{i}]"),
+                        (None, false) => format!("\"{lbl}\""),
+                        (None, true) => "the target element".to_owned(),
+                    };
+                    let cover_desc = match covered_tag.as_deref() {
+                        Some(tag) => format!("<{tag}> \"{covered_by}\""),
+                        None => format!("\"{covered_by}\""),
+                    };
+                    return Err(format!(
+                        "{target_desc} is covered by {cover_desc}; nothing was clicked — dismiss or scroll past the covering element first"
+                    ));
+                }
+            }
             let clicks = if params.get("double").and_then(Value::as_bool) == Some(true) {
                 2
             } else {
@@ -613,6 +645,7 @@ async fn run(
                 );
             }
             if !hover {
+                let before_seq = manager.nav_seq(&tab_id);
                 let sent = form_write.as_deref();
                 holding_page_writes(manager, agent_id, &tab_id, &view, check, sent, async {
                     for count in 1..=clicks {
@@ -623,6 +656,15 @@ async fn run(
                     Ok::<(), String>(())
                 })
                 .await?;
+                wait_for_triggered_navigation(
+                    manager,
+                    agent_id,
+                    &tab_id,
+                    &view,
+                    before_seq,
+                    may_navigate,
+                )
+                .await;
             }
             put(
                 &mut result,
@@ -791,7 +833,13 @@ async fn run(
             )
         }
         "browser.type" => {
-            let raw_text = text("text").ok_or("text is required")?;
+            let raw_text = text("text").ok_or_else(|| {
+                if params.get("value").is_some() {
+                    "text is required (use \"text\", not \"value\")"
+                } else {
+                    "text is required: pass text (and optional field, selector, or index)"
+                }
+            })?;
             let submit = params
                 .get("submit")
                 .and_then(Value::as_bool)
@@ -910,6 +958,7 @@ async fn run(
             }
             let mut committed = Value::Null;
             if submit {
+                let before_seq = manager.nav_seq(&tab_id);
                 let sent = form_write.as_deref();
                 holding_page_writes(manager, agent_id, &tab_id, &view, check, sent, async {
                     committed = call(
@@ -928,6 +977,8 @@ async fn run(
                     Ok::<(), String>(())
                 })
                 .await?;
+                wait_for_triggered_navigation(manager, agent_id, &tab_id, &view, before_seq, true)
+                    .await;
             } else {
                 holding_page_writes(manager, agent_id, &tab_id, &view, check, None, async {
                     committed = call(
@@ -988,11 +1039,13 @@ async fn run(
         "browser.press" => {
             let key = text("key").ok_or("key is required")?;
             let (tab_id, view) = target_tab(manager, agent_id, req_tab)?;
+            let is_enter = plain_enter(&key);
             let mut form_write = None;
-            if plain_enter(&key) {
+            if is_enter {
                 let write = call(&view, "writeOfField", &[Value::Null]).await?;
                 form_write = put_to_person(write, check).await?;
             }
+            let before_seq = manager.nav_seq(&tab_id);
             let sent = form_write.as_deref();
             holding_page_writes(manager, agent_id, &tab_id, &view, check, sent, async {
                 native::key(&view, &key).await?;
@@ -1000,6 +1053,8 @@ async fn run(
                 Ok::<(), String>(())
             })
             .await?;
+            wait_for_triggered_navigation(manager, agent_id, &tab_id, &view, before_seq, is_enter)
+                .await;
             merge(
                 json!({ "pressed": key }),
                 report(manager, agent_id, &tab_id, params, false).await?,
@@ -1779,6 +1834,10 @@ async fn run_agent_script(
         .as_str()
     {
         "expression" => script_body(&format!("return ({script}\n);")),
+        "expression_trimmed" => {
+            let expr = trimmed_expression(script).unwrap_or(script);
+            script_body(&format!("return ({expr}\n);"))
+        }
         "statements" => script_body(script),
         error => return Err(error.to_owned()),
     };
@@ -1909,16 +1968,28 @@ async fn step(
     arrived(manager, agent_id, &tab_id, params, started, false, None).await
 }
 
+fn trimmed_expression(script: &str) -> Option<&str> {
+    let trimmed = script.trim_end().trim_end_matches(';').trim_end();
+    (!trimmed.is_empty() && trimmed != script).then_some(trimmed)
+}
+
 /// Whether `script` reads as an expression or as statements, or the syntax error that
 /// stops both. It only parses, in the helper world, where the page's content policy
 /// can't forbid it, so the page never runs a script that fails to parse: WebKit
 /// crashed on macOS 26 while describing that error.
 fn shape_check(script: &str) -> String {
     let source = serde_json::to_string(script).unwrap_or_else(|_| "\"\"".into());
+    let trimmed = trimmed_expression(script)
+        .and_then(|s| serde_json::to_string(s).ok())
+        .unwrap_or_else(|| "null".into());
     format!(
         r#"const AsyncFunction = (async () => {{}}).constructor;
 const source = {source};
+const trimmed = {trimmed};
 try {{ new AsyncFunction("return (" + source + "\n);"); return "expression"; }} catch {{}}
+if (trimmed !== null) {{
+    try {{ new AsyncFunction("return (" + trimmed + "\n);"); return "expression_trimmed"; }} catch {{}}
+}}
 try {{ new AsyncFunction(source); return "statements"; }}
 catch (error) {{ return String(error); }}"#
     )
@@ -1971,6 +2042,9 @@ fn uploadable(manager: &BrowserManager, path: PathBuf, from: &Value) -> Result<P
 /// Why a field's value after typing suggests the text did not land where it
 /// was meant to, if it does.
 fn typing_missed(typed: &str, result: &Value) -> Option<&'static str> {
+    if result.get("consumed") == Some(&json!(true)) {
+        return None;
+    }
     let wanted = typed.split_whitespace().collect::<Vec<_>>().join(" ");
     if wanted.is_empty() {
         return None;
@@ -2440,7 +2514,7 @@ async fn read_state(
     include_tabs: bool,
 ) -> Result<Value, String> {
     let (tab_id, view) = resolve_tab(manager, agent_id, Some(tab_id))?;
-    let page = manager.page(agent_id, &tab_id).unwrap_or_default();
+    let mut page = manager.page(agent_id, &tab_id).unwrap_or_default();
     let mut result = if let Some(dialog) = manager.dialog(&tab_id) {
         json!({
             "url": page.url,
@@ -2451,7 +2525,41 @@ async fn read_state(
     } else if page.url == BLANK_URL {
         json!({ "url": BLANK_URL, "title": "", "elements": "", "text": "" })
     } else {
-        call(&view, "state", &[json!(mode), json!(full_text), part]).await?
+        let mut first = call(
+            &view,
+            "state",
+            &[json!(mode), json!(full_text), part.clone()],
+        )
+        .await;
+        let navigating = match &first {
+            Err(error) => native::is_navigated_error(error),
+            Ok(_) => manager
+                .page(agent_id, &tab_id)
+                .is_some_and(|current| current.loading),
+        };
+        if navigating {
+            let _ = manager
+                .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
+                .await;
+            if let Some(dialog) = manager.dialog(&tab_id) {
+                page = manager.page(agent_id, &tab_id).unwrap_or_default();
+                first = Ok(json!({
+                    "url": page.url,
+                    "title": page.title,
+                    "dialog": dialog,
+                    "note": native::dialog_blocked_error(&dialog),
+                }));
+            } else {
+                call_page_settle_tab(manager, &tab_id, &view).await;
+                page = manager.page(agent_id, &tab_id).unwrap_or_default();
+                first = if page.url == BLANK_URL {
+                    Ok(json!({ "url": BLANK_URL, "title": "", "elements": "", "text": "" }))
+                } else {
+                    call(&view, "state", &[json!(mode), json!(full_text), part]).await
+                };
+            }
+        }
+        first?
     };
     if let Some(viewport) = result.get_mut("viewport").and_then(Value::as_object_mut) {
         let fixed = manager.viewport(agent_id, &tab_id);
@@ -2504,6 +2612,34 @@ fn merge(mut action: Value, state: Value) -> Result<Value, String> {
         }
     }
     Ok(action)
+}
+
+async fn wait_for_triggered_navigation(
+    manager: &BrowserManager,
+    agent_id: &str,
+    tab_id: &str,
+    view: &Tab,
+    before_seq: u64,
+    may_navigate: bool,
+) {
+    let is_loading = || {
+        manager
+            .page(agent_id, tab_id)
+            .is_some_and(|page| page.loading)
+    };
+    if may_navigate && manager.nav_seq(tab_id) == before_seq && !is_loading() {
+        manager
+            .wait_for_nav_start(agent_id, tab_id, before_seq, NAV_START_WAIT)
+            .await;
+    }
+    if manager.nav_seq(tab_id) != before_seq || is_loading() {
+        let _ = manager
+            .wait_until_loaded(agent_id, tab_id, LOAD_TIMEOUT)
+            .await;
+        if manager.dialog(tab_id).is_none() {
+            call_page_settle_tab(manager, tab_id, view).await;
+        }
+    }
 }
 
 /// Gives the page one animation frame + microtask turn (capped at SETTLE_FRAME_MS)
@@ -2918,6 +3054,16 @@ mod tests {
             &json!({ "value": "\u{2022}\u{2022}", "valueLength": 6 })
         )
         .is_none());
+        assert!(typing_missed(
+            "alice@example.com",
+            &json!({ "value": "", "consumed": true })
+        )
+        .is_none());
+        assert_eq!(
+            trimmed_expression("document.title;"),
+            Some("document.title")
+        );
+        assert_eq!(trimmed_expression("document.title"), None);
     }
 
     #[test]

@@ -388,8 +388,9 @@ where a screenshot's pixels sit too. `text` or `selector` must pick out one
 element: when several match, nothing is clicked and the error lists them, so
 add a `role` or pass one as `index`. Text nothing matches yet gets three
 seconds to appear. A click by coordinates names what it `hit`; check it before
-trusting a point from an older screenshot. `covered` names what took the
-click instead, and `expectLabel` fails a click that would land elsewhere.
+trusting a point from an older screenshot. A covered target scrolls clear if it
+can, and fails cleanly naming the covering element rather than clicking it;
+`expectLabel` fails a click that would land elsewhere.
 `hover: true` only moves the pointer; while Sikemux is in the background CSS
 `:hover` styles do not apply.
 
@@ -406,9 +407,13 @@ and `Tab` handles (`goto`, `click`, `hover`, `type`, `fill`, `select`, `press`, 
 `wait`, `state`, `find`, `eval`, `upload`, `dialog`, `download`, `screenshot`,
 `console`, `network`, `viewport`, `close`). Use it for multi-step flows,
 branching, loops, and parallel multi-tab work with `Promise.all([...])` —
-returning only the structured JSON you need. `tab.type(target, text, opts?)`
-(and `tab.fill(target, text, opts?)` with `replace: true`) and `tab.eval(script, opts?)`
-accept either positional args or an options object (`{ field|selector|index?, text }` / `{ script }`). `tab.select(target, value)` picks a
+returning only the structured JSON you need. `tab.click(target, opts?)` and
+`tab.type(target, text, opts?)` / `tab.fill(target, text, opts?)` accept element
+numbers, visible text/labels, CSS selector strings (like `button[type=submit]` or
+`input[name=subject]`), or an options object (`{ field|selector|index?, text }`).
+`tab.eval(fnOrScript, ...argsOrOpts)` accepts a JS function (with optional
+JSON-serializable args), a JS expression/script string, or `{ script, timeoutMs? }`,
+and returns the evaluated value directly. `tab.select(target, value)` picks a
 `<select>` option by value or visible label (or an array for `<select multiple>`)
 with framework-safe events. `tab.upload(target, files)` uploads files through
 `browser_upload`, `tab.dialog(action, text?)` answers `"accept"` or `"dismiss"`
