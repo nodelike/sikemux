@@ -26,6 +26,8 @@ pub(crate) const SCREEN_READY_STEP: Duration = Duration::from_secs(1);
 const SETTLE_READS: usize = 12;
 /// Bounded retries for a transient empty app tree (such as a modal fade-out): ~500 ms.
 const EMPTY_READS: usize = 5;
+/// Bounded retries for `sim tap` by label when a screen is mid-remount (e.g. hot reload): ~2.1 s.
+const LABEL_WAIT_READS: usize = 7;
 /// Elements whose centre is above this are the status bar's: time, signal, battery.
 const STATUS_BAR_HEIGHT: f64 = 60.0;
 /// How many reads, a step apart, to wait for a launched app to come to the front: ten seconds.
@@ -185,23 +187,31 @@ pub(super) async fn run(
         "sim.state" => settled_state(manager, agent_id, None, Report::Full).await,
         "sim.tap" => {
             let device = attached(manager, agent_id)?;
-            let before = read_screen(manager, &device).await?;
-            let numbered = manager.number(agent_id, &before.elements);
-            let (point, intent) = match text("label") {
+            let (before, point, intent) = match text("label") {
                 Some(label) => {
-                    let element = labelled_element(&numbered, label)?.clone();
-                    (element.center, TapIntent::Label(label.to_owned(), element))
+                    let (before, point, element) =
+                        resolve_label_tap(manager, agent_id, &device, label).await?;
+                    (before, point, TapIntent::Label(label.to_owned(), element))
                 }
                 None => match params.get("index").and_then(Value::as_u64) {
                     Some(index) => {
-                        let (_, target) = tap_target(&numbered, Some(index), None, None)?;
+                        let before = read_non_empty_screen(manager, &device).await?;
+                        let numbered = manager.number(agent_id, &before.elements);
+                        let (fallback_point, target) =
+                            tap_target(&numbered, Some(index), None, None)?;
                         let element = target.ok_or("element is not on the screen now")?.clone();
-                        (element.center, TapIntent::Index(element))
+                        let point = numbered
+                            .iter()
+                            .position(|(number, _)| *number as u64 == index)
+                            .and_then(|pos| before.frames.get(pos).copied())
+                            .map_or(fallback_point, |frame| visible_center(frame, before.size));
+                        (before, point, TapIntent::Index(element))
                     }
                     None => {
-                        let (point, _) = tap_target(&numbered, None, number("x"), number("y"))?;
+                        let before = read_screen(manager, &device).await?;
+                        let (point, _) = tap_target(&[], None, number("x"), number("y"))?;
                         let hit = interactive_element_at(&before, point).cloned();
-                        (point, TapIntent::Point(point, hit))
+                        (before, point, TapIntent::Point(point, hit))
                     }
                 },
             };
@@ -223,7 +233,7 @@ pub(super) async fn run(
                 let after_second = settle_read(manager, &device, Some(&after_first)).await?;
                 let (state, _) =
                     finish_state(manager, agent_id, &device, after_second, report).await?;
-                (state, Some(POPOVER_RETAPPED_NOTE))
+                (state, Some(POPOVER_RETAPPED_NOTE.to_owned()))
             } else {
                 let (state, after) =
                     finish_state(manager, agent_id, &device, after_first, report).await?;
@@ -232,7 +242,9 @@ pub(super) async fn run(
                     &before,
                     &after,
                     targeted_dismiss_region,
-                );
+                )
+                .map(str::to_owned)
+                .or_else(|| no_op_label_tap_note(&intent, point, &before, &after));
                 (state, note)
             };
             if let (Some(note), Some(state)) = (note, state.as_object_mut()) {
@@ -2314,9 +2326,14 @@ fn find_same_element<'a>(
 fn popover_retap_point(intent: &TapIntent, before: &Read, after: &Read) -> Option<(f64, f64)> {
     match intent {
         TapIntent::Label(label, before_el) => {
-            let numbered: Vec<Numbered> = after.elements.iter().cloned().enumerate().collect();
-            let after_el = labelled_element(&numbered, label).ok()?;
-            still_untriggered_target(before_el, after_el).then_some(after_el.center)
+            let index = match_labelled_index(&after.elements, Some(&after.frames), label).ok()?;
+            let after_el = after.elements.get(index)?;
+            let point = after
+                .frames
+                .get(index)
+                .copied()
+                .map_or(after_el.center, |frame| visible_center(frame, after.size));
+            still_untriggered_target(before_el, after_el).then_some(point)
         }
         TapIntent::Index(before_el) => {
             let after_el = find_same_element(&before.elements, &after.elements, before_el)?;
@@ -2328,6 +2345,52 @@ fn popover_retap_point(intent: &TapIntent, before: &Read, after: &Read) -> Optio
         }
         TapIntent::Point(_, None) => None,
     }
+}
+
+fn no_op_label_tap_note(
+    intent: &TapIntent,
+    point: (f64, f64),
+    before: &Read,
+    after: &Read,
+) -> Option<String> {
+    let TapIntent::Label(label, tapped) = intent else {
+        return None;
+    };
+    if before.app != after.app || non_status_bar_changed(&before.elements, &after.elements) {
+        return None;
+    }
+    if !tapped.enabled {
+        return Some(format!(
+            "Tapped disabled {} {} at ({}, {}) with no screen change.",
+            tapped.role,
+            quoted(&tapped.label),
+            point.0,
+            point.1
+        ));
+    }
+    if INTERACTIVE_ROLES.contains(&tapped.role.as_str()) {
+        return None;
+    }
+    let needle = label.to_lowercase();
+    let candidate = after.elements.iter().find(|element| {
+        element.enabled
+            && !element.offscreen
+            && INTERACTIVE_ROLES.contains(&element.role.as_str())
+            && !same_identity(element, tapped)
+            && (element.label.to_lowercase().contains(&needle)
+                || element.identifier.eq_ignore_ascii_case(label))
+    })?;
+    Some(format!(
+        "Tapped non-interactive {} {} at ({}, {}) with no screen change; try interactive {} {} at ({}, {}).",
+        tapped.role,
+        quoted(&tapped.label),
+        point.0,
+        point.1,
+        candidate.role,
+        quoted(&candidate.label),
+        candidate.center.0,
+        candidate.center.1
+    ))
 }
 
 fn popover_dismissed_note_for_tap(
@@ -2477,42 +2540,222 @@ pub(super) fn unhandled_custom_url_scheme_error(
     None
 }
 
+async fn read_non_empty_screen(
+    manager: &SimulatorManager,
+    device: &Device,
+) -> Result<Read, String> {
+    let mut read = read_screen(manager, device).await?;
+    for _ in 0..EMPTY_READS {
+        if !read.elements.is_empty() || is_launching(&read) || near_deadline() {
+            break;
+        }
+        pause(manager.steps().empty).await?;
+        read = read_screen(manager, device).await?;
+    }
+    Ok(read)
+}
+
+async fn resolve_label_tap(
+    manager: &SimulatorManager,
+    agent_id: &str,
+    device: &Device,
+    label: &str,
+) -> Result<(Read, (f64, f64), Element), String> {
+    let mut attempt = 0;
+    loop {
+        let before = read_screen(manager, device).await?;
+        match match_labelled_index(&before.elements, Some(&before.frames), label) {
+            Ok(index) => {
+                let element = before
+                    .elements
+                    .get(index)
+                    .ok_or("element is not on the screen now")?
+                    .clone();
+                let point = before
+                    .frames
+                    .get(index)
+                    .copied()
+                    .map_or(element.center, |frame| visible_center(frame, before.size));
+                return Ok((before, point, element));
+            }
+            Err(failure @ (LabelMatchFailure::Missing | LabelMatchFailure::Offscreen))
+                if attempt < LABEL_WAIT_READS && !near_deadline() =>
+            {
+                let _ = failure;
+                attempt += 1;
+                pause(manager.steps().settle).await?;
+            }
+            Err(failure) => {
+                let numbered = manager.number(agent_id, &before.elements);
+                return Err(label_error_message(failure, &numbered, label));
+            }
+        }
+    }
+}
+
+fn frame_area((_, _, width, height): Frame) -> f64 {
+    width * height
+}
+
+fn frame_contains(outer: Frame, inner: Frame) -> bool {
+    const SLOP: f64 = 1.0;
+    outer.0 - SLOP <= inner.0
+        && outer.1 - SLOP <= inner.1
+        && outer.0 + outer.2 + SLOP >= inner.0 + inner.2
+        && outer.1 + outer.3 + SLOP >= inner.1 + inner.3
+}
+
+fn visible_center((x, y, width, height): Frame, screen: Option<(f64, f64)>) -> (f64, f64) {
+    let Some((screen_width, screen_height)) = screen else {
+        return ((x + width / 2.0).round(), (y + height / 2.0).round());
+    };
+    let left = x.max(0.0);
+    let top = y.max(0.0);
+    let right = (x + width).min(screen_width);
+    let bottom = (y + height).min(screen_height);
+    if right > left && bottom > top {
+        (
+            ((left + right) / 2.0).round(),
+            ((top + bottom) / 2.0).round(),
+        )
+    } else {
+        ((x + width / 2.0).round(), (y + height / 2.0).round())
+    }
+}
+
+enum LabelMatchFailure {
+    Missing,
+    Offscreen,
+    Ambiguous(Vec<usize>),
+}
+
 /// The element `name` labels or identifies. An exact label or identifier wins
 /// over a partial label, and more than one equally good match is an error, so a
 /// tap never lands on an element the agent did not mean.
 #[cfg(all(test, unix))]
 pub(super) fn labelled(elements: &[Numbered], name: &str) -> Result<(f64, f64), String> {
-    labelled_element(elements, name).map(|element| element.center)
+    let raw: Vec<Element> = elements
+        .iter()
+        .map(|(_, element)| element.clone())
+        .collect();
+    match match_labelled_index(&raw, None, name) {
+        Ok(index) => raw
+            .get(index)
+            .map(|element| element.center)
+            .ok_or_else(|| "element is not on the screen now".into()),
+        Err(failure) => Err(label_error_message(failure, elements, name)),
+    }
 }
 
-fn labelled_element<'a>(elements: &'a [Numbered], name: &str) -> Result<&'a Element, String> {
-    let exact = |(_, element): &&Numbered| element.label == name || element.identifier == name;
-    let partial =
-        |(_, element): &&Numbered| element.label.to_lowercase().contains(&name.to_lowercase());
-    let mut matches: Vec<&Numbered> = elements.iter().filter(exact).collect();
+fn match_labelled_index(
+    elements: &[Element],
+    frames: Option<&[Frame]>,
+    name: &str,
+) -> Result<usize, LabelMatchFailure> {
+    let exact =
+        |(_, element): &(usize, &Element)| element.label == name || element.identifier == name;
+    let needle = name.to_lowercase();
+    let partial = |(_, element): &(usize, &Element)| element.label.to_lowercase().contains(&needle);
+    let mut matches: Vec<usize> = elements
+        .iter()
+        .enumerate()
+        .filter(exact)
+        .map(|(index, _)| index)
+        .collect();
     if matches.is_empty() {
-        matches = elements.iter().filter(partial).collect();
+        matches = elements
+            .iter()
+            .enumerate()
+            .filter(partial)
+            .map(|(index, _)| index)
+            .collect();
     }
-    let reachable: Vec<&Numbered> = matches
+    let reachable: Vec<usize> = matches
         .iter()
         .copied()
-        .filter(|(_, element)| !element.offscreen)
+        .filter(|&index| {
+            elements
+                .get(index)
+                .is_some_and(|element| !element.offscreen)
+        })
         .collect();
     match reachable.as_slice() {
-        [(_, element)] => Ok(element),
-        [] if !matches.is_empty() => Err(format!(
-            "\"{name}\" is off the screen; scroll it into view, then tap it"
-        )),
-        [] => Err(format!(
+        [only] => return Ok(*only),
+        [] if !matches.is_empty() => return Err(LabelMatchFailure::Offscreen),
+        [] => return Err(LabelMatchFailure::Missing),
+        _ => {}
+    }
+    let enabled: Vec<usize> = reachable
+        .iter()
+        .copied()
+        .filter(|&index| elements.get(index).is_some_and(|element| element.enabled))
+        .collect();
+    let candidates = if !enabled.is_empty() {
+        enabled
+    } else {
+        reachable
+    };
+    if let [only] = candidates.as_slice() {
+        return Ok(*only);
+    }
+    let interactive: Vec<usize> = candidates
+        .iter()
+        .copied()
+        .filter(|&index| {
+            elements
+                .get(index)
+                .is_some_and(|element| INTERACTIVE_ROLES.contains(&element.role.as_str()))
+        })
+        .collect();
+    if let [only] = interactive.as_slice() {
+        return Ok(*only);
+    }
+    let candidates = if !interactive.is_empty() {
+        interactive
+    } else {
+        candidates
+    };
+    if let Some(frames) = frames {
+        if let Some(&innermost) = candidates.iter().min_by(|&&a, &&b| {
+            let area = |index: usize| frames.get(index).copied().map_or(f64::INFINITY, frame_area);
+            area(a).total_cmp(&area(b))
+        }) {
+            if let Some(&target_frame) = frames.get(innermost) {
+                let nested = candidates.iter().all(|&index| {
+                    index == innermost
+                        || frames
+                            .get(index)
+                            .copied()
+                            .is_some_and(|outer| frame_contains(outer, target_frame))
+                });
+                if nested {
+                    return Ok(innermost);
+                }
+            }
+        }
+    }
+    Err(LabelMatchFailure::Ambiguous(candidates))
+}
+
+fn label_error_message(failure: LabelMatchFailure, elements: &[Numbered], name: &str) -> String {
+    match failure {
+        LabelMatchFailure::Offscreen => {
+            format!("\"{name}\" is off the screen; scroll it into view, then tap it")
+        }
+        LabelMatchFailure::Missing => format!(
             "no element on screen is labelled \"{name}\"; it may be scrolled out of view, so scroll and read the screen again"
-        )),
-        several => {
-            let listed: Vec<String> = several.iter().take(5).map(|numbered| line(numbered)).collect();
-            Err(format!(
+        ),
+        LabelMatchFailure::Ambiguous(indices) => {
+            let listed: Vec<String> = indices
+                .iter()
+                .take(5)
+                .filter_map(|&index| elements.get(index).map(line))
+                .collect();
+            format!(
                 "{} elements match \"{name}\": {}; tap one by its number",
-                several.len(),
+                indices.len(),
                 listed.join("; ")
-            ))
+            )
         }
     }
 }

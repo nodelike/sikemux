@@ -1329,6 +1329,157 @@ done
     }
 
     #[test]
+    fn sim_tap_retries_label_after_hot_reload_and_disambiguates_targets() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("requests");
+        let mode = dir.path().join("mode");
+        let reads = dir.path().join("reads");
+
+        let empty_tree = json!({ "elements": [
+            { "type": "Application", "label": "Academy", "pid": 42, "frame": { "x": 0, "y": 0, "width": 402, "height": 874 }, "children": [] }
+        ]});
+        let remounted_tabs = json!({ "elements": [
+            { "type": "Application", "label": "Academy", "pid": 42, "frame": { "x": 0, "y": 0, "width": 402, "height": 874 }, "children": [
+                { "type": "GenericElement", "label": "Profile", "enabled": true,
+                  "frame": { "x": 300, "y": 810, "width": 80, "height": 44 } }
+            ] }
+        ]});
+        let heading_and_button = json!({ "elements": [
+            { "type": "Application", "label": "Academy", "pid": 42, "frame": { "x": 0, "y": 0, "width": 402, "height": 874 }, "children": [
+                { "type": "Heading", "label": "Change email", "enabled": true,
+                  "frame": { "x": 20, "y": 100, "width": 200, "height": 30 } },
+                { "type": "Button", "label": "Change email", "enabled": true,
+                  "frame": { "x": 20, "y": 400, "width": 362, "height": 48 } }
+            ] }
+        ]});
+        let nested_row = json!({ "elements": [
+            { "type": "Application", "label": "Academy", "pid": 42, "frame": { "x": 0, "y": 0, "width": 402, "height": 874 }, "children": [
+                { "type": "GenericElement", "label": "Change email", "enabled": true,
+                  "frame": { "x": 0, "y": 300, "width": 402, "height": 120 },
+                  "children": [
+                    { "type": "StaticText", "label": "Change email", "enabled": true,
+                      "frame": { "x": 24, "y": 320, "width": 120, "height": 24 } }
+                  ] }
+            ] }
+        ]});
+        let clipped_bottom = json!({ "elements": [
+            { "type": "Application", "label": "Academy", "pid": 42, "frame": { "x": 0, "y": 0, "width": 402, "height": 874 }, "children": [
+                { "type": "Button", "label": "Continue", "enabled": true,
+                  "frame": { "x": 16, "y": 820, "width": 370, "height": 100 } }
+            ] }
+        ]});
+        let shadowed_noop = json!({ "elements": [
+            { "type": "Application", "label": "Academy", "pid": 42, "frame": { "x": 0, "y": 0, "width": 402, "height": 874 }, "children": [
+                { "type": "StaticText", "label": "Change email", "enabled": true,
+                  "frame": { "x": 20, "y": 140, "width": 140, "height": 24 } },
+                { "type": "Button", "label": "Change email, alex@example.com", "enabled": true,
+                  "frame": { "x": 20, "y": 220, "width": 362, "height": 48 } }
+            ] }
+        ]});
+
+        let esc = |value: &serde_json::Value| {
+            let s = value.to_string();
+            s.get(1..s.len() - 1)
+                .unwrap_or_default()
+                .replace('"', "\\\"")
+        };
+        let script = format!(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> '{log}'
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+  case "$line" in
+    *'"type":"devices"'*) echo "{{\"id\":$id,\"type\":\"result\",\"devices\":[{{\"udid\":\"U1\",\"name\":\"iPhone 17\",\"runtime\":\"iOS 27.0\",\"state\":\"booted\"}}]}}" ;;
+    *'"type":"screen"'*) echo "{{\"id\":$id,\"type\":\"result\",\"width\":402,\"height\":874,\"scale\":3}}" ;;
+    *'"type":"tree"'*)
+      m=$(cat '{mode}')
+      case "$m" in
+        hot_reload)
+          r=$(cat '{reads}')
+          r=$((r + 1))
+          printf '%s' "$r" > '{reads}'
+          if [ "$r" -lt 3 ]; then
+            echo "{{\"id\":$id,\"type\":\"result\",{empty}}}"
+          else
+            echo "{{\"id\":$id,\"type\":\"result\",{remounted}}}"
+          fi
+          ;;
+        heading_and_button) echo "{{\"id\":$id,\"type\":\"result\",{heading_and_button}}}" ;;
+        nested_row) echo "{{\"id\":$id,\"type\":\"result\",{nested_row}}}" ;;
+        clipped_bottom) echo "{{\"id\":$id,\"type\":\"result\",{clipped_bottom}}}" ;;
+        shadowed_noop) echo "{{\"id\":$id,\"type\":\"result\",{shadowed_noop}}}" ;;
+        *) echo "{{\"id\":$id,\"type\":\"result\",{remounted}}}" ;;
+      esac
+      ;;
+    *) echo "{{\"id\":$id,\"type\":\"result\"}}" ;;
+  esac
+done
+"#,
+            log = log.display(),
+            mode = mode.display(),
+            reads = reads.display(),
+            empty = esc(&empty_tree),
+            remounted = esc(&remounted_tabs),
+            heading_and_button = esc(&heading_and_button),
+            nested_row = esc(&nested_row),
+            clipped_bottom = esc(&clipped_bottom),
+            shadowed_noop = esc(&shadowed_noop),
+        );
+        std::fs::write(&mode, "ready").unwrap();
+        std::fs::write(&reads, "0").unwrap();
+        let (_dir, manager) = helper(&script);
+        let call = |method: &str, params: serde_json::Value| {
+            run_now(&manager, "agent-1", "/tmp", method, &params)
+        };
+        let last_tap_point = || -> (f64, f64) {
+            let line = std::fs::read_to_string(&log)
+                .unwrap()
+                .lines()
+                .rfind(|line| line.contains(r#""type":"tap""#))
+                .unwrap()
+                .to_owned();
+            let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+            (v["x"].as_f64().unwrap(), v["y"].as_f64().unwrap())
+        };
+
+        call("sim.attach", json!({ "device": "iPhone 17" })).expect("attach");
+
+        // 1. After a hot reload leaves the AX tree briefly empty, label tap retries and finds GenericElement tab item.
+        std::fs::write(&mode, "hot_reload").unwrap();
+        std::fs::write(&reads, "0").unwrap();
+        call("sim.tap", json!({ "label": "Profile" }))
+            .expect("label tap should retry across transient hot-reload tree");
+        assert_eq!(last_tap_point(), (340.0, 832.0));
+
+        // 2. When Heading and Button share exact label, prefer the interactive Button.
+        std::fs::write(&mode, "heading_and_button").unwrap();
+        call("sim.tap", json!({ "label": "Change email" }))
+            .expect("should pick interactive Button over Heading");
+        assert_eq!(last_tap_point(), (201.0, 424.0));
+
+        // 3. When a GenericElement container wraps an identically-labelled child, tap the innermost child.
+        std::fs::write(&mode, "nested_row").unwrap();
+        call("sim.tap", json!({ "label": "Change email" }))
+            .expect("should pick innermost element of nested match");
+        assert_eq!(last_tap_point(), (84.0, 332.0));
+
+        // 4. Partially clipped bottom button is tapped at the center of its visible intersection.
+        std::fs::write(&mode, "clipped_bottom").unwrap();
+        call("sim.tap", json!({ "label": "Continue" })).expect("clipped tap");
+        assert_eq!(last_tap_point(), (201.0, 847.0));
+
+        // 5. Silent no-op on non-interactive StaticText emits a note pointing to the interactive partial match.
+        std::fs::write(&mode, "shadowed_noop").unwrap();
+        let noop = call("sim.tap", json!({ "label": "Change email" })).expect("noop tap");
+        assert!(
+            noop["note"]
+                .as_str()
+                .is_some_and(|n| n.contains("StaticText") && n.contains("alex@example.com")),
+            "{noop}"
+        );
+    }
+
+    #[test]
     fn sim_type_warns_when_readback_misses_a_dropped_character() {
         let field_screen = |role: &str, value: &str| {
             read_from(&json!({ "elements": [
