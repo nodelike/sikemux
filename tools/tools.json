@@ -1087,6 +1087,23 @@
       ]
     },
     {
+      "name": "sim_uninstall",
+      "row": {"verb": "remove", "kind": "execute", "icon": "close", "target": ["{bundleId}"]},
+      "method": "sim.uninstall",
+      "offered": "simulator",
+      "description": "Uninstall an app on the attached simulator by bundle id.",
+      "properties": {
+        "bundleId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        }
+      },
+      "required": [
+        "bundleId"
+      ]
+    },
+    {
       "name": "sim_open_url",
       "row": {"verb": "open", "kind": "fetch", "icon": "globe", "target": ["{url}"]},
       "method": "sim.openUrl",

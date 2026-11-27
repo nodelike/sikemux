@@ -141,15 +141,21 @@ mod tools {
     use serde_json::json;
 
     use super::{helper, real_helper, REAL_DEVICE};
-    use crate::bundle::url_types_handle_scheme;
+    use crate::bundle::{
+        app_bundle_ancestor, duplicate_scheme_conflicts_from, url_types_handle_scheme,
+    };
     use crate::claims::Claim;
+    use crate::load::{Machine, Wait};
     use crate::tools::{
         app_size, cap_logs, changes, choose_device, custom_url_scheme, dropped_text_warning,
-        edge_warning, element_lines, elements_from, inside_project, inspect, labelled, landed,
-        launching, newest_iphone, pick_device, run, screen_from, tap_point, text_fields_from,
-        trailing_escaped_newline, type_steps, unhandled_custom_url_scheme_error, Device, Element,
-        Numbered, Numbering, Pick, Read, TypeStep,
+        duplicate_scheme_install_warning, duplicate_scheme_open_warning, edge_warning,
+        element_lines, elements_from, frontmost_bundle_id, frontmost_pid, inside_project, inspect,
+        labelled, landed, launching, newest_iphone, pick_device, queued_text, run, screen_from,
+        tap_point, text_fields_from, trailing_escaped_newline, type_steps,
+        unhandled_custom_url_scheme_error, Device, Element, Numbered, Numbering, Pick, Read,
+        TypeStep,
     };
+    use crate::Queued;
     use sikemux_process::sync::Locked;
     use std::collections::{HashMap, HashSet};
 
@@ -866,6 +872,8 @@ done
         let text_fields = text_fields_from(&flat);
         Read {
             app,
+            pid: frontmost_pid(reply),
+            bundle_id: frontmost_bundle_id(reply),
             elements,
             frames,
             size,
@@ -1485,6 +1493,297 @@ done
         );
         call("sim.openUrl", json!({ "url": "https://example.com" }))
             .expect("built-in https scheme must not false-positive");
+    }
+
+    #[test]
+    fn duplicate_custom_url_scheme_warns_on_open_and_install_and_uninstall_removes_bundle() {
+        let conflicts = duplicate_scheme_conflicts_from(
+            &[
+                (
+                    "com.swishx.salesacademy".into(),
+                    vec!["swishxacademy".into()],
+                ),
+                ("com.swishx.academy".into(), vec!["swishxacademy".into()]),
+                ("com.example.other".into(), vec!["other".into()]),
+            ],
+            "com.swishx.academy",
+            &["swishxacademy".into()],
+        );
+        assert_eq!(
+            conflicts,
+            vec![(
+                "swishxacademy".into(),
+                vec![
+                    "com.swishx.academy".into(),
+                    "com.swishx.salesacademy".into()
+                ]
+            )]
+        );
+        let install_warn =
+            duplicate_scheme_install_warning(&conflicts).expect("install should warn");
+        assert!(
+            install_warn.contains("swishxacademy://")
+                && install_warn.contains("com.swishx.academy")
+                && install_warn.contains("com.swishx.salesacademy")
+                && install_warn.contains("sim uninstall"),
+            "{install_warn}"
+        );
+        assert_eq!(duplicate_scheme_install_warning(&[]), None);
+
+        let open_warn = duplicate_scheme_open_warning(
+            "swishxacademy",
+            &[
+                "com.swishx.academy".into(),
+                "com.swishx.salesacademy".into(),
+            ],
+            Some("com.swishx.salesacademy"),
+            "Sales Academy",
+        )
+        .expect("open should warn");
+        assert!(
+            open_warn.contains("swishxacademy://")
+                && open_warn.contains("com.swishx.academy")
+                && open_warn.contains("com.swishx.salesacademy")
+                && open_warn.contains("opened com.swishx.salesacademy in the foreground")
+                && open_warn.contains("sim uninstall"),
+            "{open_warn}"
+        );
+        assert_eq!(
+            app_bundle_ancestor(std::path::Path::new(
+                "/Devices/U1/data/Containers/Bundle/Application/UUID/Academy.app/Academy"
+            )),
+            Some(std::path::Path::new(
+                "/Devices/U1/data/Containers/Bundle/Application/UUID/Academy.app"
+            ))
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("requests");
+        let script = format!(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> '{log}'
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+  case "$line" in
+    *'"type":"devices"'*) echo "{{\"id\":$id,\"type\":\"result\",\"devices\":[{{\"udid\":\"U1\",\"name\":\"iPhone 17\",\"runtime\":\"iOS 27.0\",\"state\":\"booted\"}}]}}" ;;
+    *'"type":"screen"'*) echo "{{\"id\":$id,\"type\":\"result\",\"width\":402,\"height\":874,\"scale\":3}}" ;;
+    *'"type":"openUrl"'*) echo "{{\"id\":$id,\"type\":\"result\",\"scheme\":\"swishxacademy\",\"matchingBundleIds\":[\"com.swishx.academy\",\"com.swishx.salesacademy\"]}}" ;;
+    *'"type":"tree"'*) echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Sales Academy\",\"bundleId\":\"com.swishx.salesacademy\",\"pid\":999,\"frame\":{{\"x\":0,\"y\":0,\"width\":402,\"height\":874}},\"children\":[{{\"type\":\"StaticText\",\"label\":\"Welcome\",\"frame\":{{\"x\":40,\"y\":200,\"width\":200,\"height\":32}}}}]}}]}}" ;;
+    *) echo "{{\"id\":$id,\"type\":\"result\"}}" ;;
+  esac
+done
+"#,
+            log = log.display(),
+        );
+        let (_helper_dir, manager) = helper(&script);
+        let call = |method: &str, params: serde_json::Value| {
+            run_now(&manager, "agent-dup", "/tmp", method, &params)
+        };
+        call("sim.attach", json!({ "device": "iPhone 17" })).expect("attach");
+        let opened = call(
+            "sim.openUrl",
+            json!({ "url": "swishxacademy://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081" }),
+        )
+        .expect("openUrl with duplicate scheme succeeds with warning");
+        let warning = opened["warning"].as_str().expect("duplicate warning");
+        assert!(
+            warning.contains("com.swishx.academy")
+                && warning.contains("com.swishx.salesacademy")
+                && warning.contains("opened com.swishx.salesacademy in the foreground")
+                && warning.contains("sim uninstall"),
+            "{opened}"
+        );
+
+        let removed = call(
+            "sim.uninstall",
+            json!({ "bundleId": "com.swishx.salesacademy" }),
+        )
+        .expect("uninstall");
+        assert_eq!(removed["uninstalled"], json!("com.swishx.salesacademy"));
+        let sent = std::fs::read_to_string(&log).unwrap();
+        assert!(
+            sent.contains(r#""type":"uninstall""#)
+                && sent.contains(r#""bundleId":"com.swishx.salesacademy""#),
+            "{sent}"
+        );
+    }
+
+    #[test]
+    fn sim_attach_reclaims_idle_booted_simulator_and_reports_slot_holders() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("requests");
+        let iphone_state = dir.path().join("iphone-state");
+        let ipad_state = dir.path().join("ipad-state");
+        std::fs::write(&iphone_state, "booted").unwrap();
+        std::fs::write(&ipad_state, "shutdown").unwrap();
+        let script = format!(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> '{log}'
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+  case "$line" in
+    *'"type":"devices"'*)
+      ip=$(cat '{iphone}')
+      pd=$(cat '{ipad}')
+      echo "{{\"id\":$id,\"type\":\"result\",\"devices\":[{{\"udid\":\"U-IPHONE\",\"name\":\"iPhone 17\",\"runtime\":\"iOS 27.0\",\"state\":\"$ip\"}},{{\"udid\":\"U-IPAD\",\"name\":\"iPad Pro 11-inch (M5)\",\"runtime\":\"iOS 27.0\",\"state\":\"$pd\"}}]}}"
+      ;;
+    *'"type":"shutdown"'*)
+      case "$line" in
+        *'"udid":"U-IPHONE"'*) printf 'shutdown' > '{iphone}' ;;
+        *'"udid":"U-IPAD"'*) printf 'shutdown' > '{ipad}' ;;
+      esac
+      echo "{{\"id\":$id,\"type\":\"result\"}}"
+      ;;
+    *'"type":"boot"'*)
+      case "$line" in
+        *'"udid":"U-IPHONE"'*) printf 'booted' > '{iphone}' ;;
+        *'"udid":"U-IPAD"'*) printf 'booted' > '{ipad}' ;;
+      esac
+      echo "{{\"id\":$id,\"type\":\"result\"}}"
+      ;;
+    *'"type":"screen"'*) echo "{{\"id\":$id,\"type\":\"result\",\"width\":834,\"height\":1194,\"scale\":2}}" ;;
+    *'"type":"tree"'*) echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}},\"children\":[{{\"type\":\"StaticText\",\"label\":\"Home\",\"frame\":{{\"x\":40,\"y\":200,\"width\":200,\"height\":32}}}}]}}]}}" ;;
+    *) echo "{{\"id\":$id,\"type\":\"result\"}}" ;;
+  esac
+done
+"#,
+            log = log.display(),
+            iphone = iphone_state.display(),
+            ipad = ipad_state.display(),
+        );
+        let (_helper_dir, manager) = helper(&script);
+        let busy_machine = Machine {
+            cores: 10,
+            free_memory: Some(8 << 30),
+            load: Some(20.0),
+        };
+        manager.set_test_machine(busy_machine, false);
+        manager.note_booted("U-IPHONE");
+
+        // 1. Idle unattached iPhone 17 blocks slot under high load -> reclaimed immediately so iPad boots.
+        let attached = run_now(
+            &manager,
+            "agent-ino",
+            "/work/academy-mobile",
+            "sim.attach",
+            &json!({ "device": "iPad Pro 11-inch (M5)", "fresh": true }),
+        )
+        .expect("should reclaim idle iPhone 17 and boot iPad");
+        assert!(
+            attached["device"]
+                .as_str()
+                .is_some_and(|d| d.contains("iPad Pro 11-inch (M5)")),
+            "{attached}"
+        );
+        assert_eq!(std::fs::read_to_string(&iphone_state).unwrap(), "shutdown");
+        assert_eq!(std::fs::read_to_string(&ipad_state).unwrap(), "booted");
+
+        // 2. Switching from own attached iPhone 17 to iPad Pro also reclaims own iPhone 17 cleanly.
+        manager.release("agent-ino");
+        std::fs::write(&iphone_state, "booted").unwrap();
+        std::fs::write(&ipad_state, "shutdown").unwrap();
+        manager.note_booted("U-IPHONE");
+        run_now(
+            &manager,
+            "agent-ino",
+            "/work/academy-mobile",
+            "sim.attach",
+            &json!({ "device": "iPhone 17" }),
+        )
+        .expect("attach iphone");
+        run_now(
+            &manager,
+            "agent-ino",
+            "/work/academy-mobile",
+            "sim.attach",
+            &json!({ "device": "iPad Pro 11-inch (M5)", "fresh": true }),
+        )
+        .expect("switching devices reclaims own previous simulator");
+        assert_eq!(std::fs::read_to_string(&iphone_state).unwrap(), "shutdown");
+
+        // 3. When another active agent holds the slot, room() reports the exact device & agent.
+        manager.release("agent-ino");
+        std::fs::write(&iphone_state, "booted").unwrap();
+        std::fs::write(&ipad_state, "shutdown").unwrap();
+        run_now(
+            &manager,
+            "agent-other",
+            "/work/academy-mobile",
+            "sim.attach",
+            &json!({ "device": "iPhone 17" }),
+        )
+        .expect("other agent attaches iphone");
+        let devices = [
+            Device {
+                udid: "U-IPHONE".into(),
+                name: "iPhone 17".into(),
+                os: "iOS 27.0".into(),
+                booted: true,
+                busy: false,
+                warm: true,
+                screen: None,
+            },
+            Device {
+                udid: "U-IPAD".into(),
+                name: "iPad Pro 11-inch (M5)".into(),
+                os: "iOS 27.0".into(),
+                booted: false,
+                busy: false,
+                warm: true,
+                screen: None,
+            },
+        ];
+        let queued = manager
+            .room("agent-ino", &devices, false, Some("U-IPAD"))
+            .err()
+            .expect("slot held by active agent should wait");
+        let wait_msg = queued_text(&queued);
+        assert!(
+            wait_msg.contains("iPhone 17")
+                && wait_msg.contains("agent-other")
+                && wait_msg.contains("academy-mobile"),
+            "{wait_msg}"
+        );
+        let too_long_msg = queued_text(&Queued::TooLong {
+            wait: Some(Wait::Full {
+                running: 1,
+                limit: 1,
+            }),
+            machine: busy_machine,
+            slots: vec!["iPhone 17 (held by agent-other in academy-mobile)".into()],
+        });
+        assert!(
+            too_long_msg.contains("iPhone 17")
+                && too_long_msg.contains("agent-other")
+                && too_long_msg.contains("academy-mobile"),
+            "{too_long_msg}"
+        );
+
+        // 4. External simulator open in Simulator.app at hard memory/core cap fails fast with clear message.
+        manager.release("agent-other");
+        manager.forget_booted("U-IPHONE");
+        manager.set_test_machine(
+            Machine {
+                cores: 3,
+                free_memory: Some(1 << 30),
+                load: Some(1.0),
+            },
+            true,
+        );
+        let blocked = run_now(
+            &manager,
+            "agent-ino",
+            "/work/academy-mobile",
+            "sim.attach",
+            &json!({ "device": "iPad Pro 11-inch (M5)", "fresh": true }),
+        )
+        .unwrap_err();
+        assert!(
+            blocked.contains("no simulator slot is available")
+                && blocked.contains("iPhone 17")
+                && blocked.contains("booted outside Sikemux"),
+            "{blocked}"
+        );
     }
 
     #[test]

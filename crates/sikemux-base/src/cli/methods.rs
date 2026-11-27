@@ -36,6 +36,7 @@ pub const SIM_METHODS: &[&str] = &[
     "sim.launch",
     "sim.terminate",
     "sim.install",
+    "sim.uninstall",
     "sim.openUrl",
     "sim.touchPath",
     "sim.touch2Path",

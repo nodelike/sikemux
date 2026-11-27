@@ -165,7 +165,9 @@ fn named(name: &str, tool: &ToolCall, args: &Map<String, Value>) -> Option<Kind>
         "sim_launch" | "sim_open_url" | "sim_install" | "sim_attach" => {
             (F::Simulator, I::Open, None)
         }
-        "sim_detach" | "sim_terminate" | "sim_rotate" => (F::Simulator, I::Use, None),
+        "sim_detach" | "sim_terminate" | "sim_uninstall" | "sim_rotate" => {
+            (F::Simulator, I::Use, None)
+        }
         _ => {
             let (prefix, _) = name.split_once('_')?;
             let family = match prefix {

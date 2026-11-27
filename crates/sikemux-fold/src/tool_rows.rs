@@ -389,6 +389,17 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "sim_uninstall",
+        Spec {
+            verb: "remove",
+            kind: "execute",
+            icon: "close",
+            target: &["{bundleId}"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
         "sim_open_url",
         Spec {
             verb: "open",

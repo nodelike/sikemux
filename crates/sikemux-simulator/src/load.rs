@@ -29,14 +29,19 @@ impl Machine {
         }
     }
 
-    /// How many simulators may run beside the `running` ones: as many as the cores and
-    /// free memory take, none more while the Mac is too busy, and always one.
-    pub fn limit(&self, running: usize) -> usize {
+    /// How many simulators the Mac's cores and free memory fit without transient CPU load.
+    pub fn hard_limit(&self, running: usize) -> usize {
         let by_cores = (self.cores / CORES_PER_SIMULATOR).max(1);
         let by_memory = self.free_memory.map_or(by_cores, |free| {
             running + (free / BYTES_PER_SIMULATOR) as usize
         });
-        let limit = by_cores.min(by_memory);
+        by_cores.min(by_memory).max(1)
+    }
+
+    /// How many simulators may run beside the `running` ones: as many as the cores and
+    /// free memory take, none more while the Mac is too busy, and always one.
+    pub fn limit(&self, running: usize) -> usize {
+        let limit = self.hard_limit(running);
         let limit = if self.busy() {
             limit.min(running)
         } else {
@@ -103,6 +108,18 @@ fn device_of(path: &str) -> Option<String> {
 /// app containers, and is the slowest and heaviest boot it has.
 pub(crate) fn booted_before(udid: &str) -> bool {
     devices_folder().is_none_or(|devices| devices.join(udid).join("data/Containers").is_dir())
+}
+
+/// Whether Apple's Simulator or DeviceHub GUI app is running on this Mac.
+pub(crate) fn external_simulator_ui_running() -> bool {
+    sikemux_process::procs::processes()
+        .into_iter()
+        .any(|(pid, _, _)| {
+            matches!(
+                sikemux_process::procs::name(pid).as_deref(),
+                Some("Simulator" | "DeviceHub")
+            )
+        })
 }
 
 pub(crate) fn devices_folder() -> Option<PathBuf> {

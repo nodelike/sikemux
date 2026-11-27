@@ -191,6 +191,8 @@ pub struct SimulatorManager {
     /// Counts each agent's cancellations; a call started before the latest one stops.
     cancels: Mutex<HashMap<String, Arc<AtomicU64>>>,
     me: Weak<SimulatorManager>,
+    #[cfg(all(test, unix))]
+    test_machine: Mutex<Option<(load::Machine, bool)>>,
 }
 
 /// The tool call the current task is running.
@@ -270,7 +272,14 @@ impl SimulatorManager {
             turns: Mutex::default(),
             cancels: Mutex::default(),
             me: me.clone(),
+            #[cfg(all(test, unix))]
+            test_machine: Mutex::default(),
         })
+    }
+
+    #[cfg(all(test, unix))]
+    pub(crate) fn set_test_machine(&self, machine: load::Machine, external_ui: bool) {
+        *self.test_machine.locked() = Some((machine, external_ui));
     }
 
     /// The helper's own requests, as a window's device view sends them.
@@ -715,6 +724,109 @@ impl SimulatorManager {
         self.shared.locked().booted.insert(udid.to_owned());
     }
 
+    pub(crate) fn forget_booted(&self, udid: &str) {
+        self.shared.locked().booted.remove(udid);
+    }
+
+    fn machine_and_external_ui(&self) -> (load::Machine, bool, bool) {
+        #[cfg(all(test, unix))]
+        if let Some((machine, external_ui)) = *self.test_machine.locked() {
+            return (machine, external_ui, false);
+        }
+        (
+            load::Machine::now(),
+            load::external_simulator_ui_running(),
+            self.helper.is_none(),
+        )
+    }
+
+    /// Picks one idle booted simulator that can be shut down immediately to free a slot for
+    /// `target_udid`: first the calling agent's own previous device when switching, then an
+    /// unheld simulator Sikemux booted, then an orphaned unheld simulator when Simulator.app
+    /// / DeviceHub is not running. Returns `(device, held_by_caller)`.
+    pub(crate) fn reclaim_candidate(
+        &self,
+        agent_id: &str,
+        target_udid: Option<&str>,
+        devices: &[Device],
+        skip: &HashSet<String>,
+    ) -> Option<(Device, bool)> {
+        let (_, external_ui, _) = self.machine_and_external_ui();
+        let claims = self.claims.all();
+        let shared = self.shared.locked();
+        let eligible = |device: &&Device| {
+            device.booted
+                && !device.busy
+                && !android::is_phone(&device.udid)
+                && target_udid != Some(device.udid.as_str())
+                && !skip.contains(&device.udid)
+        };
+        if let Some(mine) = devices.iter().filter(eligible).find(|device| {
+            claims
+                .get(&device.udid)
+                .is_some_and(|claim| self.is_mine(claim, agent_id))
+                && (shared.booted.contains(&device.udid) || !external_ui)
+        }) {
+            return Some((mine.clone(), true));
+        }
+        let unheld = |device: &&Device| eligible(device) && !claims.contains_key(&device.udid);
+        let on_desk = |udid: &str| shared.desk.values().any(|shown| shown == udid);
+        if let Some(ours) = devices
+            .iter()
+            .filter(unheld)
+            .filter(|device| shared.booted.contains(&device.udid))
+            .min_by_key(|device| on_desk(&device.udid))
+        {
+            return Some((ours.clone(), false));
+        }
+        if !external_ui {
+            if let Some(orphan) = devices
+                .iter()
+                .filter(unheld)
+                .min_by_key(|device| on_desk(&device.udid))
+            {
+                return Some((orphan.clone(), false));
+            }
+        }
+        None
+    }
+
+    fn describe_slots(
+        &self,
+        agent_id: &str,
+        devices: &[Device],
+        running: &HashSet<String>,
+        claims: &HashMap<String, Claim>,
+        shared: &Shared,
+    ) -> Vec<String> {
+        let mut items: Vec<String> = running
+            .iter()
+            .map(|udid| {
+                if let Some(who) = udid.strip_prefix("reserved-by-") {
+                    return format!("slot reserved by {who}");
+                }
+                let device = devices.iter().find(|device| &device.udid == udid);
+                let name = device.map_or(udid.as_str(), |device| device.name.as_str());
+                let status = if let Some(claim) = claims.get(udid) {
+                    if self.is_mine(claim, agent_id) {
+                        "attached to you".to_owned()
+                    } else {
+                        format!("held by {} in {}", claim.agent_id, claim.project_name())
+                    }
+                } else if shared.starting.contains(udid) || device.is_some_and(|d| d.busy) {
+                    "starting".to_owned()
+                } else if shared.booted.contains(udid) {
+                    "unattached".to_owned()
+                } else {
+                    "booted outside Sikemux, unattached".to_owned()
+                };
+                format!("{name} ({status})")
+            })
+            .collect();
+        items.sort();
+        items
+    }
+
     /// Whether the agent may start a simulator now, `cold` for one never booted: it
     /// must be first in line, and the Mac must have room beside every simulator
     /// running or reserved, whoever started it. A yes reserves the room until the
@@ -725,23 +837,28 @@ impl SimulatorManager {
         agent_id: &str,
         devices: &[Device],
         cold: bool,
+        target_udid: Option<&str>,
     ) -> Result<Starting<'_>, Queued> {
-        let mut running = load::running();
+        let (machine, _, scan_host) = self.machine_and_external_ui();
+        let mut running = if scan_host {
+            load::running()
+        } else {
+            HashSet::new()
+        };
         running.extend(
             devices
                 .iter()
-                .filter(|device| device.booted || device.busy)
+                .filter(|device| (device.booted || device.busy) && !android::is_phone(&device.udid))
                 .map(|device| device.udid.clone()),
         );
         let (place, joined) = self.take_place(agent_id);
-        if joined.elapsed() >= MOST_WAIT {
-            self.leave_line(agent_id);
-            return Err(Queued::TooLong);
-        }
-        let machine = load::Machine::now();
         let mut shared = self.shared.locked();
         running.extend(shared.starting.iter().cloned());
-        let starting = devices.iter().filter(|device| device.busy).count() + shared.starting.len();
+        let starting = devices
+            .iter()
+            .filter(|device| device.busy && !android::is_phone(&device.udid))
+            .count()
+            + shared.starting.len();
         let limit = machine.limit(running.len());
         let wait = load::room(running.len(), starting, cold, limit).err();
         if place == 0 && wait.is_none() {
@@ -756,10 +873,43 @@ impl SimulatorManager {
         if matches!(wait, Some(load::Wait::Full { .. })) {
             self.expire_leases(agent_id);
         }
+        let claims = self.claims.all();
+        let slots = {
+            let shared = self.shared.locked();
+            self.describe_slots(agent_id, devices, &running, &claims, &shared)
+        };
+        if joined.elapsed() >= MOST_WAIT {
+            self.leave_line(agent_id);
+            return Err(Queued::TooLong {
+                wait,
+                machine,
+                slots,
+            });
+        }
+        let hard_full = running.len() >= machine.hard_limit(running.len());
+        let any_held = running.iter().any(|udid| claims.contains_key(udid));
+        let reclaimable = self
+            .reclaim_candidate(agent_id, target_udid, devices, &HashSet::new())
+            .is_some();
+        if place == 0
+            && matches!(wait, Some(load::Wait::Full { .. }))
+            && hard_full
+            && starting == 0
+            && !any_held
+            && !reclaimable
+        {
+            self.leave_line(agent_id);
+            return Err(Queued::Blocked {
+                wait,
+                machine,
+                slots,
+            });
+        }
         Err(Queued::Waiting {
             place,
             wait,
             machine,
+            slots,
         })
     }
 
@@ -943,8 +1093,18 @@ pub(crate) enum Queued {
         place: usize,
         wait: Option<load::Wait>,
         machine: load::Machine,
+        slots: Vec<String>,
     },
-    TooLong,
+    TooLong {
+        wait: Option<load::Wait>,
+        machine: load::Machine,
+        slots: Vec<String>,
+    },
+    Blocked {
+        wait: Option<load::Wait>,
+        machine: load::Machine,
+        slots: Vec<String>,
+    },
 }
 
 /// Room reserved for one simulator to start, held until it has booted.

@@ -631,7 +631,8 @@ Calls run one at a time, about 50 seconds each.
   the keyboard shows, a swipe over it types a word: press Return or tap outside
   first.
 - `sim open_url` opens a URL on the device; custom URL schemes need a matching
-  app installed first with `sim install`.
+  app installed first with `sim install` (use `sim uninstall` to remove stale
+  bundles claiming the same scheme).
 - A `sim swipe` starting within 10 points of an edge is a system gesture (home,
   back, Notification Center); start inside the content to scroll.
 - `sim touch2_path` points name both fingers (`x1`, `y1`, `x2`, `y2`).

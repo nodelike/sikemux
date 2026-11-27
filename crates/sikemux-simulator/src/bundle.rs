@@ -71,30 +71,63 @@ pub(crate) fn bundle_id(app: &Path) -> Option<String> {
 }
 
 #[cfg(any(target_os = "macos", all(test, unix)))]
-pub(crate) fn url_types_handle_scheme(value: &serde_json::Value, scheme: &str) -> bool {
-    value
+pub(crate) fn url_schemes(value: &serde_json::Value) -> Vec<String> {
+    let mut schemes: Vec<String> = value
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|entry| entry.get("CFBundleURLSchemes")?.as_array())
         .flatten()
         .filter_map(serde_json::Value::as_str)
+        .filter(|scheme| !scheme.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect();
+    schemes.sort();
+    schemes.dedup();
+    schemes
+}
+
+#[cfg(all(test, unix))]
+pub(crate) fn url_types_handle_scheme(value: &serde_json::Value, scheme: &str) -> bool {
+    url_schemes(value)
+        .iter()
         .any(|declared| declared.eq_ignore_ascii_case(scheme))
 }
 
-/// Whether any user-installed app on the iOS simulator `udid` declares `scheme` in its
-/// Info.plist `CFBundleURLTypes`. Returns `None` when the simulator's data directory is
-/// unavailable (such as non-macOS hosts or fake test devices).
 #[cfg(target_os = "macos")]
-pub(crate) fn installed_handles_scheme(udid: &str, scheme: &str) -> Option<bool> {
+pub(crate) fn bundle_schemes(app: &Path) -> Vec<String> {
+    let output = sikemux_process::user_environment::command("/usr/bin/plutil")
+        .args(["-extract", "CFBundleURLTypes", "json", "-o", "-"])
+        .arg(app.join("Info.plist"))
+        .stdin(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success());
+    let Some(output) = output else {
+        return Vec::new();
+    };
+    serde_json::from_slice::<serde_json::Value>(&output.stdout)
+        .map(|value| url_schemes(&value))
+        .unwrap_or_default()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn bundle_schemes(_app: &Path) -> Vec<String> {
+    Vec::new()
+}
+
+#[cfg(target_os = "macos")]
+fn installed_apps_with_schemes(udid: &str) -> Option<Vec<(String, Vec<String>)>> {
     let data_dir = super::load::devices_folder()?.join(udid).join("data");
     if !data_dir.is_dir() {
         return None;
     }
     let apps_dir = data_dir.join("Containers/Bundle/Application");
     let Ok(containers) = std::fs::read_dir(&apps_dir) else {
-        return Some(false);
+        return Some(Vec::new());
     };
+    let mut apps = Vec::new();
     for container in containers.flatten() {
         let Ok(entries) = std::fs::read_dir(container.path()) else {
             continue;
@@ -104,27 +137,110 @@ pub(crate) fn installed_handles_scheme(udid: &str, scheme: &str) -> Option<bool>
             if path.extension().and_then(|ext| ext.to_str()) != Some("app") || !path.is_dir() {
                 continue;
             }
-            let output = sikemux_process::user_environment::command("/usr/bin/plutil")
-                .args(["-extract", "CFBundleURLTypes", "json", "-o", "-"])
-                .arg(path.join("Info.plist"))
-                .stdin(sikemux_process::command::Stdio::null())
-                .stderr(sikemux_process::command::Stdio::null())
-                .output()
-                .ok()
-                .filter(|output| output.status.success());
-            if let Some(output) = output {
-                if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                    if url_types_handle_scheme(&value, scheme) {
-                        return Some(true);
-                    }
-                }
+            let schemes = bundle_schemes(&path);
+            if schemes.is_empty() {
+                continue;
             }
+            let id = bundle_id(&path).unwrap_or_else(|| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .to_owned()
+            });
+            apps.push((id, schemes));
         }
     }
-    Some(false)
+    Some(apps)
+}
+
+/// Every user-installed app on the iOS simulator `udid` that declares `scheme` in its
+/// Info.plist `CFBundleURLTypes`. Returns `None` when the simulator's data directory is
+/// unavailable (such as non-macOS hosts or fake test devices).
+#[cfg(target_os = "macos")]
+pub(crate) fn installed_scheme_claimants(udid: &str, scheme: &str) -> Option<Vec<String>> {
+    let apps = installed_apps_with_schemes(udid)?;
+    let mut claimants: Vec<String> = apps
+        .into_iter()
+        .filter(|(_, schemes)| schemes.iter().any(|s| s.eq_ignore_ascii_case(scheme)))
+        .map(|(id, _)| id)
+        .collect();
+    claimants.sort();
+    claimants.dedup();
+    Some(claimants)
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn installed_handles_scheme(_udid: &str, _scheme: &str) -> Option<bool> {
+pub(crate) fn installed_scheme_claimants(_udid: &str, _scheme: &str) -> Option<Vec<String>> {
+    None
+}
+
+/// For each scheme in `schemes`, returns `(scheme, sorted_bundle_ids)` whenever more than one
+/// installed app on `udid` claims that scheme.
+#[cfg(target_os = "macos")]
+pub(crate) fn duplicate_scheme_conflicts(
+    udid: &str,
+    bundle_id: &str,
+    schemes: &[String],
+) -> Vec<(String, Vec<String>)> {
+    if schemes.is_empty() {
+        return Vec::new();
+    }
+    let Some(apps) = installed_apps_with_schemes(udid) else {
+        return Vec::new();
+    };
+    duplicate_scheme_conflicts_from(&apps, bundle_id, schemes)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn duplicate_scheme_conflicts(
+    _udid: &str,
+    _bundle_id: &str,
+    _schemes: &[String],
+) -> Vec<(String, Vec<String>)> {
+    Vec::new()
+}
+
+#[cfg(any(target_os = "macos", all(test, unix)))]
+pub(crate) fn duplicate_scheme_conflicts_from(
+    installed: &[(String, Vec<String>)],
+    bundle_id: &str,
+    schemes: &[String],
+) -> Vec<(String, Vec<String>)> {
+    let mut conflicts = Vec::new();
+    for scheme in schemes {
+        let mut claimants: Vec<String> = installed
+            .iter()
+            .filter(|(_, app_schemes)| app_schemes.iter().any(|s| s.eq_ignore_ascii_case(scheme)))
+            .map(|(id, _)| id.clone())
+            .collect();
+        if !bundle_id.is_empty() && !claimants.iter().any(|id| id == bundle_id) {
+            claimants.push(bundle_id.to_owned());
+        }
+        claimants.sort();
+        claimants.dedup();
+        if claimants.len() > 1 {
+            conflicts.push((scheme.to_ascii_lowercase(), claimants));
+        }
+    }
+    conflicts
+}
+
+#[cfg(any(target_os = "macos", all(test, unix)))]
+pub(crate) fn app_bundle_ancestor(path: &Path) -> Option<&Path> {
+    path.ancestors()
+        .find(|ancestor| ancestor.extension().and_then(|ext| ext.to_str()) == Some("app"))
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn bundle_id_for_pid(pid: i64) -> Option<String> {
+    let pid = u32::try_from(pid).ok()?;
+    let cmd = sikemux_process::procs::command_line(pid)?;
+    let executable = cmd.first()?;
+    let app = app_bundle_ancestor(Path::new(executable))?;
+    bundle_id(app)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn bundle_id_for_pid(_pid: i64) -> Option<String> {
     None
 }

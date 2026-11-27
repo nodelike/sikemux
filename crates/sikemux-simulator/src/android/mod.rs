@@ -602,6 +602,21 @@ impl Android {
                 let path = text("path").ok_or("path is required")?;
                 self.install(&serial, path).await
             }
+            "uninstall" => {
+                let serial = self.serial(&udid).await?;
+                let package = text("bundleId").ok_or("bundleId is required")?;
+                let output = self
+                    .adb(
+                        &["-s", &serial, "uninstall", package],
+                        Duration::from_secs(60),
+                    )
+                    .await?;
+                if output.contains("Failure") {
+                    return Err(output.trim().to_owned());
+                }
+                self.pids.locked().remove(&(serial, package.to_owned()));
+                Ok(json!({ "uninstalled": package }))
+            }
             "openUrl" => {
                 let serial = self.serial(&udid).await?;
                 let url = text("url").ok_or("url is required")?;
@@ -1603,5 +1618,24 @@ esac
             "{full}"
         );
         assert!(!std::fs::read_to_string(&log).unwrap().contains("uninstall"));
+
+        // Case 4: explicit sim uninstall calls `adb uninstall <package>`.
+        std::fs::write(&log, "").unwrap();
+        let removed = android
+            .request(
+                "uninstall",
+                fields(json!({ "udid": "adb:pixel", "bundleId": "com.example.stale" })),
+                Duration::from_secs(10),
+            )
+            .await
+            .expect("explicit uninstall");
+        assert_eq!(removed["uninstalled"], json!("com.example.stale"));
+        assert!(
+            std::fs::read_to_string(&log)
+                .unwrap()
+                .contains("uninstall com.example.stale"),
+            "{}",
+            std::fs::read_to_string(&log).unwrap()
+        );
     }
 }

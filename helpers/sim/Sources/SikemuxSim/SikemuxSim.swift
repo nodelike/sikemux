@@ -128,6 +128,8 @@ struct SikemuxSim {
             try await simulators.stopStream(on: udid, format: request.format)
         case "install":
             return ["bundleId": try await simulators.install(try require(request.path, "path"), on: udid)]
+        case "uninstall":
+            try await simulators.uninstall(try require(request.bundleId, "bundleId"), on: udid)
         case "launch":
             let pid = try await simulators.launch(
                 try require(request.bundleId, "bundleId"), arguments: request.arguments ?? [], environment: request.environment ?? [:], on: udid)
@@ -138,7 +140,7 @@ struct SikemuxSim {
             guard let url = URL(string: try require(request.url, "url")) else {
                 throw Failure(reason: "badRequest", message: "Not a URL: \(request.url ?? "")")
             }
-            try await simulators.open(url, on: udid)
+            return try await simulators.open(url, on: udid)
         default:
             throw Failure(reason: "protocol", message: "Unknown request \(request.type)")
         }

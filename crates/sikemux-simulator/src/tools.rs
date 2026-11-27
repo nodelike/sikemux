@@ -363,7 +363,7 @@ pub(super) async fn run(
         "sim.install" => {
             let device = attached(manager, agent_id)?;
             let path = inside_project(project, text("path").ok_or("path is required")?)?;
-            if !is_android(&device.udid) {
+            let (mut reply, bundle) = if !is_android(&device.udid) {
                 let (udid, app) = (device.udid.clone(), path.clone());
                 let installed = tokio::task::spawn_blocking(move || {
                     super::bundle::already_installed(&udid, &app)
@@ -374,38 +374,127 @@ pub(super) async fn run(
                 .ok()
                 .flatten();
                 if let Some(bundle) = installed {
-                    return Ok(
+                    (
                         json!({ "bundleId": bundle, "unchanged": "this build is already on the device" }),
-                    );
+                        Some(bundle),
+                    )
+                } else {
+                    let reply = manager
+                        .request("install", json!({ "udid": device.udid, "path": path }))
+                        .await?;
+                    let bundle = reply
+                        .get("bundleId")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    (reply, bundle)
+                }
+            } else {
+                let reply = manager
+                    .request("install", json!({ "udid": device.udid, "path": path }))
+                    .await?;
+                (reply, None)
+            };
+            if !is_android(&device.udid) {
+                let (udid, app, bundle_id) = (
+                    device.udid.clone(),
+                    path.clone(),
+                    bundle.unwrap_or_default(),
+                );
+                let conflicts = tokio::task::spawn_blocking(move || {
+                    let custom: Vec<String> = super::bundle::bundle_schemes(&app)
+                        .into_iter()
+                        .filter(|scheme| is_custom_scheme(scheme))
+                        .collect();
+                    super::bundle::duplicate_scheme_conflicts(&udid, &bundle_id, &custom)
+                })
+                .await
+                .unwrap_or_default();
+                if let (Some(warning), Some(fields)) = (
+                    duplicate_scheme_install_warning(&conflicts),
+                    reply.as_object_mut(),
+                ) {
+                    fields.insert("warning".to_owned(), warning.into());
                 }
             }
+            Ok(reply)
+        }
+        "sim.uninstall" => {
+            let device = attached(manager, agent_id)?;
+            let bundle = text("bundleId").ok_or("bundleId is required")?;
+            manager.forget_launch(agent_id, bundle);
             manager
-                .request("install", json!({ "udid": device.udid, "path": path }))
-                .await
+                .request(
+                    "uninstall",
+                    json!({ "udid": device.udid, "bundleId": bundle }),
+                )
+                .await?;
+            Ok(json!({ "uninstalled": bundle }))
         }
         "sim.openUrl" => {
             let device = attached(manager, agent_id)?;
             let before = read_screen(manager, &device).await?;
             let url = text("url").ok_or("url is required")?;
-            manager
+            let open_reply = manager
                 .request("openUrl", json!({ "udid": device.udid, "url": url }))
                 .await?;
-            let (state, after) =
+            let (mut state, after) =
                 settled_state_with_read(manager, agent_id, Some(before.clone()), report(params)?)
                     .await?;
-            if !is_android(&device.udid) && (after.app == HOME_SCREEN || after.app == SYSTEM) {
+            if !is_android(&device.udid) {
                 if let Some(scheme) = custom_url_scheme(url) {
-                    let udid = device.udid.clone();
-                    let installed = tokio::task::spawn_blocking(move || {
-                        super::bundle::installed_handles_scheme(&udid, &scheme)
-                    })
-                    .await
-                    .ok()
-                    .flatten();
-                    if let Some(error) =
-                        unhandled_custom_url_scheme_error(url, &before, &after, installed)
-                    {
-                        return Err(error);
+                    let helper_claimants: Vec<String> = open_reply
+                        .get("matchingBundleIds")
+                        .and_then(Value::as_array)
+                        .map(|list| {
+                            list.iter()
+                                .filter_map(Value::as_str)
+                                .map(str::to_owned)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let claimants = if !helper_claimants.is_empty() {
+                        Some(helper_claimants)
+                    } else {
+                        let (udid, scheme_owned) = (device.udid.clone(), scheme.clone());
+                        tokio::task::spawn_blocking(move || {
+                            super::bundle::installed_scheme_claimants(&udid, &scheme_owned)
+                        })
+                        .await
+                        .ok()
+                        .flatten()
+                    };
+                    if after.app == HOME_SCREEN || after.app == SYSTEM {
+                        let installed = claimants.as_ref().map(|ids| !ids.is_empty());
+                        if let Some(error) =
+                            unhandled_custom_url_scheme_error(url, &before, &after, installed)
+                        {
+                            return Err(error);
+                        }
+                    }
+                    if let Some(claimants) = claimants.filter(|ids| ids.len() > 1) {
+                        let foreground_bundle = match after.bundle_id.clone() {
+                            Some(id) => Some(id),
+                            None => match after.pid {
+                                Some(pid) => tokio::task::spawn_blocking(move || {
+                                    super::bundle::bundle_id_for_pid(pid)
+                                })
+                                .await
+                                .ok()
+                                .flatten(),
+                                None => None,
+                            },
+                        };
+                        if let (Some(warning), Some(fields)) = (
+                            duplicate_scheme_open_warning(
+                                &scheme,
+                                &claimants,
+                                foreground_bundle.as_deref(),
+                                &after.app,
+                            ),
+                            state.as_object_mut(),
+                        ) {
+                            fields.insert("warning".to_owned(), warning.into());
+                        }
                     }
                 }
             }
@@ -541,6 +630,8 @@ pub(super) type Frame = (f64, f64, f64, f64);
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Read {
     pub app: String,
+    pub pid: Option<i64>,
+    pub bundle_id: Option<String>,
     pub elements: Vec<Element>,
     pub frames: Vec<Frame>,
     pub size: Option<(f64, f64)>,
@@ -768,6 +859,7 @@ async fn attach(
     fresh: bool,
 ) -> Result<Value, String> {
     let line = InLine { manager, agent_id };
+    let mut reclaimed = HashSet::new();
     let (mut device, mut starting) = loop {
         let devices = list_devices(manager).await?;
         let chosen = choose_for(manager, agent_id, project, wanted, fresh, &devices)?;
@@ -778,7 +870,8 @@ async fn attach(
             break (device.clone(), None);
         }
         let cold = chosen.as_ref().is_none_or(|device| !device.warm);
-        match manager.room(agent_id, &devices, cold) {
+        let target_udid = chosen.as_ref().map(|device| device.udid.as_str());
+        match manager.room(agent_id, &devices, cold, target_udid) {
             Ok(starting) => match chosen {
                 Some(device) => break (device, Some(starting)),
                 None => {
@@ -788,7 +881,39 @@ async fn attach(
                     )
                 }
             },
-            Err(queued) if near_deadline() || matches!(queued, Queued::TooLong) => {
+            Err(queued @ (Queued::TooLong { .. } | Queued::Blocked { .. })) => {
+                return Err(queued_text(&queued));
+            }
+            Err(
+                ref queued @ Queued::Waiting {
+                    place: 0,
+                    wait: Some(Wait::Full { .. }),
+                    ..
+                },
+            ) => {
+                if let Some((idle, was_mine)) =
+                    manager.reclaim_candidate(agent_id, target_udid, &devices, &reclaimed)
+                {
+                    reclaimed.insert(idle.udid.clone());
+                    if was_mine {
+                        manager.release(agent_id);
+                    }
+                    if manager
+                        .request("shutdown", json!({ "udid": idle.udid }))
+                        .await
+                        .is_ok()
+                    {
+                        manager.forget_booted(&idle.udid);
+                    }
+                    continue;
+                }
+                if near_deadline() {
+                    line.keep_place();
+                    return Err(queued_text(queued));
+                }
+                pause(WAIT_STEP).await?;
+            }
+            Err(queued) if near_deadline() => {
                 line.keep_place();
                 return Err(queued_text(&queued));
             }
@@ -940,45 +1065,68 @@ fn choose_for(
 
 /// What an agent waiting for a simulator is told.
 pub(super) fn queued_text(queued: &Queued) -> String {
-    let (place, wait, machine) = match queued {
-        Queued::TooLong => {
-            return format!(
-                "you waited {} minutes and no simulator freed up; ask the person which to shut down. Never boot one with simctl or Xcode yourself",
-                super::MOST_WAIT.as_secs() / 60
-            )
+    let reason = |wait: &Option<Wait>, machine: &super::load::Machine, slots: &[String]| {
+        let holders = if slots.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", slots.join(", "))
+        };
+        match wait {
+            Some(Wait::Full { running, limit }) if machine.busy() => format!(
+                "{} is busy (load {:.0} on {} cores) and already runs {running} simulator{} (limit {limit}{holders})",
+                this_computer(),
+                machine.load.unwrap_or_default(),
+                machine.cores,
+                if *running == 1 { "" } else { "s" },
+            ),
+            Some(Wait::Full { running, limit }) => format!(
+                "{} runs {running} simulator{}, as many as its cores and memory take now (limit {limit}{holders})",
+                this_computer(),
+                if *running == 1 { "" } else { "s" },
+            ),
+            Some(Wait::Starting) => {
+                format!("another simulator is starting, and a first boot goes alone{holders}")
+            }
+            None => format!("agents ahead of you start theirs first{holders}"),
         }
+    };
+    match queued {
+        Queued::TooLong {
+            wait,
+            machine,
+            slots,
+        } => format!(
+            "you waited {} minutes and no simulator freed up: {}. Ask the person which to shut down; never boot one with simctl or Xcode yourself",
+            super::MOST_WAIT.as_secs() / 60,
+            reason(wait, machine, slots),
+        ),
+        Queued::Blocked {
+            wait,
+            machine,
+            slots,
+        } => format!(
+            "no simulator slot is available: {}. Ask the person to shut down an unused simulator; never boot one with simctl or Xcode yourself",
+            reason(wait, machine, slots),
+        ),
         Queued::Waiting {
             place,
             wait,
             machine,
-        } => (*place, wait, machine),
-    };
-    let why = match wait {
-        Some(Wait::Full { running, .. }) if machine.busy() => format!(
-            "{} is busy (load {:.0} on {} cores) and already runs {running} simulator{}",
-            this_computer(),
-            machine.load.unwrap_or_default(),
-            machine.cores,
-            if *running == 1 { "" } else { "s" },
-        ),
-        Some(Wait::Full { running, limit }) => format!(
-            "{} runs {running} simulator{}, as many as its cores and memory take now ({limit})",
-            this_computer(),
-            if *running == 1 { "" } else { "s" },
-        ),
-        Some(Wait::Starting) => "another simulator is starting, and a first boot goes alone".into(),
-        None => "agents ahead of you start theirs first".into(),
-    };
-    let line = match place {
-        0 => "you are next in line".to_owned(),
-        ahead => format!(
-            "{ahead} agent{} ahead of you",
-            if ahead == 1 { " is" } else { "s are" }
-        ),
-    };
-    format!(
-        "waiting for a simulator: {line}, as {why}. Call sim attach again within a minute to keep your place; never boot one with simctl or Xcode yourself"
-    )
+            slots,
+        } => {
+            let line = match *place {
+                0 => "you are next in line".to_owned(),
+                ahead => format!(
+                    "{ahead} agent{} ahead of you",
+                    if ahead == 1 { " is" } else { "s are" }
+                ),
+            };
+            format!(
+                "waiting for a simulator: {line}, as {}. Call sim attach again within a minute to keep your place; never boot one with simctl or Xcode yourself",
+                reason(wait, machine, slots),
+            )
+        }
+    }
 }
 
 fn this_computer() -> &'static str {
@@ -1182,6 +1330,16 @@ pub(super) fn frontmost_pid(reply: &Value) -> Option<i64> {
         .as_i64()
 }
 
+pub(super) fn frontmost_bundle_id(reply: &Value) -> Option<String> {
+    reply["elements"]
+        .as_array()?
+        .iter()
+        .find(|element| element["type"] == "Application")?["bundleId"]
+        .as_str()
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+}
+
 /// A path the agent gave, which must name something inside its project.
 pub(super) fn inside_project(project: &str, path: &str) -> Result<PathBuf, String> {
     let confined = sikemux_process::files::confine_to_project(project, path).map_err(|error| {
@@ -1291,6 +1449,8 @@ async fn read_screen(manager: &SimulatorManager, device: &Device) -> Result<Read
     };
     let size = app_size(&reply).or(device.screen);
     let (app, elements, frames) = screen_from(&reply, size);
+    let pid = frontmost_pid(&reply);
+    let bundle_id = frontmost_bundle_id(&reply);
     let elements_read = reply.get("elements").map(flattened).unwrap_or_default();
     let keyboard = elements_read
         .iter()
@@ -1298,6 +1458,8 @@ async fn read_screen(manager: &SimulatorManager, device: &Device) -> Result<Read
     let text_fields = text_fields_from(&elements_read);
     Ok(Read {
         app,
+        pid,
+        bundle_id,
         elements,
         frames,
         size,
@@ -2227,6 +2389,10 @@ const SYSTEM_URL_SCHEMES: [&str; 43] = [
     "imessage",
 ];
 
+pub(super) fn is_custom_scheme(scheme: &str) -> bool {
+    !scheme.is_empty() && !SYSTEM_URL_SCHEMES.contains(&scheme.to_ascii_lowercase().as_str())
+}
+
 pub(super) fn custom_url_scheme(url: &str) -> Option<String> {
     let (scheme, _) = url.trim().split_once(':')?;
     let mut chars = scheme.chars();
@@ -2237,7 +2403,43 @@ pub(super) fn custom_url_scheme(url: &str) -> Option<String> {
         return None;
     }
     let lower = scheme.to_ascii_lowercase();
-    (!SYSTEM_URL_SCHEMES.contains(&lower.as_str())).then_some(lower)
+    is_custom_scheme(&lower).then_some(lower)
+}
+
+pub(super) fn duplicate_scheme_open_warning(
+    scheme: &str,
+    matching_bundle_ids: &[String],
+    foreground_bundle_id: Option<&str>,
+    foreground_app: &str,
+) -> Option<String> {
+    if matching_bundle_ids.len() < 2 {
+        return None;
+    }
+    let opened = match foreground_bundle_id {
+        Some(bundle_id) => format!("opened {bundle_id} in the foreground"),
+        None if !foreground_app.is_empty() => format!("foreground app: \"{foreground_app}\""),
+        None => "foreground app unknown".to_owned(),
+    };
+    Some(format!(
+        "Multiple installed apps claim scheme '{scheme}://': {} ({opened}). Remove stale bundles with sim uninstall.",
+        matching_bundle_ids.join(", ")
+    ))
+}
+
+pub(super) fn duplicate_scheme_install_warning(
+    conflicts: &[(String, Vec<String>)],
+) -> Option<String> {
+    if conflicts.is_empty() {
+        return None;
+    }
+    let parts: Vec<String> = conflicts
+        .iter()
+        .map(|(scheme, ids)| format!("'{scheme}://' ({})", ids.join(", ")))
+        .collect();
+    Some(format!(
+        "Multiple installed apps claim custom URL scheme(s): {}. Deep links may open the wrong app; remove stale bundles with sim uninstall.",
+        parts.join("; ")
+    ))
 }
 
 pub(super) fn unhandled_custom_url_scheme_error(

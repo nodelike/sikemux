@@ -515,6 +515,10 @@ actor Simulators {
         try await booted(udid).application.install(atPath: path).bundle.identifier
     }
 
+    func uninstall(_ bundleId: String, on udid: String?) async throws {
+        try await booted(udid).application.uninstall(bundleID: bundleId)
+    }
+
     func launch(_ bundleId: String, arguments: [String], environment: [String: String], on udid: String?) async throws -> Int {
         let configuration = ApplicationLaunchConfiguration(
             bundleID: bundleId, bundleName: nil, arguments: arguments, environment: environment,
@@ -558,11 +562,21 @@ actor Simulators {
         return "no installed app handles scheme '\(scheme)://'; install the app first with sim install"
     }
 
-    private static func installedURLSchemes(for simulator: Simulator) -> Set<String>? {
+    static func matchingBundleIDs(for url: URL, claimants: [String: [String]]?) -> [String]? {
+        guard let scheme = url.scheme?.lowercased(), !scheme.isEmpty,
+            !systemSchemes.contains(scheme),
+            let claimants
+        else { return nil }
+        return claimants[scheme] ?? []
+    }
+
+    private static func installedURLSchemeClaimants(for simulator: Simulator) -> [String: [String]]? {
         guard let installed = try? simulator.device.installedApps(), !installed.isEmpty else { return nil }
-        var schemes = Set<String>()
-        for entry in installed.values {
+        var byScheme: [String: Set<String>] = [:]
+        for (key, entry) in installed {
             guard let info = entry as? [String: Any] else { continue }
+            let bundleId = (info["CFBundleIdentifier"] as? String) ?? (key as? String) ?? ""
+            var schemes = Set<String>()
             collectURLSchemes(from: info["CFBundleURLTypes"], into: &schemes)
             if let path = info["Path"] as? String {
                 let plistURL = URL(fileURLWithPath: path).appendingPathComponent("Info.plist")
@@ -570,18 +584,32 @@ actor Simulators {
                     collectURLSchemes(from: plist["CFBundleURLTypes"], into: &schemes)
                 }
             }
+            for scheme in schemes {
+                if !bundleId.isEmpty {
+                    byScheme[scheme, default: []].insert(bundleId)
+                } else if byScheme[scheme] == nil {
+                    byScheme[scheme] = []
+                }
+            }
         }
-        return schemes
+        return byScheme.mapValues { $0.sorted() }
     }
 
-    func open(_ url: URL, on udid: String?) async throws {
+    func open(_ url: URL, on udid: String?) async throws -> [String: Any] {
         let simulator = try await booted(udid)
+        var duplicateReply: [String: Any] = [:]
         if let scheme = url.scheme?.lowercased(), !scheme.isEmpty, !Self.systemSchemes.contains(scheme),
-            let message = Self.unhandledSchemeMessage(for: url, installedSchemes: Self.installedURLSchemes(for: simulator))
+            let claimants = Self.installedURLSchemeClaimants(for: simulator)
         {
-            throw Failure(reason: "unhandledScheme", message: message)
+            if let message = Self.unhandledSchemeMessage(for: url, installedSchemes: Set(claimants.keys)) {
+                throw Failure(reason: "unhandledScheme", message: message)
+            }
+            if let matching = claimants[scheme], matching.count > 1 {
+                duplicateReply = ["scheme": scheme, "matchingBundleIds": matching]
+            }
         }
         try await simulator.lifecycle.open(url)
+        return duplicateReply
     }
 
     private func set() throws -> SimulatorSet {

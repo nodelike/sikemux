@@ -90,5 +90,21 @@ final class KeyboardTests: XCTestCase {
         }
 
         XCTAssertNil(Simulators.unhandledSchemeMessage(for: missing, installedSchemes: nil))
+
+        let claimants: [String: [String]] = [
+            "swishxacademy": ["com.swishx.academy", "com.swishx.salesacademy"],
+            "singleapp": ["com.example.single"],
+        ]
+        XCTAssertEqual(
+            Simulators.matchingBundleIDs(for: try XCTUnwrap(URL(string: "SwishXAcademy://open")), claimants: claimants),
+            ["com.swishx.academy", "com.swishx.salesacademy"])
+        XCTAssertEqual(
+            Simulators.matchingBundleIDs(for: try XCTUnwrap(URL(string: "singleapp://open")), claimants: claimants),
+            ["com.example.single"])
+        XCTAssertEqual(
+            Simulators.matchingBundleIDs(for: missing, claimants: claimants),
+            [])
+        XCTAssertNil(Simulators.matchingBundleIDs(for: try XCTUnwrap(URL(string: "https://example.com")), claimants: claimants))
+        XCTAssertNil(Simulators.matchingBundleIDs(for: missing, claimants: nil))
     }
 }
