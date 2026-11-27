@@ -341,6 +341,12 @@ pub(super) fn github_write(what: &str, here: impl FnOnce() -> Option<String>) ->
         (_, ["labels", ..]) => format!("Change the labels of {repo}"),
         (_, ["collaborators", ..]) => format!("Change who can work on {repo}"),
         (_, ["hooks", ..]) => format!("Change the webhooks of {repo}"),
+        ("POST", ["actions", "runs", run, "pending_deployments"]) => {
+            format!("Approve deployment for run {run} on {repo}")
+        }
+        ("POST", ["actions", "runs", run, "deployment_protection_rule"]) => {
+            format!("Approve deployment check for run {run} on {repo}")
+        }
         (_, ["actions", "secrets", ..]) => format!("Change the secrets of {repo}"),
         (_, ["actions", ..] | ["environments", ..]) => {
             format!("Change how GitHub Actions runs for {repo}")

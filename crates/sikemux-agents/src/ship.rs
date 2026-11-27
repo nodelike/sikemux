@@ -2084,7 +2084,6 @@ impl ApiCall {
                 name: (*from).to_owned(),
             }),
             ["releases", ..] => self.release_lands(cwd),
-            ["actions", "runs", _, "pending_deployments"] => Some(Lands::Any),
             _ => None,
         }
     }
