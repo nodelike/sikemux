@@ -308,6 +308,12 @@ fn production_fact(ship: &Ship, addresses: &str, found_in: Option<String>) -> Op
         Target::Stage { tool, name } if says_production(name) => {
             Some(stage_place(tool, name, found_in))
         }
+        Target::Package { registry } if registry == super::GITHUB_RELEASES => Some(place(
+            "Releases on GitHub".to_owned(),
+            Recognise::Package {
+                registry: registry.clone(),
+            },
+        )),
         Target::GitHub { repo, .. } if !repo.is_empty() => Some(new_place(
             &format!("{repo} on GitHub"),
             true,

@@ -174,8 +174,13 @@ pub(super) fn call_for(
         let (owner, name) = credential::owner_and_name(&remote)?;
         Some(format!("{owner}/{name}"))
     };
+    let is_git_push = ship
+        .what
+        .split_whitespace()
+        .next()
+        .is_some_and(|program| program.rsplit('/').next() == Some("git"));
     let tag = match (&ship.target, push::deletes(&ship.what)) {
-        (Some(Target::Tag { .. }), Some(deleted)) => {
+        (Some(Target::Tag { .. }), Some(deleted)) if is_git_push => {
             let repo = here().unwrap_or_else(|| "GitHub".to_owned());
             let counted = counted(&deleted);
             let named = match deleted.len() > NAMED_AT_MOST {
@@ -187,11 +192,11 @@ pub(super) fn call_for(
                 format!("Delete {counted}"),
             ))
         }
-        (Some(Target::Tag { name }), None) if !name.is_empty() => Some((
+        (Some(Target::Tag { name }), None) if is_git_push && !name.is_empty() => Some((
             format!("Publish {name} to {}", place.name()),
             "Publish the tag".to_owned(),
         )),
-        (Some(Target::Tag { .. }), None) => Some((
+        (Some(Target::Tag { .. }), None) if is_git_push => Some((
             match push::named_refs(&ship.what) {
                 refs if refs > 1 => format!(
                     "Run this push of {refs} refs, which may send tags to {}",
@@ -203,7 +208,9 @@ pub(super) fn call_for(
         )),
         _ => None,
     };
-    let write = tag.or_else(|| github_write(&ship.what, here).map(|said| (said.clone(), said)));
+    let write = tag
+        .or_else(|| github_release_write(&ship.what, place.name()))
+        .or_else(|| github_write(&ship.what, here).map(|said| (said.clone(), said)));
     let option = |id: &str, label: String| CallOption {
         id: id.to_owned(),
         label,
@@ -317,6 +324,11 @@ pub(super) fn github_write(what: &str, here: impl FnOnce() -> Option<String>) ->
             format!("Delete branch {} in {repo}", branch.join("/"))
         }
         ("POST", ["releases"]) => format!("Publish a release of {repo}"),
+        ("PATCH", ["releases", _]) => format!("Edit a release of {repo}"),
+        ("DELETE", ["releases", _]) => format!("Delete a release of {repo}"),
+        ("POST", ["releases", _, "assets"]) => format!("Upload a release asset to {repo}"),
+        ("PATCH", ["releases", "assets", _]) => format!("Edit a release asset of {repo}"),
+        ("DELETE", ["releases", "assets", _]) => format!("Delete a release asset of {repo}"),
         ("DELETE", []) => format!("Delete {repo}"),
         ("PATCH", []) => format!("Change the settings of {repo}"),
         ("POST", ["pages"]) => format!("Turn on GitHub Pages for {repo}"),
@@ -335,6 +347,61 @@ pub(super) fn github_write(what: &str, here: impl FnOnce() -> Option<String>) ->
         _ => format!("Change {repo} on GitHub as you"),
     };
     Some(said)
+}
+
+/// What a `gh release` command changes, in the words the person would use for it.
+fn github_release_write(what: &str, place: &str) -> Option<(String, String)> {
+    let command = what.rsplit(" && ").next()?;
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let [gh, rest @ ..] = words.as_slice() else {
+        return None;
+    };
+    if gh.rsplit('/').next() != Some("gh") {
+        return None;
+    }
+    let at = rest.iter().position(|word| *word == "release")?;
+    let sub = *rest.get(at + 1)?;
+    let (question, button) = match sub {
+        "create" => (
+            format!("Publish a release to {place}"),
+            "Publish the release",
+        ),
+        "edit" => (format!("Edit a release in {place}"), "Edit the release"),
+        "upload" => (format!("Upload assets to {place}"), "Upload assets"),
+        "delete" => (format!("Delete a release in {place}"), "Delete the release"),
+        "delete-asset" => (
+            format!("Delete a release asset in {place}"),
+            "Delete the asset",
+        ),
+        _ => (format!("Change a release in {place}"), "Change the release"),
+    };
+    Some((question, button.to_owned()))
+}
+
+/// The target a change to the GitHub release `tag` is judged under in `project`: a tag place
+/// that recognises `tag`, or GitHub releases as a whole when none does.
+pub(super) fn release_target(core: &Core, project: &str, tag: &str) -> Target {
+    let probe = Ship {
+        kind: ShipKind::Publish,
+        what: String::new(),
+        target: Some(Target::Tag {
+            name: tag.to_owned(),
+        }),
+    };
+    let (places, _) = places::current(core, project);
+    let matches_tag = places.iter().any(|place| {
+        place.recognise.iter().any(|fact| {
+            matches!(fact, Recognise::Tag { .. }) && places::place::covers(fact, &probe)
+        })
+    });
+    match matches_tag {
+        true => Target::Tag {
+            name: tag.to_owned(),
+        },
+        false => Target::Package {
+            registry: places::GITHUB_RELEASES.to_owned(),
+        },
+    }
 }
 
 /// Whether the project keeps a place for tags it pushes.

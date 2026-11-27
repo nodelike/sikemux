@@ -583,7 +583,7 @@ pub fn is_remote_of(repo: &str, root: &Path) -> bool {
 /// Where a write through GitHub's API to the code of the repository checked out at `root` lands.
 pub fn api_reach(lands: &Lands, root: &Path) -> Reach {
     match lands {
-        Lands::Tag { name } => Reach::Tags(vec![name.clone()]),
+        Lands::Tag { name } | Lands::Release { tag: name } => Reach::Tags(vec![name.clone()]),
         Lands::Branch { name } => {
             let has = |branch: &str| {
                 let full = format!("refs/remotes/origin/{branch}");

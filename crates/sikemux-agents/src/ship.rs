@@ -37,9 +37,13 @@ pub enum Lands {
     Branch {
         name: String,
     },
-    /// A tag made, moved, deleted or released; empty when the call names none.
+    /// A tag made, moved or deleted; empty when the call names none.
     Tag {
         name: String,
+    },
+    /// A GitHub release published, edited, deleted or having assets changed; empty when unnamed.
+    Release {
+        tag: String,
     },
     /// Any branch or tag.
     Any,
@@ -450,6 +454,16 @@ pub(crate) fn target_of(
             }
             let lands = call.and_then(|call| call.lands(cwd));
             Some(Target::GitHub { repo, lands })
+        }
+        "gh" if gh_args(args).first().is_some_and(|word| word == "release") => {
+            let gh = gh_args(args);
+            let repo = (flag_value(&gh, &["-R", "--repo"]).or_else(|| env("GH_REPO")))
+                .unwrap_or_else(|| "{owner}/{repo}".to_owned());
+            let tag = gh_release_tag(gh.get(2..).unwrap_or_default());
+            Some(Target::GitHub {
+                repo,
+                lands: Some(Lands::Release { tag }),
+            })
         }
         "gh" => Some(package(GITHUB_RELEASES)),
         "npm" | "pnpm" | "yarn" if args.iter().any(|arg| arg == "publish") => Some(package("npm")),
@@ -1216,12 +1230,6 @@ const RULES: &[Rule] = &[
         ShipKind::Deploy,
     ),
     rule(&["gh"], &["run", "rerun"], Needs::Nothing, ShipKind::Deploy),
-    rule(
-        &["gh"],
-        &["release", "create"],
-        Needs::Nothing,
-        ShipKind::Publish,
-    ),
     rule(&["vercel"], &[], Needs::Flag("--prod"), ShipKind::Deploy),
     rule(&["vercel"], &["promote"], Needs::Nothing, ShipKind::Deploy),
     rule(&["vercel"], &["redeploy"], Needs::Nothing, ShipKind::Deploy),
@@ -1374,12 +1382,6 @@ const RULES: &[Rule] = &[
         &["lambda", "update-function-configuration"],
         Needs::Nothing,
         ShipKind::Deploy,
-    ),
-    rule(
-        &["gh"],
-        &["release", "edit"],
-        Needs::Nothing,
-        ShipKind::Publish,
     ),
     rule(&["gh"], &["api"], Needs::ApiWrite, ShipKind::Publish),
     rule(
@@ -1538,6 +1540,17 @@ pub(crate) fn of_program(
     if program == "vercel" && matches!(first, Some("rm" | "remove")) {
         return Some(ShipKind::Deploy);
     }
+    if program == "gh" {
+        let gh = gh_args(args);
+        if let [first, sub, ..] = gh.as_slice() {
+            if first == "release"
+                && !sub.starts_with('-')
+                && !GH_RELEASE_READS.contains(&sub.as_str())
+            {
+                return Some(ShipKind::Publish);
+            }
+        }
+    }
     RULES
         .iter()
         .find(|rule| rule.programs.contains(&program) && matches(rule, args, cwd))
@@ -1669,35 +1682,35 @@ impl ApiCall {
             ["branches", from, "rename"] => Some(Lands::Branch {
                 name: (*from).to_owned(),
             }),
-            ["releases", ..] if self.method != "DELETE" => self.release_lands(cwd),
+            ["releases", ..] => self.release_lands(cwd),
             ["actions", "runs", _, "pending_deployments"] => Some(Lands::Any),
             _ => None,
         }
     }
 
-    /// A release published, or changed into one that is.
+    /// A release published, edited, deleted or having its assets changed.
     fn release_lands(&self, cwd: &Path) -> Option<Lands> {
         let making = match self.under_repo().as_slice() {
             ["releases"] => true,
+            ["releases", "generate-notes"] => return None,
             ["releases", _] => false,
+            ["releases", ..] => {
+                return Some(Lands::Release { tag: String::new() });
+            }
             _ => return None,
         };
+        if self.method == "DELETE" {
+            return Some(Lands::Release { tag: String::new() });
+        }
         let field = |name: &str| self.field(name, cwd);
         let (Ok(tag), Ok(draft)) = (field("tag_name"), field("draft")) else {
             return Some(Lands::Unread);
         };
-        let publishes = match making {
-            true => draft.as_deref() != Some("true"),
-            false => {
-                tag.is_some()
-                    || draft.is_some()
-                    || ["prerelease", "make_latest"]
-                        .iter()
-                        .any(|name| !matches!(field(name), Ok(None)))
-            }
-        };
-        publishes.then(|| Lands::Tag {
-            name: tag.unwrap_or_default(),
+        if making && draft.as_deref() == Some("true") {
+            return None;
+        }
+        Some(Lands::Release {
+            tag: tag.unwrap_or_default(),
         })
     }
 
@@ -2534,13 +2547,64 @@ fn gh_args(args: &[String]) -> Vec<String> {
     subcommands
 }
 
+const GH_RELEASE_READS: &[&str] = &["list", "ls", "view", "download", "verify", "verify-asset"];
+
+fn gh_release_tag(rest: &[String]) -> String {
+    const VALUED: &[&str] = &[
+        "-R",
+        "--repo",
+        "-t",
+        "--title",
+        "-n",
+        "--notes",
+        "-F",
+        "--notes-file",
+        "--notes-start-tag",
+        "--target",
+        "--discussion-category",
+        "--tag",
+        "-H",
+        "--hostname",
+    ];
+    const RELEASE_SWITCHES: &[&str] = &[
+        "--clobber",
+        "-y",
+        "--yes",
+        "--cleanup-tag",
+        "-d",
+        "--draft",
+        "-p",
+        "--prerelease",
+        "--latest",
+        "--generate-notes",
+        "--verify-tag",
+        "--fail-on-no-commits",
+    ];
+    let mut words = rest.iter();
+    while let Some(word) = words.next() {
+        if word == "--" {
+            return words.next().cloned().unwrap_or_default();
+        }
+        if VALUED.contains(&word.as_str()) {
+            words.next();
+            continue;
+        }
+        if word.starts_with('-') {
+            if !word.contains('=') && !RELEASE_SWITCHES.contains(&word.as_str()) {
+                return String::new();
+            }
+            continue;
+        }
+        return word.clone();
+    }
+    String::new()
+}
+
 fn matches(rule: &Rule, args: &[String], cwd: &Path) -> bool {
-    let github = rule.programs == ["gh"]
-        && rule.words.len() == 2
-        && gh_args(args)
-            .iter()
-            .zip(rule.words)
-            .all(|(arg, word)| arg == word);
+    let github = rule.programs == ["gh"] && rule.words.len() == 2 && {
+        let gh = gh_args(args);
+        gh.len() >= rule.words.len() && gh.iter().zip(rule.words).all(|(arg, word)| arg == word)
+    };
     let follows = rule.words.is_empty()
         || github
         || args
@@ -3407,7 +3471,7 @@ mod environment_tests {
         );
         assert_eq!(
             lands(&format!("{api}/releases -f tag_name=v1")),
-            Some(Lands::Tag { name: "v1".into() })
+            Some(Lands::Release { tag: "v1".into() })
         );
         assert_eq!(
             lands(&format!("{api}/releases -f tag_name=v1 -F draft=true")),

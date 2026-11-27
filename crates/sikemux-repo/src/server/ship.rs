@@ -465,17 +465,22 @@ fn read(
         let ours = [cwd, Path::new(&project)]
             .into_iter()
             .any(|root| push::is_remote_of(repo, root));
-        match lands.clone().filter(|_| ours) {
-            Some(Lands::Merge { pull }) => {
+        match (ours, lands.clone()) {
+            (true, Some(Lands::Merge { pull })) => {
                 api_merging = Some(push::api_merging(&pull, repo));
                 ship.kind = ShipKind::Merge;
             }
-            Some(lands) => {
+            (true, Some(Lands::Release { tag })) => {
+                let target = gate::release_target(core, &project, &tag);
+                ship.kind = ShipKind::Publish;
+                ship.target = Some(target);
+            }
+            (true, Some(lands)) => {
                 api_lands = Some(lands);
                 ship.kind = ShipKind::Push;
             }
-            None if owned_here(repo, cwd, &project) => return Ok(Reading::Passes),
-            None => {}
+            (_, None) if owned_here(repo, cwd, &project) => return Ok(Reading::Passes),
+            _ => {}
         }
     }
     let pushed_in = push::run_in(&ship.what, cwd);
