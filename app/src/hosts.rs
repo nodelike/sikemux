@@ -89,6 +89,7 @@ pub struct Feed {
     pub questions: Vec<Question>,
     pub vault_requests: Vec<sikemux_calls::vault::VaultPendingRequest>,
     pub vault_approvals: Vec<sikemux_calls::vault::VaultPendingApproval>,
+    pub skills: Vec<sikemux_agents::skills::Skill>,
     pub tasks: Option<TaskList>,
     pub task_list: Option<sikemux_view::task_list::ProjectTasks>,
     pub sharing: Option<sikemux_view::teammates::ProjectSharing>,
@@ -224,6 +225,7 @@ impl Feeds {
             gone.questions.clear();
             gone.vault_requests.clear();
             gone.vault_approvals.clear();
+            gone.skills.clear();
         }
         if let Some(host) = &host {
             self.host_mut(host);

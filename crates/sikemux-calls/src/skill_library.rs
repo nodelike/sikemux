@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_agents::skills::Skill;
 use std::path::PathBuf;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OwnSkills {
     pub agent: String,
@@ -10,7 +10,7 @@ pub struct OwnSkills {
     pub skills: Vec<Skill>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillsOverview {
     pub library: PathBuf,

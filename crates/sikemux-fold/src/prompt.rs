@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use sikemux_view::chat::{AgentLetter, LetterKind, SentContext, AGENT_URI};
+use sikemux_view::chat::{AgentLetter, LetterKind, SentContext, AGENT_URI, SKILL_URI};
 pub use sikemux_view::sent::{sent_spans, SentNames};
 
 /// Tags Claude Code writes to itself. A finished background agent's notice
@@ -427,7 +427,7 @@ fn headed_fence(text: &str) -> Option<(SentContext, usize)> {
 }
 
 pub(super) fn is_mention(uri: &str) -> bool {
-    uri.starts_with(AGENT_URI)
+    uri.starts_with(AGENT_URI) || uri.starts_with(SKILL_URI)
 }
 
 #[cfg(test)]

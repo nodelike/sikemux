@@ -16,6 +16,7 @@ use sikemux_process::sync::Locked;
 use sikemux_view::prefs::{PreferenceChange, Preferences};
 
 use super::super::data::{host_key, Change, Write};
+use crate::server::changed::{ChangedCore, Topic, What};
 use crate::server::connection::blocking;
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
@@ -381,6 +382,9 @@ fn files(
                 remove_up_to(&folder.path, &target);
                 agreed.remove(&path);
             }
+        }
+        if collection == "skills" {
+            core.changed(What::Read(Topic::Skills));
         }
     }
     Ok(writes)

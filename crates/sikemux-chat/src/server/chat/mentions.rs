@@ -12,7 +12,7 @@ use std::sync::Arc;
 use crate::server::connection::blocking;
 use crate::server::workspace::{new_agent, LauncherId};
 use crate::server::{display, Core, CoreError, CoreResult};
-use sikemux_view::chat::{AGENT_URI, EARLIER_URI, WOKEN_URI};
+use sikemux_view::chat::{AGENT_URI, EARLIER_URI, SKILL_URI, WOKEN_URI};
 use sikemux_view::workspace::WorkspaceAgent;
 use sikemux_wire::protocol::{ChatContext, ChatState};
 
@@ -154,30 +154,57 @@ async fn woken(
     })
 }
 
-/// Writes the note of each agent `context` names that came without one, for the
-/// message `caller` is about to get. A named agent the core no longer has is dropped.
+/// Writes the note of each agent or skill `context` names that came without one, for the
+/// message `caller` is about to get. An entry the core no longer has is dropped.
 pub fn fill(core: &Core, caller: &str, context: &mut Vec<ChatContext>) {
     let mut named = false;
     context.retain_mut(|item| {
         if !item.text.is_empty() {
             return true;
         }
-        let Some(id) = item.uri.strip_prefix(AGENT_URI) else {
-            return true;
-        };
-        match note(core, caller, id) {
-            Some(note) => {
-                item.text = note;
-                core.seen().called(id);
-                named = true;
-                true
-            }
-            None => false,
+        if let Some(id) = item.uri.strip_prefix(AGENT_URI) {
+            return match note(core, caller, id) {
+                Some(note) => {
+                    item.text = note;
+                    core.seen().called(id);
+                    named = true;
+                    true
+                }
+                None => false,
+            };
         }
+        if let Some(name) = item.uri.strip_prefix(SKILL_URI) {
+            return match skill_note(core, name) {
+                Some(note) => {
+                    item.text = note;
+                    true
+                }
+                None => false,
+            };
+        }
+        true
     });
     if named {
         core.changed(What::Agents);
     }
+}
+
+fn skill_note(core: &Core, name: &str) -> Option<String> {
+    let data_dir = core.data_dir().as_ref()?;
+    let (skill, body) = sikemux_agents::skills::read_instructions(data_dir, name)?;
+    let file = skill.path.join("SKILL.md");
+    let mut lines = vec![
+        format!(
+            "The user invoked the Sikemux skill \"{name}\". Follow its instructions for this turn."
+        ),
+        format!("Skill file: {}", file.display()),
+        format!("Skill folder: {}", skill.path.display()),
+    ];
+    if !body.is_empty() {
+        lines.push(String::new());
+        lines.push(body);
+    }
+    Some(lines.join("\n").replace("</context", "&lt;/context"))
 }
 
 fn note(core: &Core, caller: &str, id: &str) -> Option<String> {

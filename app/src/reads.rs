@@ -53,6 +53,7 @@ pub enum Read {
     Stash,
     Catalog,
     Usage,
+    Skills,
     SkillsAdded,
     Preferences,
     WhatsNew,
@@ -100,7 +101,7 @@ pub enum Read {
 
 impl Read {
     /// What the window watches from the moment it opens.
-    pub const FROM_THE_START: [Read; 17] = [
+    pub const FROM_THE_START: [Read; 18] = [
         Read::Theme,
         Read::Plugins,
         Read::Hosts,
@@ -111,6 +112,7 @@ impl Read {
         Read::Stash,
         Read::Catalog,
         Read::Usage,
+        Read::Skills,
         Read::SkillsAdded,
         Read::Preferences,
         Read::WhatsNew,
@@ -138,12 +140,13 @@ impl Read {
     ];
 
     /// What an account host is watched for only while it is in front; this host's are always.
-    pub const OF_THE_HOST_IN_FRONT: [Read; 5] = [
+    pub const OF_THE_HOST_IN_FRONT: [Read; 6] = [
         Read::Trust,
         Read::Questions,
         Read::Drafts,
         Read::VaultRequests,
         Read::VaultApprovals,
+        Read::Skills,
     ];
 
     /// The core's method that answers it, and the topics whose changing reads it again.
@@ -160,6 +163,7 @@ impl Read {
             Read::Stash => (call::Stash::METHOD, &[Topic::Stash, Topic::Account]),
             Read::Catalog => (call::AgentCatalog::METHOD, &[]),
             Read::Usage => (call::AgentUsages::METHOD, &[Topic::Usage]),
+            Read::Skills => (call::SkillsOverview::METHOD, &[Topic::Skills]),
             Read::SkillsAdded => (call::SkillsAdded::METHOD, &[Topic::Skills]),
             Read::Preferences => (call::Preferences::METHOD, &[Topic::Preferences]),
             Read::WhatsNew => (call::WhatsNew::METHOD, &[Topic::Preferences]),
@@ -378,6 +382,16 @@ impl Workbench {
                     dirty |= PartSet::FINDER;
                 }
                 self.redraw(dirty, cx);
+            }
+            Read::Skills => {
+                let Some(overview) =
+                    decoded::<sikemux_calls::skill_library::SkillsOverview>(value, "skills")
+                else {
+                    return;
+                };
+                if keep(&mut self.feeds.at_mut(&place).skills, overview.skills) {
+                    self.skills_listed(cx);
+                }
             }
             Read::SkillsAdded => {
                 if let Some(added) = decoded(value, "skills added") {

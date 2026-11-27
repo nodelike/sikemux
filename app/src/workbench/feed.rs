@@ -670,6 +670,7 @@ impl Workbench {
                 target.watch_plain(Read::Questions);
                 target.watch_plain(Read::VaultRequests);
                 target.watch_plain(Read::VaultApprovals);
+                target.watch_plain(Read::Skills);
             }
             Place::This => self.feeds.set_front(None),
         }

@@ -73,13 +73,14 @@ pub fn prompt_awake(core: &Arc<Core>, params: PromptChatParams) -> CoreResult<()
         message_id,
         text,
         paths,
-        context,
+        mut context,
     } = params;
     core.workspaces().person_said(&agent_id);
     core.activity_log()
         .person_wrote(core.workspaces().is_chief(&agent_id));
     (core.chat_above().chief_person_wrote)(core, &agent_id);
     if core.workspaces().in_terminal(&agent_id) {
+        super::mentions::fill(core, &agent_id, &mut context);
         let told = context.into_iter().map(|item| item.text);
         let said: Vec<String> = std::iter::once(text)
             .chain(told.filter(|text| !text.is_empty()))

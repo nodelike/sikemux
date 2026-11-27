@@ -932,6 +932,8 @@ pub const STASH_URI: &str = "sikemux://stash/";
 pub const REPLY_URI: &str = "sikemux://reply/";
 /// What a side chat is told about the chat it was opened beside, by that chat's agent id.
 pub const SIDE_URI: &str = "sikemux://side/";
+/// A Sikemux skill invoked in a message, by its name.
+pub const SKILL_URI: &str = "sikemux://skill/";
 /// The most of an answer a reply quotes.
 pub const QUOTE_MAX: usize = 1_200;
 
@@ -1152,6 +1154,7 @@ pub enum SentChipKind {
     Pull,
     /// The answer a reply quotes, by its opening words.
     Reply,
+    Skill,
     /// A kind from a newer core, which a client draws as plain words.
     #[serde(other)]
     Other,

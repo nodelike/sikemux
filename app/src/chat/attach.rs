@@ -20,7 +20,7 @@ use gpui_kit::{
 use gpui_transcript::FilePress;
 use sikemux_view::chat::{
     tracked_at, tracked_title, SentChip, SentChipKind, SentSpan, TrackedKind, AGENT_URI,
-    ARTIFACT_URI, CALL_URI, EARLIER_URI, REPLY_URI, SIDE_URI, STASH_URI, WOKEN_URI,
+    ARTIFACT_URI, CALL_URI, EARLIER_URI, REPLY_URI, SIDE_URI, SKILL_URI, STASH_URI, WOKEN_URI,
 };
 use sikemux_view::chat::{ChatMessage, SentContext, WhyChip, WhyKind, WhyOpen, WHY_URI};
 use sikemux_wire::protocol::ChatContext;
@@ -28,7 +28,7 @@ use sikemux_wire::protocol::{FOR_AGENT_URI, MAX_ATTACHMENT_BYTES};
 use tokio::sync::oneshot;
 
 use super::clip::Field;
-use super::mention::{AGENT, COMMAND, EARLIER, FILE, FOLDER, TRACKED};
+use super::mention::{AGENT, COMMAND, EARLIER, FILE, FOLDER, SKILL, TRACKED};
 use super::pills::{self, IMAGE};
 use super::Composing;
 use crate::agents::rows::AgentRow;
@@ -117,6 +117,11 @@ fn mark_of(id: &str, tint: Hsla, named: Option<AgentRow>, cx: &App) -> gpui_kit:
     }
     if id.starts_with(COMMAND) {
         return ui::icon(Icon::Bolt, 13.)
+            .text_color(tint)
+            .into_any_element();
+    }
+    if id.starts_with(SKILL) {
+        return ui::icon(Icon::Book, 13.)
             .text_color(tint)
             .into_any_element();
     }
@@ -1503,6 +1508,10 @@ fn mention_of(written: &str, chip: &SentChip) -> Option<Mention> {
             written.get(1..).unwrap_or_default()
         ),
         SentChipKind::Reply => carried.clone(),
+        SentChipKind::Skill => format!(
+            "{SKILL}{}",
+            carried.strip_prefix(SKILL_URI).unwrap_or(&carried)
+        ),
         SentChipKind::Other => return None,
     };
     let label = match chip.kind {
@@ -1534,7 +1543,7 @@ fn chip_words(id: &str, label: &SharedString) -> (SharedString, Option<SharedStr
         return (label.clone(), None);
     }
     let bare = label
-        .strip_prefix(['@', '+', '/'])
+        .strip_prefix(['@', '+', '/', '$'])
         .map_or_else(|| label.clone(), |bare| bare.to_owned().into());
     (bare, None)
 }
@@ -1701,6 +1710,10 @@ pub(crate) fn context_chip(
         None if uri.starts_with(CALL_URI) => (Icon::Bell, title.to_owned()),
         None if uri.starts_with(STASH_URI) => (Icon::Text, title.to_owned()),
         None if uri.starts_with(SIDE_URI) => (Icon::Message, title.to_owned()),
+        None if uri.starts_with(SKILL_URI) => (
+            Icon::Book,
+            uri.strip_prefix(SKILL_URI).unwrap_or(title).to_owned(),
+        ),
         None if web => (
             Icon::Globe,
             if title.is_empty() { uri } else { title }.to_owned(),

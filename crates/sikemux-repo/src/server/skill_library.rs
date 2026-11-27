@@ -140,7 +140,7 @@ pub async fn added(core: &Core) -> CoreResult<Vec<GlobalSkillAdded>> {
 }
 
 pub async fn create(core: &Core, skill: NewSkill) -> CoreResult<Skill> {
-    on_library(core, move |data_dir| {
+    let created = on_library(core, move |data_dir| {
         Ok(skills::create(
             data_dir,
             &skill.name,
@@ -148,11 +148,13 @@ pub async fn create(core: &Core, skill: NewSkill) -> CoreResult<Skill> {
             &skill.body,
         )?)
     })
-    .await
+    .await?;
+    core.changed(What::Read(Topic::Skills));
+    Ok(created)
 }
 
 pub async fn install(core: &Core, from: Source) -> CoreResult<Skill> {
-    on_library(core, move |data_dir| {
+    let installed = on_library(core, move |data_dir| {
         let source = from.source.trim();
         Ok(if source.starts_with('/') {
             skills::install_folder(data_dir, Path::new(source))?
@@ -165,23 +167,29 @@ pub async fn install(core: &Core, from: Source) -> CoreResult<Skill> {
             skills::install_git(data_dir, source, subfolder)?
         })
     })
-    .await
+    .await?;
+    core.changed(What::Read(Topic::Skills));
+    Ok(installed)
 }
 
 pub async fn remove(core: &Core, named: Named) -> CoreResult<()> {
     on_library(core, move |data_dir| {
         Ok(skills::remove(data_dir, &named.name)?)
     })
-    .await
+    .await?;
+    core.changed(What::Read(Topic::Skills));
+    Ok(())
 }
 
 pub async fn adopt(core: &Core, located: Located) -> CoreResult<Skill> {
-    on_library(core, move |data_dir| {
+    let adopted = on_library(core, move |data_dir| {
         let skill = adopt_global(data_dir, &global_folders(), &located.path)?;
         newly_added().retain(|added| added.path != located.path);
         Ok(skill)
     })
-    .await
+    .await?;
+    core.changed(What::Read(Topic::Skills));
+    Ok(adopted)
 }
 
 fn added_skills(

@@ -15,6 +15,7 @@ use gpui_kit::{
     px, App, AppContext, Context, Focusable, IntoElement, ScrollHandle, SharedString, Styled, Task,
     Window,
 };
+use sikemux_agents::skills::Skill;
 use sikemux_calls::call;
 use sikemux_calls::codehost::CodeHostProjectParams;
 use sikemux_calls::codehost::TrackedContextParams;
@@ -32,9 +33,10 @@ use crate::drag::DraggedChat;
 use crate::icons::Icon;
 use crate::ui::{self, DockMenu, DockRow, DockScope};
 use crate::workbench::Workbench;
-use sikemux_view::chat::{AGENT_URI, EARLIER_URI};
+use sikemux_view::chat::{AGENT_URI, EARLIER_URI, SKILL_URI};
 
 const SHOWN: usize = 8;
+const COMMANDS_SHOWN: usize = 10;
 const STASH_SHOWN: usize = 8;
 pub(crate) const AGENT: &str = "agent:";
 pub(crate) const FILE: &str = "file:";
@@ -42,6 +44,7 @@ pub(crate) const FOLDER: &str = "folder:";
 pub(crate) const EARLIER: &str = "earlier:";
 pub(crate) const TRACKED: &str = "tracked:";
 pub(crate) const COMMAND: &str = "command:";
+pub(crate) const SKILL: &str = "skill:";
 /// Earlier chats the core is asked for, and how long it may read transcripts for them.
 const EARLIER_SHOWN: usize = 4;
 const EARLIER_BUDGET_MS: u64 = 600;
@@ -92,7 +95,7 @@ fn typed(text: &str, caret: usize) -> Option<Typed> {
     let mut word = word.chars();
     let trigger = word
         .next()
-        .filter(|first| matches!(first, '@' | '+' | '/' | '#' | '!' | '&'))
+        .filter(|first| matches!(first, '@' | '+' | '/' | '#' | '!' | '&' | '$'))
         .filter(|&first| first != '/' || head.trim().is_empty())?;
     Some(Typed {
         trigger,
@@ -126,6 +129,10 @@ enum Choice {
         name: String,
         description: String,
         hint: Option<String>,
+    },
+    Skill {
+        name: String,
+        description: String,
     },
     Own(Own, String),
     /// A saved chat no agent holds, which the core opens again for the message: one
@@ -295,6 +302,10 @@ impl Composing {
                     let chat = token.id().strip_prefix(EARLIER)?;
                     Some(format!("{EARLIER_URI}{chat}"))
                 })
+                .or_else(|| {
+                    let skill = token.id().strip_prefix(SKILL)?;
+                    Some(format!("{SKILL_URI}{skill}"))
+                })
             {
                 if !context.iter().any(|item: &ChatContext| item.uri == uri) {
                     context.push(ChatContext {
@@ -342,6 +353,7 @@ impl Workbench {
         let needle = typed.needle.to_lowercase();
         let choices: Rc<[Choice]> = match typed.trigger {
             '@' => self.mates(agent, &needle).into(),
+            '$' => self.skill_choices(agent, &typed.needle).into(),
             '/' => self.commands(agent, &needle).into(),
             '#' | '!' => {
                 let tracked = self.tracked_of(agent);
@@ -484,12 +496,66 @@ impl Workbench {
         }))
     }
 
-    /// The other named agents whose name starts with `needle`: the chat's own project's
-    /// first, then every other project's.
+    fn skills_for(&self, agent: &str) -> &[Skill] {
+        let place = self.chat_target(agent).place().clone();
+        self.feeds
+            .at(&place)
+            .map_or(&[][..], |feed| feed.skills.as_slice())
+    }
+
+    fn skill_choices(&self, agent: &str, needle: &str) -> Vec<Choice> {
+        let query = needle.trim().to_lowercase();
+        let mut matched: Vec<(u8, &Skill)> = self
+            .skills_for(agent)
+            .iter()
+            .filter_map(|skill| Some((skill_rank(skill, &query)?, skill)))
+            .collect();
+        matched.sort_by(|(rank_a, a), (rank_b, b)| {
+            rank_a.cmp(rank_b).then_with(|| a.name.cmp(&b.name))
+        });
+        matched
+            .into_iter()
+            .take(SHOWN)
+            .map(|(_, skill)| Choice::Skill {
+                name: skill.name.clone(),
+                description: skill.description.clone(),
+            })
+            .collect()
+    }
+
+    /// Refreshes any open `$` or `/` menu once a core's skills list changes.
+    pub fn skills_listed(&mut self, cx: &mut Context<Self>) {
+        let open: Vec<(String, char, String)> = self
+            .composers()
+            .filter_map(|(owner, composing)| {
+                let typed = &composing.menu.as_ref()?.typed;
+                matches!(typed.trigger, '$' | '/')
+                    .then(|| (owner.to_owned(), typed.trigger, typed.needle.clone()))
+            })
+            .collect();
+        for (agent, trigger, needle) in open {
+            let choices: Rc<[Choice]> = match trigger {
+                '$' => self.skill_choices(&agent, &needle).into(),
+                '/' => self.commands(&agent, &needle.to_lowercase()).into(),
+                _ => continue,
+            };
+            if let Some(menu) = self
+                .composing_mut(&agent)
+                .and_then(|composing| composing.menu.as_mut())
+            {
+                menu.choices = choices;
+                menu.selected = menu.selected.min(menu.choices.len().saturating_sub(1));
+                self.redraw_composer(&agent, cx);
+            }
+        }
+    }
+
     fn commands(&self, agent: &str, needle: &str) -> Vec<Choice> {
-        let Some(head) = (self.chats.open.get(agent)).and_then(|chat| chat.state.as_ref()) else {
-            return Vec::new();
-        };
+        let head = self
+            .chats
+            .open
+            .get(agent)
+            .and_then(|chat| chat.state.as_ref());
         let saved = self.saved_agent(agent);
         let yolo = saved.filter(|saved| {
             (self.reads.catalog.kind(&saved.provider))
@@ -500,9 +566,11 @@ impl Workbench {
                 Own::Side => saved
                     .filter(|saved| !saved.terminal)
                     .map(|_| t!("Ask aside, with this chat's context").to_owned()),
-                Own::Model => head.model.as_ref().map(|_| t!("Pick the model").to_owned()),
+                Own::Model => head
+                    .and_then(|head| head.model.as_ref())
+                    .map(|_| t!("Pick the model").to_owned()),
                 Own::Clear => saved.map(|_| t!("Start a fresh chat with this agent").to_owned()),
-                Own::Fork => (saved.is_some() && head.turned).then(|| {
+                Own::Fork => (saved.is_some() && head.is_some_and(|head| head.turned)).then(|| {
                     t!("Go on in a new chat that takes this one's words along").to_owned()
                 }),
                 Own::Yolo => yolo.map(|saved| match saved.permission_mode {
@@ -516,23 +584,77 @@ impl Workbench {
         });
         let own: Vec<(Own, String)> = own.collect();
         let taken: Vec<&str> = own.iter().map(|(own, _)| own.name()).collect();
-        let theirs = (head.commands.iter())
-            .filter(|command| !taken.contains(&command.name.as_str()))
+        let library = self.skills_for(agent);
+        let theirs: Vec<Choice> = head
+            .into_iter()
+            .flat_map(|head| head.commands.iter())
+            .filter(|command| {
+                !taken.contains(&command.name.as_str()) && !duplicates_skill(&command.name, library)
+            })
             .map(|command| Choice::Command {
                 name: command.name.clone(),
                 description: command.description.clone(),
                 hint: command.hint.clone(),
-            });
-        let own = own
-            .into_iter()
-            .map(|(own, description)| Choice::Own(own, description));
-        own.chain(theirs)
-            .filter(|choice| match choice {
-                Choice::Own(own, _) => own.name().contains(needle),
-                Choice::Command { name, .. } => name.to_lowercase().contains(needle),
-                _ => false,
             })
-            .take(SHOWN)
+            .collect();
+        let needle = needle.trim();
+        if needle.is_empty() {
+            let own_choices: Vec<Choice> = own
+                .into_iter()
+                .map(|(own, description)| Choice::Own(own, description))
+                .collect();
+            let skill_choices: Vec<Choice> = library
+                .iter()
+                .map(|skill| Choice::Skill {
+                    name: skill.name.clone(),
+                    description: skill.description.clone(),
+                })
+                .collect();
+            let skill_room = if theirs.is_empty() {
+                COMMANDS_SHOWN.saturating_sub(own_choices.len())
+            } else {
+                3.min(COMMANDS_SHOWN.saturating_sub(own_choices.len()))
+            };
+            let mut shown = own_choices;
+            let mut rest_skills = skill_choices.into_iter();
+            shown.extend(rest_skills.by_ref().take(skill_room));
+            let room = COMMANDS_SHOWN.saturating_sub(shown.len());
+            shown.extend(theirs.into_iter().take(room));
+            let room = COMMANDS_SHOWN.saturating_sub(shown.len());
+            shown.extend(rest_skills.take(room));
+            return shown;
+        }
+        let skill_query = needle.strip_prefix("sikemux:").unwrap_or(needle);
+        let mut ranked: Vec<((u8, u8, usize), Choice)> = Vec::new();
+        for (index, (own, description)) in own.into_iter().enumerate() {
+            if let Some(rank) = name_rank(own.name(), needle) {
+                ranked.push(((rank, 0, index), Choice::Own(own, description)));
+            }
+        }
+        for (index, skill) in library.iter().enumerate() {
+            if let Some(rank) = skill_rank(skill, skill_query) {
+                ranked.push((
+                    (rank, 1, index),
+                    Choice::Skill {
+                        name: skill.name.clone(),
+                        description: skill.description.clone(),
+                    },
+                ));
+            }
+        }
+        for (index, command) in theirs.into_iter().enumerate() {
+            let Choice::Command { ref name, .. } = command else {
+                continue;
+            };
+            if let Some(rank) = name_rank(&name.to_lowercase(), needle) {
+                ranked.push(((rank, 2, index), command));
+            }
+        }
+        ranked.sort_by_key(|(key, _)| *key);
+        ranked
+            .into_iter()
+            .take(COMMANDS_SHOWN)
+            .map(|(_, choice)| choice)
             .collect()
     }
 
@@ -927,6 +1049,10 @@ impl Workbench {
                     format!("{COMMAND}{name}"),
                     format!("/{name}"),
                 )),
+                Choice::Skill { name, .. } => Some(InlineToken::new(
+                    format!("{SKILL}{name}"),
+                    format!("${name}"),
+                )),
                 Choice::Earlier {
                     cli,
                     session,
@@ -1001,9 +1127,53 @@ fn ranked_entries(needle: &str, files: &Arc<Vec<String>>) -> Vec<Choice> {
         .collect()
 }
 
+fn name_rank(name: &str, needle: &str) -> Option<u8> {
+    if name == needle {
+        Some(0)
+    } else if name.starts_with(needle) {
+        Some(1)
+    } else if name.contains(needle) {
+        Some(2)
+    } else {
+        None
+    }
+}
+
+fn skill_rank(skill: &Skill, needle: &str) -> Option<u8> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    let name = skill.name.to_lowercase();
+    if let Some(rank) = name_rank(&name, needle) {
+        return Some(rank);
+    }
+    let description = skill.description.to_lowercase();
+    if description.contains(needle) {
+        return Some(3);
+    }
+    let words: Vec<&str> = needle.split_whitespace().collect();
+    (words.len() > 1
+        && words
+            .iter()
+            .all(|word| name.contains(word) || description.contains(word)))
+    .then_some(3)
+}
+
+fn duplicates_skill(command_name: &str, skills: &[Skill]) -> bool {
+    let Some(bare) = command_name
+        .strip_prefix("sikemux:")
+        .or_else(|| command_name.strip_prefix("skill:"))
+        .or_else(|| command_name.strip_prefix('$'))
+    else {
+        return false;
+    };
+    skills.iter().any(|skill| skill.name == bare)
+}
+
 /// The kinds of thing the menu names, in the order its heading lists them.
-const SCOPES: [(char, Icon, &str); 5] = [
+const SCOPES: [(char, Icon, &str); 6] = [
     ('@', Icon::Agent, n!("Agents")),
+    ('$', Icon::Book, n!("Skills")),
     ('#', Icon::Issue, n!("Issues")),
     ('!', Icon::PullRequest, n!("Pull requests")),
     ('+', Icon::File, n!("Files")),
@@ -1033,7 +1203,12 @@ pub fn dock(
     }
     let headed = |dock: DockMenu| {
         if trigger == '/' {
-            return dock.titled(t!("Commands"), "");
+            let title = if bench.skills_for(agent).is_empty() {
+                t!("Commands")
+            } else {
+                t!("Commands & skills")
+            };
+            return dock.titled(title, "");
         }
         let scopes = SCOPES
             .iter()
@@ -1062,6 +1237,8 @@ pub fn dock(
         let empty = match trigger {
             '@' if blank => Some(DockMenu::empty(t!("No other agent yet"))),
             '@' => Some(DockMenu::empty(t!("No agent or earlier chat matches"))),
+            '$' if blank => Some(DockMenu::empty(t!("No skills in Sikemux yet"))),
+            '$' => Some(DockMenu::empty(t!("No skill matches"))),
             '+' if files.project.is_none() => {
                 Some(DockMenu::empty(t!("Open a project to pick its files")))
             }
@@ -1079,6 +1256,8 @@ pub fn dock(
     let this = cx.weak_entity();
     let tint = crate::theme::Tokens::get(cx).text_tertiary;
     let mut shown_kind = None;
+    let mut slash_group: Option<u8> = None;
+    let grouped_slash = trigger == '/' && menu.typed.needle.trim().is_empty();
     let rows = menu.choices.iter().enumerate().map(|(index, choice)| {
         let (this, agent) = (this.clone(), agent.to_owned());
         let choose = Rc::new(move |window: &mut Window, cx: &mut App| {
@@ -1133,7 +1312,11 @@ pub fn dock(
                 description,
                 hint,
             } => {
-                let row = DockRow::new(format!("/{name}"), choose).code();
+                let divided = grouped_slash && slash_group.is_some_and(|group| group != 2);
+                slash_group = Some(2);
+                let row = DockRow::new(format!("/{name}"), choose)
+                    .code()
+                    .divided(divided);
                 match hint {
                     Some(hint) if description.is_empty() => row.detail(hint.clone()),
                     hint => row
@@ -1141,9 +1324,29 @@ pub fn dock(
                         .aside(hint.clone().map(SharedString::from)),
                 }
             }
-            Choice::Own(own, description) => DockRow::new(format!("/{}", own.name()), choose)
-                .code()
-                .detail(description.clone()),
+            Choice::Skill { name, description } => {
+                let divided = grouped_slash && slash_group.is_some_and(|group| group != 1);
+                slash_group = Some(1);
+                let row = DockRow::new(format!("${name}"), choose)
+                    .code()
+                    .mark(
+                        ui::icon(Icon::Book, 13.)
+                            .text_color(tint)
+                            .into_any_element(),
+                    )
+                    .detail(description.clone())
+                    .divided(divided);
+                match trigger == '/' {
+                    true => row.aside(Some(t!("skill").into())),
+                    false => row,
+                }
+            }
+            Choice::Own(own, description) => {
+                slash_group = Some(0);
+                DockRow::new(format!("/{}", own.name()), choose)
+                    .code()
+                    .detail(description.clone())
+            }
             Choice::Earlier {
                 cli,
                 name,

@@ -1090,9 +1090,9 @@ impl Chat {
             );
         }
         let ask = || match to {
-            Some((to, true)) => t!("{to}, or type / for commands", to = to),
+            Some((to, true)) => t!("{to}, / for commands, $ for skills", to = to),
             Some((to, false)) => to.to_owned(),
-            None => t!("Ask about this project, or type / for commands").to_owned(),
+            None => t!("Ask about this project, / for commands, $ for skills").to_owned(),
         };
         let Some(head) = &self.state else {
             return ask();

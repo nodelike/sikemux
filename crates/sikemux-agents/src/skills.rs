@@ -93,6 +93,32 @@ pub fn list(data_dir: &Path) -> Vec<Skill> {
     list_in(&library(data_dir))
 }
 
+pub fn read_instructions(data_dir: &Path, name: &str) -> Option<(Skill, String)> {
+    check_name(name).ok()?;
+    let skill = read_skill(&library(data_dir).join(name))
+        .filter(|skill| skill.name == name)
+        .or_else(|| list(data_dir).into_iter().find(|skill| skill.name == name))?;
+    let text = fs::read_to_string(skill.path.join(SKILL_FILE)).ok()?;
+    Some((skill, body(&text).trim().to_owned()))
+}
+
+fn body(text: &str) -> &str {
+    let Some(rest) = text
+        .strip_prefix("---\r\n")
+        .or_else(|| text.strip_prefix("---\n"))
+    else {
+        return text;
+    };
+    let mut offset = 0;
+    for line in rest.split_inclusive('\n') {
+        offset += line.len();
+        if line.trim() == "---" {
+            return rest.get(offset..).unwrap_or_default();
+        }
+    }
+    text
+}
+
 /// The skills in any skills folder, such as an agent's own `~/.claude/skills`.
 pub fn list_in(folder: &Path) -> Vec<Skill> {
     let Ok(entries) = fs::read_dir(folder) else {

@@ -1,6 +1,7 @@
 //! The `skills` tool.
 
 use super::*;
+use crate::server::changed::{ChangedCore, Topic, What};
 
 pub(super) const SKILL_LOADS: &str =
     "Start a new agent session to load it. Claude lists it as /sikemux:<name>.";
@@ -12,9 +13,16 @@ pub(super) async fn skills_call(core: &Core, request: &HarnessRequest) -> Result
         .clone()
         .ok_or("Skills need Sikemux's data folder, and this core was started without one")?;
     let params = request.params.clone();
+    let action = params
+        .get("action")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     let answer = blocking(move || Ok(skills_answer(&data_dir, &params)))
         .await
         .map_err(|error| error.to_string())?;
+    if answer.is_ok() && matches!(action.as_deref(), Some("create" | "install" | "remove")) {
+        core.changed(What::Read(Topic::Skills));
+    }
     core.mods().personal_changed();
     answer
 }

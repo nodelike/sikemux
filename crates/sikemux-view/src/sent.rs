@@ -2,7 +2,7 @@
 
 use crate::chat::{
     openings, reply_written, tracked_title, SentChip, SentChipKind, SentContext, SentSpan,
-    TrackedKind, AGENT_URI, EARLIER_URI, WOKEN_URI,
+    TrackedKind, AGENT_URI, EARLIER_URI, SKILL_URI, WOKEN_URI,
 };
 
 const IMAGE_EXTENSIONS: [&str; 13] = [
@@ -124,6 +124,10 @@ fn sent_chips(text: &str, names: &SentNames<'_>) -> Vec<(String, SentChip)> {
         } else if item.uri.starts_with(EARLIER_URI) && item.title.starts_with('@') {
             let earlier = chip(SentChipKind::Chat, &item.title, Some(&item.uri));
             found.push((item.title.clone(), earlier));
+        } else if let Some(name) = item.uri.strip_prefix(SKILL_URI) {
+            let written = format!("${name}");
+            let skill = chip(SentChipKind::Skill, &written, Some(&item.uri));
+            found.push((written, skill));
         } else if let Some(quote) = &item.quote {
             let opening = openings(quote)
                 .rev()
