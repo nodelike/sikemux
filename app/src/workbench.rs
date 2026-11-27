@@ -337,7 +337,10 @@ impl Workbench {
                 bench.publish_on_screen();
                 match window.is_window_active() {
                     true => crate::accounts::check_on_return(bench, cx),
-                    false => bench.voice.update(cx, |voice, cx| voice.abandon_hold(cx)),
+                    false => {
+                        bench.voice.update(cx, |voice, cx| voice.abandon_hold(cx));
+                        crate::track::cancel_active(cx);
+                    }
                 }
                 crate::terminal::keep_blinking(bench, cx);
             }),

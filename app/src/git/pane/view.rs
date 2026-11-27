@@ -18,7 +18,7 @@ pub(crate) fn side(
     let this = cx.entity().downgrade();
     let pages_row = track::row(
         "git-side-pages",
-        &pane.slide.width(),
+        &pane.slide.handle(),
         cards,
         start,
         motion,

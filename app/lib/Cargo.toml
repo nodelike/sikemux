@@ -75,9 +75,9 @@ objc2 = "0.6"
 objc2-core-foundation = "0.3"
 raw-window-handle = "0.6"
 objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBuffer", "CVImageBuffer", "CVPixelBuffer"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSBitmapImageRep", "NSImageRep", "NSResponder", "NSDockTile", "NSScreen", "NSSound", "NSWorkspace", "objc2-core-graphics"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSBitmapImageRep", "NSEvent", "NSImageRep", "NSResponder", "NSDockTile", "NSScreen", "NSSound", "NSView", "NSWindow", "NSWorkspace", "block2", "objc2-core-graphics"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGImage"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSDictionary", "NSGeometry", "NSObject", "NSString", "NSURL", "NSUserNotification", "NSValue"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSGeometry", "NSObject", "NSString", "NSURL", "NSUserNotification", "NSValue"] }
 objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -2,13 +2,14 @@
 //! tab rail's pages and the Git pane's lists. A swipe drags them, a landing springs them
 //! onto one, and a switch made some other way travels one place over.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::{
     canvas, div, px, relative, AnimationExt, AnyElement, App, Context, DispatchPhase, Div,
-    ElementId, Hsla, IntoElement, ParentElement, ScrollEvent, Styled, Task, TouchPhase, Window,
+    ElementId, Hsla, IntoElement, Modifiers, MouseDownEvent, ParentElement, Point, ScrollDelta,
+    ScrollEvent, ScrollSource, Styled, Task, TouchPhase, Window,
 };
 
 use crate::panes;
@@ -16,16 +17,36 @@ use crate::swipe::{self, Ends, Swipe, Swiped};
 use crate::workbench::Workbench;
 use sikemux_view::prefs::TabRailPage;
 
+type SwipedFn = Rc<dyn Fn(&ScrollEvent, &mut App) -> bool>;
+
+struct ActiveSwipe {
+    owner: usize,
+    #[cfg(target_os = "macos")]
+    window_view: Option<usize>,
+    swiped: SwipedFn,
+}
+
 thread_local! {
     /// The innermost row under the pointer as the gesture began, which alone follows it, so
     /// the Git pane's lists swipe without the stage's tabs swiping around them.
     static OWNER: Cell<usize> = const { Cell::new(0) };
     /// Where things that scroll sideways were last drawn; a swipe starting over one is theirs.
-    static SCROLLERS: std::cell::RefCell<Vec<gpui_kit::Bounds<gpui_kit::Pixels>>> = const { std::cell::RefCell::new(Vec::new()) };
+    static SCROLLERS: RefCell<Vec<gpui_kit::Bounds<gpui_kit::Pixels>>> = const { RefCell::new(Vec::new()) };
+    /// The row currently holding an in-flight horizontal swipe, so a missed end event
+    /// settles it cleanly instead of leaving the lane stranded partway.
+    static ACTIVE: RefCell<Option<ActiveSwipe>> = const { RefCell::new(None) };
 }
 
 /// The owner while a swipe began over a sideways scroller, which no row ever is.
 const SIDEWAYS: usize = usize::MAX;
+
+#[derive(Clone, Default)]
+pub(crate) struct Handle {
+    /// The row's width as last drawn, in points.
+    width: Rc<Cell<f32>>,
+    /// Whether this row's swipe is currently dragging the lane.
+    held: Rc<Cell<bool>>,
+}
 
 /// One row of things that slide: what a hand or a switch is doing to it now.
 pub struct Slide<K> {
@@ -33,8 +54,7 @@ pub struct Slide<K> {
     motion: Option<Motion<K>>,
     /// What was in front as the slide last knew it, to tell a switch from a redraw.
     front: Option<K>,
-    /// The row's width as last drawn, in points.
-    width: Rc<Cell<f32>>,
+    handle: Handle,
     moves: usize,
     settle: Option<Task<()>>,
 }
@@ -45,7 +65,7 @@ impl<K> Default for Slide<K> {
             swipe: Swipe::default(),
             motion: None,
             front: None,
-            width: Rc::default(),
+            handle: Handle::default(),
             moves: 0,
             settle: None,
         }
@@ -118,8 +138,16 @@ impl<K: Clone + PartialEq> Around<K> {
 }
 
 impl<K: Clone + PartialEq> Slide<K> {
-    pub(crate) fn width(&self) -> Rc<Cell<f32>> {
-        self.width.clone()
+    pub(crate) fn handle(&self) -> Handle {
+        self.handle.clone()
+    }
+
+    fn reset_swipe(&mut self) -> bool {
+        let was_held = self.swipe.held();
+        self.swipe = Swipe::default();
+        self.handle.held.set(false);
+        clear_active(Rc::as_ptr(&self.handle.width) as usize);
+        was_held
     }
 
     /// What the row shows with `front` in front and `around` beside it: each thing and its
@@ -149,7 +177,11 @@ impl<K: Clone + PartialEq> Slide<K> {
         around: &Around<K>,
     ) -> Scrolled<K> {
         let beside = |way: i32| around.beside(way);
-        match self.swipe.scroll(event, self.width.get(), around.ends) {
+        let swiped = self
+            .swipe
+            .scroll(event, self.handle.width.get(), around.ends);
+        self.handle.held.set(self.swipe.held());
+        match swiped {
             Swiped::Ignored => Scrolled::Ignored,
             Swiped::Gliding => Scrolled::Glided,
             Swiped::Moved => {
@@ -221,10 +253,15 @@ impl Workbench {
     /// Follows a scroll over the stage; true when the stage took it as a swipe between tabs.
     fn swipe_stage(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) -> bool {
         let Some(front) = self.tab() else {
+            if self.track.reset_swipe() {
+                self.parts.redraw_stage(cx);
+            }
             return false;
         };
         if event.touch_phase == TouchPhase::Started && !pages_sideways(front) {
-            self.track.swipe = Swipe::default();
+            if self.track.reset_swipe() {
+                self.parts.redraw_stage(cx);
+            }
             return false;
         }
         let front = front.id.clone();
@@ -398,7 +435,7 @@ pub fn stage(
     let this = cx.entity().downgrade();
     row(
         "stage-track",
-        &bench.track.width,
+        &bench.track.handle,
         cards,
         start,
         motion,
@@ -430,7 +467,7 @@ pub fn rail(
     let this = cx.entity().downgrade();
     row(
         "rail-track",
-        &bench.rails.slide.width,
+        &bench.rails.slide.handle,
         cards,
         start,
         motion,
@@ -458,7 +495,7 @@ pub(crate) enum Between {
 /// A row's frame: what it shows, and the hearing of its swipes; the caller sizes it.
 pub(crate) fn row(
     id: &'static str,
-    width: &Rc<Cell<f32>>,
+    handle: &Handle,
     cards: Vec<(AnyElement, i32)>,
     start: f32,
     motion: Option<(usize, Option<f32>)>,
@@ -472,7 +509,7 @@ pub(crate) fn row(
     div()
         .relative()
         .overflow_hidden()
-        .child(listener(width, gap, swiped))
+        .child(listener(handle, gap, swiped))
         .child(
             div()
                 .absolute()
@@ -542,30 +579,94 @@ fn lane(
     .into_any_element()
 }
 
+/// Settles any swipe still held when focus leaves the window.
+pub(crate) fn cancel_active(cx: &mut App) {
+    finish_active(TouchPhase::Cancelled, cx);
+}
+
+fn active_owner() -> Option<usize> {
+    ACTIVE.with(|slot| slot.borrow().as_ref().map(|active| active.owner))
+}
+
+fn clear_active(owner: usize) {
+    ACTIVE.with(|slot| {
+        let mut active = slot.borrow_mut();
+        if active.as_ref().is_some_and(|held| held.owner == owner) {
+            *active = None;
+        }
+    });
+}
+
+fn sync_active(
+    owner: usize,
+    held: bool,
+    #[cfg(target_os = "macos")] window_view: Option<usize>,
+    swiped: &SwipedFn,
+) {
+    if held {
+        ACTIVE.with(|slot| {
+            *slot.borrow_mut() = Some(ActiveSwipe {
+                owner,
+                #[cfg(target_os = "macos")]
+                window_view,
+                swiped: swiped.clone(),
+            });
+        });
+    } else {
+        clear_active(owner);
+    }
+}
+
+fn finish_active(phase: TouchPhase, cx: &mut App) {
+    let Some(active) = ACTIVE.with(|slot| slot.borrow_mut().take()) else {
+        return;
+    };
+    let event = ScrollEvent {
+        position: Point::default(),
+        delta: ScrollDelta::Pixels(Point::default()),
+        touch_phase: phase,
+        modifiers: Modifiers::default(),
+        source: ScrollSource::Pointer,
+    };
+    let _ = (active.swiped)(&event, cx);
+}
+
 /// Measures one place along its row, a thing and the gap after it, and hears scrolls over
 /// it before what is under the pointer does, so a swipe does not also scroll what it starts on.
 fn listener(
-    width: &Rc<Cell<f32>>,
+    handle: &Handle,
     gap: f32,
     swiped: impl Fn(&ScrollEvent, &mut App) -> bool + 'static,
 ) -> impl IntoElement {
-    let (width, swiped) = (width.clone(), Rc::new(swiped));
+    let handle = handle.clone();
+    let swiped: SwipedFn = Rc::new(swiped);
     canvas(
         |_, _, _| {},
-        move |bounds, _, window, _| {
-            width.set(f32::from(bounds.size.width) + gap);
+        move |bounds, _, window, cx| {
+            handle.width.set(f32::from(bounds.size.width) + gap);
             SCROLLERS.with(|scrollers| {
                 scrollers
                     .borrow_mut()
                     .retain(|scroller| !bounds.contains(&scroller.center()))
             });
+            #[cfg(target_os = "macos")]
+            let window_view = macos::watch(window, cx);
+            #[cfg(not(target_os = "macos"))]
+            let _ = cx;
+            let me = Rc::as_ptr(&handle.width) as usize;
+            let held = handle.held.clone();
             let swiped = swiped.clone();
-            let me = Rc::as_ptr(&width) as usize;
             window.on_mouse_event(move |event: &ScrollEvent, phase, _, cx| {
-                if phase != DispatchPhase::Capture || !bounds.contains(&event.position) {
+                if phase != DispatchPhase::Capture {
                     return;
                 }
                 if event.touch_phase == TouchPhase::Started {
+                    if active_owner() == Some(me) {
+                        finish_active(TouchPhase::Cancelled, cx);
+                    }
+                    if !bounds.contains(&event.position) {
+                        return;
+                    }
                     gpui_transcript::scroll_latch::gesture_starts();
                     let over = SCROLLERS.with(|scrollers| {
                         scrollers
@@ -574,10 +675,32 @@ fn listener(
                             .any(|scroller| scroller.contains(&event.position))
                     });
                     OWNER.set(if over { SIDEWAYS } else { me });
+                    if over {
+                        finish_active(TouchPhase::Cancelled, cx);
+                    }
+                } else if OWNER.get() != me {
+                    return;
                 }
                 let inside = gpui_transcript::scroll_latch::taken_inside();
-                if OWNER.get() == me && !inside && swiped(event, cx) {
-                    cx.stop_propagation();
+                let finishing =
+                    matches!(event.touch_phase, TouchPhase::Ended | TouchPhase::Cancelled);
+                if OWNER.get() == me && (!inside || (finishing && held.get())) {
+                    let taken = swiped(event, cx);
+                    sync_active(
+                        me,
+                        held.get(),
+                        #[cfg(target_os = "macos")]
+                        window_view,
+                        &swiped,
+                    );
+                    if taken {
+                        cx.stop_propagation();
+                    }
+                }
+            });
+            window.on_mouse_event(move |_: &MouseDownEvent, phase, _, cx| {
+                if phase == DispatchPhase::Capture && active_owner() == Some(me) {
+                    finish_active(TouchPhase::Cancelled, cx);
                 }
             });
         },
@@ -595,4 +718,304 @@ pub(crate) fn sideways_scroller() -> impl IntoElement {
     )
     .absolute()
     .inset_0()
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::cell::{Cell, RefCell};
+    use std::ffi::CStr;
+    use std::ptr::NonNull;
+
+    use block2::RcBlock;
+    use gpui_kit::{App, TouchPhase, Window};
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2::{msg_send, MainThreadMarker};
+    use objc2_app_kit::{NSEvent, NSEventMask, NSEventPhase, NSView};
+    use objc2_foundation::NSObjectProtocol;
+    use tokio::sync::mpsc;
+
+    use super::{finish_active, ACTIVE};
+
+    thread_local! {
+        static MONITOR: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
+        static FINISH_TX: RefCell<Option<mpsc::UnboundedSender<TouchPhase>>> =
+            const { RefCell::new(None) };
+        static STARTED_OVER_NATIVE: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Watches macOS scroll phases directly: GPUI maps `NSEventPhase::Cancelled` to `Moved`,
+    /// and a native view (like a desk WKWebView) can slide under the pointer mid-swipe and
+    /// swallow the gesture's `Ended` event.
+    pub(super) fn watch(window: &Window, cx: &mut App) -> Option<usize> {
+        let view = gpui_native_view::window_view(window)?;
+        let ptr = Retained::as_ptr(&view) as usize;
+        if MONITOR.with(|slot| slot.borrow().is_some()) {
+            return Some(ptr);
+        }
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        FINISH_TX.with(|slot| *slot.borrow_mut() = Some(tx));
+        cx.spawn(async move |cx| {
+            while let Some(phase) = rx.recv().await {
+                cx.update(|cx| finish_active(phase, cx));
+            }
+        })
+        .detach();
+        let block = RcBlock::new(|event: NonNull<NSEvent>| -> *mut NSEvent {
+            // SAFETY: AppKit hands the monitor a live event for the length of the call.
+            handle_scroll(unsafe { event.as_ref() }, event.as_ptr())
+        });
+        // SAFETY: main thread, as every element's paint is. AppKit copies the block and the
+        // returned monitor stays alive in `MONITOR`.
+        let monitor = unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::ScrollWheel, &block)
+        };
+        MONITOR.with(|slot| *slot.borrow_mut() = monitor);
+        Some(ptr)
+    }
+
+    fn active_window_view() -> Option<usize> {
+        ACTIVE.with(|slot| slot.borrow().as_ref().and_then(|active| active.window_view))
+    }
+
+    fn has_active() -> bool {
+        ACTIVE.with(|slot| slot.borrow().is_some())
+    }
+
+    fn queue_finish(phase: TouchPhase) {
+        FINISH_TX.with(|slot| {
+            if let Some(tx) = slot.borrow().as_ref() {
+                let _ = tx.send(phase);
+            }
+        });
+    }
+
+    fn handle_scroll(event: &NSEvent, raw: *mut NSEvent) -> *mut NSEvent {
+        let phase = event.phase();
+        let momentum = event.momentumPhase();
+        if phase.intersects(NSEventPhase::MayBegin | NSEventPhase::Began) {
+            let over_native = hit_native_view(event).is_some();
+            STARTED_OVER_NATIVE.set(over_native);
+            if over_native && has_active() {
+                queue_finish(TouchPhase::Cancelled);
+            }
+            return raw;
+        }
+        let Some(active_view) = active_window_view() else {
+            return raw;
+        };
+        let started_native = STARTED_OVER_NATIVE.get();
+        let over_native_gpui = (!started_native)
+            .then(|| hit_native_view(event))
+            .flatten()
+            .filter(|gpui_view| Retained::as_ptr(gpui_view) as usize == active_view);
+
+        if phase.contains(NSEventPhase::Cancelled) {
+            queue_finish(TouchPhase::Cancelled);
+            return if over_native_gpui.is_some() {
+                std::ptr::null_mut()
+            } else {
+                raw
+            };
+        }
+        if phase.contains(NSEventPhase::Ended) {
+            if let Some(gpui_view) = over_native_gpui {
+                // SAFETY: `gpui_view` is a live `GPUIView` on the main thread and `raw` is a
+                // live `NSEvent` for this call.
+                let _: () = unsafe { msg_send![&*gpui_view, scrollWheel: raw] };
+                if has_active() {
+                    queue_finish(TouchPhase::Ended);
+                }
+                return std::ptr::null_mut();
+            }
+            queue_finish(TouchPhase::Ended);
+            return raw;
+        }
+        if phase.intersects(NSEventPhase::Changed | NSEventPhase::Stationary) {
+            if let Some(gpui_view) = over_native_gpui {
+                // SAFETY: `gpui_view` is a live `GPUIView` on the main thread and `raw` is a
+                // live `NSEvent` for this call.
+                let _: () = unsafe { msg_send![&*gpui_view, scrollWheel: raw] };
+                return std::ptr::null_mut();
+            }
+            return raw;
+        }
+        if phase.is_empty() && !momentum.is_empty() {
+            queue_finish(TouchPhase::Ended);
+            if over_native_gpui.is_some() {
+                return std::ptr::null_mut();
+            }
+        }
+        raw
+    }
+
+    /// Returns the window's `GPUIView` when the scroll event hits a native subview (like
+    /// `WKWebView`), or `None` when GPUI itself owns the hit target.
+    fn hit_native_view(event: &NSEvent) -> Option<Retained<NSView>> {
+        let window = MainThreadMarker::new().and_then(|mtm| event.window(mtm))?;
+        let content = window.contentView()?;
+        let hit = content.hitTest(event.locationInWindow())?;
+        if drawn_by_gpui(&hit) {
+            return None;
+        }
+        gpui_view_in(content)
+    }
+
+    fn drawn_by_gpui(view: &NSView) -> bool {
+        let is = |name: &CStr| AnyClass::get(name).is_some_and(|class| view.isKindOfClass(class));
+        is(c"GPUIView") || is(c"GPUIOverlayView")
+    }
+
+    fn gpui_view_in(content: Retained<NSView>) -> Option<Retained<NSView>> {
+        let class = AnyClass::get(c"GPUIView")?;
+        let inside = content.subviews();
+        std::iter::once(content)
+            .chain(inside.to_vec())
+            .find(|view| view.isKindOfClass(class))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::{
+        div, point, px, Context, IntoElement, MouseButton, MouseDownEvent, ParentElement, Render,
+        ScrollDelta, ScrollEvent, ScrollSource, Styled, TestAppContext, TouchPhase, Window,
+    };
+
+    use super::{cancel_active, row, settle, Around, Between, Scrolled, Slide};
+
+    struct SwipeHarness {
+        order: Vec<usize>,
+        front: usize,
+        slide: Slide<usize>,
+    }
+
+    impl SwipeHarness {
+        fn new() -> Self {
+            Self {
+                order: vec![0, 1, 2],
+                front: 1,
+                slide: Slide::default(),
+            }
+        }
+
+        fn swipe(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) -> bool {
+            let around = Around::in_order(&self.order, &self.front);
+            match self.slide.scroll(event, &self.front, &around) {
+                Scrolled::Ignored => return false,
+                Scrolled::Glided => return true,
+                Scrolled::Moved => {}
+                Scrolled::Landed((shown, from, speed, _, target)) => {
+                    if let Some(target) = target {
+                        self.front = target;
+                    }
+                    let moved = self.slide.travel(shown, from, Some(speed));
+                    settle(self, moved, |view: &mut Self| &mut view.slide, cx);
+                }
+            }
+            cx.notify();
+            true
+        }
+    }
+
+    impl Render for SwipeHarness {
+        fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let around = Around::in_order(&self.order, &self.front);
+            let (shown, start, motion) = self.slide.shown(self.front, || around);
+            let cards = shown
+                .into_iter()
+                .map(|(_, place)| (div().size_full().into_any_element(), place))
+                .collect();
+            let this = cx.entity().downgrade();
+            div().size_full().flex().child(
+                row(
+                    "test-track",
+                    &self.slide.handle(),
+                    cards,
+                    start,
+                    motion,
+                    Between::Gap(0.),
+                    move |event, cx| {
+                        this.update(cx, |view, cx| view.swipe(event, cx))
+                            .unwrap_or(false)
+                    },
+                )
+                .w(px(400.))
+                .h_full(),
+            )
+        }
+    }
+
+    fn scroll(x: f32, dx: f32, touch_phase: TouchPhase) -> ScrollEvent {
+        ScrollEvent {
+            position: point(px(x), px(100.)),
+            delta: ScrollDelta::Pixels(point(px(dx), px(0.))),
+            touch_phase,
+            modifiers: gpui_kit::Modifiers::default(),
+            source: ScrollSource::Pointer,
+        }
+    }
+
+    #[gpui::test]
+    fn swipe_ends_cleanly_after_pointer_leaves_row_bounds(cx: &mut TestAppContext) {
+        let (view, cx) = cx.add_window_view(|_, _| SwipeHarness::new());
+        cx.run_until_parked();
+
+        cx.simulate_event(scroll(200., 0., TouchPhase::Started));
+        cx.simulate_event(scroll(200., -40., TouchPhase::Moved));
+        view.read_with(cx, |view, _| {
+            assert!(view.slide.swipe.held());
+            assert!(view.slide.swipe.offset > 0.);
+        });
+
+        // Pointer drifts past the 400px row into the right rail before fingers lift.
+        cx.simulate_event(scroll(520., 0., TouchPhase::Ended));
+        view.read_with(cx, |view, _| {
+            assert!(!view.slide.swipe.held());
+            assert_eq!(view.slide.swipe.offset, 0.);
+            assert!(view.slide.motion.is_some());
+        });
+    }
+
+    #[gpui::test]
+    fn stranded_swipe_settles_on_cancel_click_or_new_gesture_elsewhere(cx: &mut TestAppContext) {
+        let (view, cx) = cx.add_window_view(|_, _| SwipeHarness::new());
+        cx.run_until_parked();
+
+        // Missed Ended (e.g. macOS Cancelled or swallowed by WKWebView) settled by cancel_active.
+        cx.simulate_event(scroll(200., 0., TouchPhase::Started));
+        cx.simulate_event(scroll(200., -40., TouchPhase::Moved));
+        view.read_with(cx, |view, _| assert!(view.slide.swipe.held()));
+        cx.update(|_, cx| cancel_active(cx));
+        view.read_with(cx, |view, _| {
+            assert!(!view.slide.swipe.held());
+            assert_eq!(view.slide.swipe.offset, 0.);
+        });
+
+        // Missed Ended settled by a click anywhere in the window.
+        cx.simulate_event(scroll(200., 0., TouchPhase::Started));
+        cx.simulate_event(scroll(200., -40., TouchPhase::Moved));
+        view.read_with(cx, |view, _| assert!(view.slide.swipe.held()));
+        cx.simulate_event(MouseDownEvent {
+            button: MouseButton::Left,
+            position: point(px(520.), px(100.)),
+            modifiers: gpui_kit::Modifiers::default(),
+            click_count: 1,
+            first_mouse: false,
+        });
+        view.read_with(cx, |view, _| {
+            assert!(!view.slide.swipe.held());
+            assert_eq!(view.slide.swipe.offset, 0.);
+        });
+
+        // Missed Ended settled when a new scroll starts outside the row.
+        cx.simulate_event(scroll(200., 0., TouchPhase::Started));
+        cx.simulate_event(scroll(200., -40., TouchPhase::Moved));
+        view.read_with(cx, |view, _| assert!(view.slide.swipe.held()));
+        cx.simulate_event(scroll(520., 0., TouchPhase::Started));
+        view.read_with(cx, |view, _| {
+            assert!(!view.slide.swipe.held());
+            assert_eq!(view.slide.swipe.offset, 0.);
+        });
+    }
 }

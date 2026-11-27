@@ -128,7 +128,7 @@ impl Swipe {
                 let landed = Swiped::Landed {
                     step,
                     from: self.offset - step as f32,
-                    speed: speed / stride,
+                    speed: if stride > 0. { speed / stride } else { 0. },
                 };
                 self.offset = 0.;
                 landed
