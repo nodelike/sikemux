@@ -547,6 +547,9 @@ impl Workbench {
     }
 
     pub fn notify(&self, note: Notification, cx: &mut Context<Self>) {
+        if crate::updates::is_restarting() {
+            return;
+        }
         let window = self.window;
         cx.defer(move |cx| {
             let _ = window.update(cx, |_, window, cx| window.push_notification(note, cx));

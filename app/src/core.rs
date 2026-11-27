@@ -18,6 +18,7 @@ use sikemux_view::layout::PaneKind;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -30,7 +31,7 @@ use sikemux_client::client::{Attached, ClientError, ClientEvent, CoreClient};
 use sikemux_client::remote::SecretKey;
 use sikemux_grid::{decode_frame, decode_lines, Frame, Lines};
 use sikemux_hostkit::cli_paths;
-use sikemux_hostkit::core_start::{self, StartError};
+use sikemux_hostkit::core_start::{self, StartError, Started};
 use sikemux_hostkit::login_item::{self, CoreLaunch};
 use sikemux_linked::{Happened, Linked};
 use sikemux_process::sync::Locked;
@@ -824,6 +825,12 @@ impl From<ClientError> for CallError {
                 detail,
                 gone: false,
             },
+            ClientError::Disconnected => Self {
+                kind: None,
+                message: error.to_string(),
+                detail: None,
+                gone: true,
+            },
             other => other.to_string().into(),
         }
     }
@@ -1390,6 +1397,43 @@ const SHUT_DOWN_ANSWER: Duration = Duration::from_secs(20);
 /// A connection that held this long was a working one, so the next reconnect is quick again.
 const HELD: Duration = Duration::from_secs(10);
 
+/// How long a deferred upgrade or an announced handover may take before a disconnect counts as unexpected.
+const DEFERRED_HANDOVER_WINDOW: Duration = Duration::from_secs(150);
+const HANDOVER_WINDOW: Duration = Duration::from_secs(30);
+/// How long to wait quietly for the new core after a handover closes the socket.
+const HANDOVER_RECONNECT: Duration = Duration::from_secs(5);
+
+#[derive(Default)]
+struct Handover(Mutex<Option<Instant>>);
+
+impl Handover {
+    fn expect_for(&self, duration: Duration) {
+        let until = Instant::now() + duration;
+        let mut deadline = self.0.locked();
+        if deadline.is_none_or(|current| until > current) {
+            *deadline = Some(until);
+        }
+    }
+
+    fn expected(&self) -> bool {
+        self.0.locked().is_some_and(|until| Instant::now() <= until)
+    }
+}
+
+fn expected_disconnect(handing_over: &Handover, stopping: &AtomicBool) -> bool {
+    handing_over.expected() || stopping.load(Ordering::Acquire) || crate::updates::is_restarting()
+}
+
+fn should_report_call_error(
+    error: &ClientError,
+    handing_over: &Handover,
+    stopping: &AtomicBool,
+    restarting: bool,
+) -> bool {
+    !(matches!(error, ClientError::Disconnected)
+        && (handing_over.expected() || stopping.load(Ordering::Acquire) || restarting))
+}
+
 async fn run(
     home: Home,
     updates: mpsc::UnboundedSender<Update>,
@@ -1404,11 +1448,13 @@ async fn run(
     let failed = FailedWatches::default();
     let mut reconnect = Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
     loop {
+        let mut deferred_handover = false;
         if let (Some(launch), Some(build)) = (&home.launch, &home.build) {
             let force =
                 forced_update_marker().is_some_and(|marker| std::fs::remove_file(marker).is_ok());
             match core_start::start(IDENTIFIER, launch, build, force).await {
-                Ok(()) | Err(StartError::Unreachable(_)) => {}
+                Ok(Started::Ready) | Err(StartError::Unreachable(_)) => {}
+                Ok(Started::Upgrading) => deferred_handover = true,
                 Err(StartError::Incompatible { reason, .. }) => {
                     eprintln!("sikemux: the core cannot be used: {reason}");
                     let _ = updates.send(Update::Lost(reason));
@@ -1420,11 +1466,22 @@ async fn run(
         match CoreClient::connect(&home.socket).await {
             Ok((client, mut events)) => {
                 let connected = Instant::now();
-                let mut stopping = false;
+                let stopping = Arc::new(AtomicBool::new(false));
+                let handing_over = Arc::new(Handover::default());
+                if deferred_handover
+                    && home
+                        .build
+                        .as_ref()
+                        .is_some_and(|build| !client.hello().build.same_build(build))
+                {
+                    handing_over.expect_for(DEFERRED_HANDOVER_WINDOW);
+                }
                 let client = Arc::new(client);
                 let _ = updates.send(Update::Connected(client.hello().build.version.clone()));
                 if let Err(error) = client.ask(ask::WatchView).await {
-                    let _ = updates.send(Update::Lost(error.to_string()));
+                    if !expected_disconnect(&handing_over, &stopping) {
+                        let _ = updates.send(Update::Lost(error.to_string()));
+                    }
                 }
                 let mut remote_on: Option<bool> = None;
                 let (remote_init_tx, remote_init_rx) =
@@ -1576,7 +1633,11 @@ async fn run(
                             }
                             Some(ClientEvent::Event(Event::Changed { topic, project, paths })) => {
                                 let topic = Topic::of_json(&topic);
-                                stopping |= topic == Topic::Stopping;
+                                if topic == Topic::Stopping {
+                                    stopping.store(true, Ordering::Release);
+                                } else if topic == Topic::HandingOver {
+                                    handing_over.expect_for(HANDOVER_WINDOW);
+                                }
                                 for (&key, watch) in watches.here.iter().filter(|(&key, watch)| watch.moved_by(key, topic, project.as_deref(), paths.as_deref())) {
                                     read(&client, key, watch, (&current, &failed), &updates);
                                 }
@@ -1826,10 +1887,22 @@ async fn run(
                                 tokio::spawn(async move { chat(&client, ask, &updates).await });
                             }
                             Some(Ask::Call(method)) => {
-                                let (client, updates) = (client.clone(), updates.clone());
+                                let (client, updates, handing_over, stopping) = (
+                                    client.clone(),
+                                    updates.clone(),
+                                    handing_over.clone(),
+                                    stopping.clone(),
+                                );
                                 tokio::spawn(async move {
                                     if let Err(error) = client.call(method.name, method.params).await {
-                                        let _ = updates.send(Update::Failed(error.to_string()));
+                                        if should_report_call_error(
+                                            &error,
+                                            &handing_over,
+                                            &stopping,
+                                            crate::updates::is_restarting(),
+                                        ) {
+                                            let _ = updates.send(Update::Failed(error.to_string()));
+                                        }
                                     }
                                 });
                             }
@@ -1883,12 +1956,25 @@ async fn run(
                         },
                     }
                 }
-                if stopping {
+                if stopping.load(Ordering::Acquire) {
                     let _ = updates.send(Update::Stopped);
                     if !wait_to_start(&home, &mut asks, &mut watches).await {
                         return;
                     }
                     reconnect.reset();
+                    continue;
+                }
+                if handing_over.expected() {
+                    let socket = home.socket.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        sikemux_corekit::client::wait_for_core(&socket, HANDOVER_RECONNECT)
+                    })
+                    .await;
+                    reconnect.reset();
+                    continue;
+                }
+                if crate::updates::is_restarting() {
+                    tokio::time::sleep(reconnect.next()).await;
                     continue;
                 }
                 let _ = updates.send(Update::Lost("the core closed the connection".into()));
@@ -1897,6 +1983,22 @@ async fn run(
                 }
             }
             Err(error) => {
+                if deferred_handover {
+                    let socket = home.socket.clone();
+                    if tokio::task::spawn_blocking(move || {
+                        sikemux_corekit::client::wait_for_core(&socket, HANDOVER_RECONNECT)
+                    })
+                    .await
+                    .is_ok_and(|res| res.is_ok())
+                    {
+                        reconnect.reset();
+                        continue;
+                    }
+                }
+                if crate::updates::is_restarting() {
+                    tokio::time::sleep(reconnect.next()).await;
+                    continue;
+                }
                 eprintln!("sikemux: no core answers: {error}");
                 let socket = home.socket.clone();
                 let stuck = tokio::task::spawn_blocking(move || core_start::stuck(&socket))
@@ -2612,4 +2714,53 @@ fn send_read(
 
 pub fn utc_offset_minutes() -> i32 {
     chrono::Local::now().offset().local_minus_utc() / 60
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::time::Duration;
+
+    use sikemux_client::client::ClientError;
+
+    use super::{should_report_call_error, Handover};
+
+    #[test]
+    fn suppresses_disconnect_toast_only_for_expected_handover_or_restart() {
+        let handover = Handover::default();
+        let stopping = AtomicBool::new(false);
+
+        assert!(should_report_call_error(
+            &ClientError::Disconnected,
+            &handover,
+            &stopping,
+            false,
+        ));
+        assert!(should_report_call_error(
+            &ClientError::Core("boom".into()),
+            &handover,
+            &stopping,
+            true,
+        ));
+        assert!(!should_report_call_error(
+            &ClientError::Disconnected,
+            &handover,
+            &stopping,
+            true,
+        ));
+
+        handover.expect_for(Duration::from_secs(5));
+        assert!(!should_report_call_error(
+            &ClientError::Disconnected,
+            &handover,
+            &stopping,
+            false,
+        ));
+        assert!(should_report_call_error(
+            &ClientError::Core("refused".into()),
+            &handover,
+            &stopping,
+            false,
+        ));
+    }
 }

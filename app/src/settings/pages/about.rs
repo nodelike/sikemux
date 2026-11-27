@@ -166,30 +166,33 @@ pub fn render(
                     .disabled(busy)
                     .on_click(move |_, _, cx| this.update(cx, check_now))
             };
-            let by_hand = crate::updates::by_installer(status).map(|(version, command)| {
-                let this = this.clone();
-                let about = t!(
-                    "Run this in a terminal to install it: {command}",
-                    command = command
-                );
-                let copy = ui::Button::new(
-                    "update-copy-command",
-                    t!("Copy command"),
-                    ui::Variant::Outline,
-                )
-                .on_click(move |_, _, cx| {
-                    this.update(cx, |bench, cx| {
-                        crate::updates::copy_install_command(bench, &command, cx)
-                    })
+            let by_hand = crate::updates::is_pending_for(status, env!("CARGO_PKG_VERSION"))
+                .then(|| crate::updates::by_installer(status))
+                .flatten()
+                .map(|(version, command)| {
+                    let this = this.clone();
+                    let about = t!(
+                        "Run this in a terminal to install it: {command}",
+                        command = command
+                    );
+                    let copy = ui::Button::new(
+                        "update-copy-command",
+                        t!("Copy command"),
+                        ui::Variant::Outline,
+                    )
+                    .on_click(move |_, _, cx| {
+                        this.update(cx, |bench, cx| {
+                            crate::updates::copy_install_command(bench, &command, cx)
+                        })
+                    });
+                    rows::row_with(
+                        None,
+                        t!("Update v{version}", version = version),
+                        Some(about.into()),
+                        copy,
+                        cx,
+                    )
                 });
-                rows::row_with(
-                    None,
-                    t!("Update v{version}", version = version),
-                    Some(about.into()),
-                    copy,
-                    cx,
-                )
-            });
             let when_idle = status.automatic.map(|on| {
                 let this = this.clone();
                 let picker = ui::Segmented::new(
@@ -354,7 +357,13 @@ fn check_now(bench: &mut Workbench, cx: &mut Context<Workbench>) {
                     Some(UpdateChannel::Staff) => t!("staff"),
                     _ => t!("stable"),
                 };
-                match status.available.as_ref().map(|release| &release.version) {
+                match status
+                    .available
+                    .as_ref()
+                    .map(|release| &release.version)
+                    .filter(|version| {
+                        sikemux_corekit::build::older_version(env!("CARGO_PKG_VERSION"), version)
+                    }) {
                     None => toast::info(t!("Sikemux is up to date on the {channel} channel.", channel = channel)),
                     Some(version) if status.install_command.is_some() => toast::success(
                         t!("Update v{version} is out. Settings → About has the command that installs it.", version = version),

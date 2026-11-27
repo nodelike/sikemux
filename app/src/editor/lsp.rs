@@ -241,6 +241,9 @@ fn report(
     path: PathBuf,
     cx: &mut Context<Workbench>,
 ) {
+    if error.gone {
+        return;
+    }
     let said = format!("{language}:{error}");
     if !bench
         .editors

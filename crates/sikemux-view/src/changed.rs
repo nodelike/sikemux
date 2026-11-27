@@ -64,6 +64,8 @@ pub enum Topic {
     ModData,
     /// The core is stopping on purpose, so its clients do not start it again.
     Stopping,
+    /// The core is replacing itself with another build, so local clients reconnect quietly.
+    HandingOver,
     /// How busy this host is, for its page, while a client shows it.
     HostStats,
     /// Agentic Vault entries, pending first-entry cards, fill approvals, or audit entries changed.

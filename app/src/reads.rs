@@ -410,11 +410,7 @@ impl Workbench {
             Read::Update => {
                 let ready = |status: &UpdateStatus| {
                     status.state == UpdateState::Ready
-                        && status
-                            .available
-                            .as_ref()
-                            .map(|release| release.version.as_str())
-                            != Some(env!("CARGO_PKG_VERSION"))
+                        && crate::updates::is_pending_for(status, env!("CARGO_PKG_VERSION"))
                 };
                 let already = self.reads.update.as_ref().is_some_and(ready);
                 let was_put_back =

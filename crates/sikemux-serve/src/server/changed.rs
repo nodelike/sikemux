@@ -116,12 +116,14 @@ fn shown_on_devices(topic: Topic) -> bool {
 }
 
 /// Paired devices hear only of terminals ending and changing, and that a read changed; the
-/// rest reaches them in the device view. That the core is stopping is for the programs on
-/// this host, which would otherwise start it again.
+/// rest reaches them in the device view. Stopping and handing over are for the programs on
+/// this host.
 fn devices_hear(event: &Event) -> bool {
     match event {
         Event::Exited { .. } | Event::ShellMetadata(_) => true,
-        Event::Changed { topic, .. } => Topic::of_json(topic) != Topic::Stopping,
+        Event::Changed { topic, .. } => {
+            !matches!(Topic::of_json(topic), Topic::Stopping | Topic::HandingOver)
+        }
         _ => false,
     }
 }

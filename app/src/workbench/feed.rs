@@ -69,7 +69,7 @@ impl Workbench {
             Update::Connected(version) => {
                 // The app opens on this host, as the Mac's does, whichever host was last in front.
                 if self.connection.connected(version) {
-                    Target::here(&self.asks).call_typed::<call::ChooseHost>(HostParams {
+                    Target::here(&self.asks).call_quietly::<call::ChooseHost>(HostParams {
                         host: "this".to_owned(),
                     });
                     self.usage_wanted = true;

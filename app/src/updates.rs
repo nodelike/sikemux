@@ -53,6 +53,10 @@ pub(crate) fn restart_once(cx: &mut App) {
     }
 }
 
+pub(crate) fn is_restarting() -> bool {
+    RESTARTING.load(Ordering::SeqCst)
+}
+
 /// Starts the app again on the update in place. On Windows the core only fetched the release's
 /// installer, which the Sikemux service runs: it replaces the app and the core and opens the app
 /// again, so this hands over to it through the core.
@@ -111,7 +115,7 @@ pub(crate) fn restart_when_idle(cx: &mut Context<Workbench>) {
         let _waiting = waiting;
         loop {
             let Ok((rested, asks)) = bench.update(cx, |bench, cx| {
-                let ready = (bench.reads.update.as_ref())
+                let ready = pending(bench)
                     .is_some_and(|update| update.by_itself && update.state == UpdateState::Ready);
                 let rested = ready.then(|| cx.try_global::<LastKey>().map(|key| key.0.elapsed()));
                 (rested, bench.asks.clone())
@@ -146,7 +150,7 @@ impl Drop for WaitingForIdle {
 /// Installs the update, or restarts into one that is in place and waiting for the person
 /// to be idle.
 pub(crate) fn install_now(bench: &Workbench, cx: &mut App) {
-    match bench.reads.update.as_ref() {
+    match pending(bench) {
         Some(update) if update.by_itself && update.state == UpdateState::Ready => {
             restart_into_update(&bench.asks, cx)
         }
@@ -154,10 +158,21 @@ pub(crate) fn install_now(bench: &Workbench, cx: &mut App) {
     }
 }
 
+/// Whether `status` offers a release newer than an app running `own`.
+pub(crate) fn is_pending_for(status: &UpdateStatus, own: &str) -> bool {
+    let Some(available) = status.available.as_ref() else {
+        return false;
+    };
+    (status.updates || status.install_command.is_some())
+        && sikemux_corekit::build::older_version(own, &available.version)
+}
+
 pub(crate) fn pending(bench: &Workbench) -> Option<&UpdateStatus> {
-    bench.reads.update.as_ref().filter(|update| {
-        (update.updates || update.install_command.is_some()) && update.available.is_some()
-    })
+    bench
+        .reads
+        .update
+        .as_ref()
+        .filter(|update| is_pending_for(update, env!("CARGO_PKG_VERSION")))
 }
 
 /// The update's version and the command that installs it, for an app its installer updates.
@@ -301,14 +316,12 @@ pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEl
     let chip = ui::Button::new("rail-update", label, variant)
         .icon(icon)
         .tooltip(tip)
-        .on_click(
-            cx.listener(|bench, _, _, cx| match bench.reads.update.as_ref() {
-                Some(update) if update.by_itself && update.state == UpdateState::Ready => {
-                    restart_into_update(&bench.asks, cx)
-                }
-                _ => experience::open_whats_new(bench, cx),
-            }),
-        );
+        .on_click(cx.listener(|bench, _, _, cx| match pending(bench) {
+            Some(update) if update.by_itself && update.state == UpdateState::Ready => {
+                restart_into_update(&bench.asks, cx)
+            }
+            _ => experience::open_whats_new(bench, cx),
+        }));
     Some(rail_slot(chip))
 }
 
@@ -505,5 +518,44 @@ pub(crate) fn install_button(update: &UpdateStatus) -> (String, bool) {
         UpdateState::Ready => (t!("Restarting…").to_owned(), false),
         UpdateState::Failed => (t!("Retry v{version}", version = version), true),
         UpdateState::Idle => (t!("Install v{version}", version = version), true),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sikemux_view::updates::{UpdateRelease, UpdateState, UpdateStatus};
+
+    use super::is_pending_for;
+
+    fn status_with(version: &str) -> UpdateStatus {
+        UpdateStatus {
+            updates: true,
+            current: "0.6.4-nightly.726".into(),
+            available: Some(UpdateRelease {
+                version: version.into(),
+                notes: None,
+                date: None,
+                credits: None,
+            }),
+            state: UpdateState::Ready,
+            by_itself: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn hides_update_already_running_on_restarted_app() {
+        let ready = status_with("0.6.4-nightly.733");
+        assert!(is_pending_for(&ready, "0.6.4-nightly.726"));
+        assert!(!is_pending_for(&ready, "0.6.4-nightly.733"));
+        assert!(!is_pending_for(&ready, "0.6.4-nightly.734"));
+        assert!(!is_pending_for(&ready, "0.6.4"));
+    }
+
+    #[test]
+    fn offers_newer_stable_over_nightly() {
+        let stable = status_with("0.6.4");
+        assert!(is_pending_for(&stable, "0.6.4-nightly.733"));
+        assert!(!is_pending_for(&stable, "0.6.4"));
     }
 }

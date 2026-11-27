@@ -1,9 +1,11 @@
+use crate::server::changed::{ChangedCore, Topic, What};
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::PartCore;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;
 use sikemux_process::command::Stdio;
+use sikemux_wire::protocol::Event;
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -264,6 +266,11 @@ async fn hand_over(core: &Arc<Core>, binary: PathBuf) -> String {
     if !core.updating().pumping.settle(READER_SETTLE).await {
         return "a terminal reader did not stop".into();
     }
+    core.changed(What::Event(&Event::Changed {
+        topic: Topic::HandingOver.to_json(),
+        project: None,
+        paths: None,
+    }));
     let flushing: Vec<_> = core
         .clients()
         .into_iter()

@@ -42,6 +42,14 @@ pub enum Upgrade {
     Deferred,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Started {
+    Ready,
+    /// The running core deferred replacing itself until its chats can carry over, so it will
+    /// close its connections when it hands over.
+    Upgrading,
+}
+
 pub enum StartError {
     Unreachable(ClientError),
     /// A core of another protocol answers at the socket and could not be
@@ -61,7 +69,7 @@ pub async fn start(
     launch: &CoreLaunch,
     build: &BuildIdentity,
     force: bool,
-) -> Result<(), StartError> {
+) -> Result<Started, StartError> {
     let found = {
         let (identifier, launch) = (identifier.to_owned(), launch.clone());
         tokio::task::spawn_blocking(move || start_core(&identifier, &launch))
@@ -70,29 +78,36 @@ pub async fn start(
     };
     let binary = launch.binary.clone();
     match found {
-        Ok(hello) if hello.build.same_build(build) && runs(hello.pid, &binary) => Ok(()),
+        Ok(hello) if hello.build.same_build(build) && runs(hello.pid, &binary) => {
+            Ok(Started::Ready)
+        }
         Ok(hello) if older_version(&build.version, &hello.build.version) => {
             eprintln!(
                 "Sikemux {} uses the newer core already running ({} {}) as it is",
                 build.version, hello.build.version, hello.build.commit
             );
-            Ok(())
+            Ok(Started::Ready)
         }
         Ok(hello) => {
             let old = (!hello.build.same_build(build)).then_some(hello.build);
             match upgrade(&launch.socket, binary, hello.pid, old, force, false).await {
-                Ok(Upgrade::Done) => {}
-                Ok(Upgrade::Deferred) => eprintln!(
-                    "Sikemux's core updates once its chats can be carried over; using it as it is until then"
-                ),
-                Err(message) => eprintln!("Sikemux keeps its core as it is: {message}"),
+                Ok(Upgrade::Done) => Ok(Started::Ready),
+                Ok(Upgrade::Deferred) => {
+                    eprintln!(
+                        "Sikemux's core updates once its chats can be carried over; using it as it is until then"
+                    );
+                    Ok(Started::Upgrading)
+                }
+                Err(message) => {
+                    eprintln!("Sikemux keeps its core as it is: {message}");
+                    Ok(Started::Ready)
+                }
             }
-            Ok(())
         }
         Err(ClientError::VersionMismatch { pid, message, .. }) => {
             upgrade(&launch.socket, binary, pid, None, force, true)
                 .await
-                .map(drop)
+                .map(|_| Started::Ready)
                 .map_err(|reason| StartError::Incompatible {
                     pid,
                     reason: format!("{message}, and it could not be updated: {reason}"),
