@@ -5,6 +5,7 @@ use super::*;
 pub(super) struct TabUiDelegateIvars {
     tab_id: String,
     dialogs: RefCell<Burst>,
+    prints: RefCell<Burst>,
     events: Arc<dyn TabEvents>,
 }
 
@@ -208,6 +209,28 @@ define_class!(
             self.ivars().events.closed();
         }
     }
+
+    impl TabUiDelegate {
+        // SAFETY: matches WebKit's private `WKUIDelegatePrivate` print callback, invoked on the
+        // main thread when web content calls `window.print()`.
+        #[unsafe(method(_webView:printFrame:pdfFirstPageSize:completionHandler:))]
+        unsafe fn print_frame_with_completion(
+            &self,
+            webview: &WKWebView,
+            _frame: *mut AnyObject,
+            _pdf_first_page_size: NSSize,
+            handler: &block2::DynBlock<dyn Fn()>,
+        ) {
+            self.handle_print(webview);
+            handler.call(());
+        }
+
+        // SAFETY: legacy fallback selector from `WKUIDelegatePrivate` for `window.print()`.
+        #[unsafe(method(_webView:printFrame:))]
+        unsafe fn print_frame(&self, webview: &WKWebView, _frame: *mut AnyObject) {
+            self.handle_print(webview);
+        }
+    }
 );
 
 impl TabUiDelegate {
@@ -219,11 +242,22 @@ impl TabUiDelegate {
         let delegate = mtm.alloc::<TabUiDelegate>().set_ivars(TabUiDelegateIvars {
             tab_id,
             dialogs: RefCell::new(Burst::new(crate::DIALOG_LIMIT, crate::DIALOG_WINDOW)),
+            prints: RefCell::new(Burst::new(crate::DIALOG_LIMIT, crate::DIALOG_WINDOW)),
             events,
         });
         // SAFETY: `delegate` is freshly allocated with its ivars set, and NSObject's `init`
         // takes nothing and returns that same object.
         unsafe { msg_send![super(delegate), init] }
+    }
+
+    fn handle_print(&self, webview: &WKWebView) {
+        if !print::can_print(webview, true) {
+            return;
+        }
+        if !self.ivars().prints.borrow_mut().admit(Instant::now()) {
+            return;
+        }
+        print::print_webview(webview);
     }
 }
 

@@ -45,6 +45,7 @@ mod delegates;
 mod dialogs;
 mod download;
 mod frame;
+mod print;
 mod scripts;
 mod shortcuts;
 mod snapshot;
@@ -116,6 +117,14 @@ define_class!(
             if !history_button(self, event, false) {
                 // SAFETY: as above.
                 let _: () = unsafe { msg_send![super(self), otherMouseUp: event] };
+            }
+        }
+
+        // SAFETY: matches NSView's `print:`: an optional sender in, nothing out.
+        #[unsafe(method(print:))]
+        fn print_page(&self, _sender: Option<&AnyObject>) {
+            if print::can_print(self, false) {
+                print::print_webview(self);
             }
         }
     }
