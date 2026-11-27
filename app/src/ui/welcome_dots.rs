@@ -26,10 +26,13 @@ macro_rules! program {
 
 static WELCOME_GLOW: RawShaderProgram = program!("welcome_glow");
 static WELCOME_DOT: RawShaderProgram = program!("welcome_dot");
+static WELCOME_FIELD: RawShaderProgram = program!("welcome_field");
+static WELCOME_MARK: RawShaderProgram = program!("welcome_mark");
 static MARK_PNG: &[u8] = include_bytes!("../../../brand/mark/mark-white-256.png");
 
 const MOST_IN_MARK: usize = 18_000;
 const MOST_IN_FIELD: usize = 24_000;
+const AMBIENT_EMPTY_SLOT: u32 = 24_001;
 const FIELD_AREA_EACH: f32 = 96.0;
 const PLAYS_FOR: f32 = 12.0;
 const PLAYS_ON_AFTER_POINTER: f32 = 5.0;
@@ -38,11 +41,10 @@ const SETTLES_FOR: f32 = 1.8;
 const MAX_COAST_AFTER_UNTIL: f32 = 3.0;
 const STILL_TIME: f32 = 9.0;
 const MIN_STEP_INTERVAL: f32 = 0.004;
+const AMBIENT_LIFE_DECAY: f32 = 2.2;
 const GRID_UPDATE_STEP: f32 = 0.015;
 const CURL_GRID_W: usize = 32;
 const CURL_GRID_H: usize = 24;
-const FIELD_GRID_W: usize = 48;
-const FIELD_GRID_H: usize = 36;
 const MARK_CURL_W: usize = 10;
 const MARK_CURL_H: usize = 10;
 const MARK_SHINE_W: usize = 16;
@@ -52,10 +54,11 @@ const SPATIAL_H: usize = 24;
 const SPATIAL_CELLS: usize = SPATIAL_W * SPATIAL_H;
 const PACK_MAX_SIDE: f32 = 22.0;
 const PACK_MAX_AREA: f32 = 260.0;
+const AMBIENT_PACK_MAX_SIDE: f32 = 18.0;
+const AMBIENT_PACK_MAX_AREA: f32 = 220.0;
 const GLOW_CELL_TARGET: f32 = 52.0;
 const GLOW_MAX_COLS: usize = 36;
 const GLOW_MAX_ROWS: usize = 24;
-const GLOW_UPDATE_STEP: f32 = 0.05;
 const AMBIENT_FRAME_INTERVAL: Duration = Duration::from_millis(33);
 
 #[cfg(feature = "drive")]
@@ -257,6 +260,17 @@ fn fast_sin(x: f32) -> f32 {
 }
 
 #[inline]
+fn eval_ambient_clock(base: f32, cruise: f32, elapsed: f32) -> f32 {
+    let elapsed = elapsed.max(0.0);
+    if elapsed <= cruise {
+        base + elapsed
+    } else {
+        let u = (elapsed - cruise).min(20.0);
+        base + cruise + (1.0 - (-AMBIENT_LIFE_DECAY * u).exp()) * (1.0 / AMBIENT_LIFE_DECAY)
+    }
+}
+
+#[inline]
 fn hash2(px: f32, py: f32) -> f32 {
     let mut x = (px * 123.34).fract();
     let mut y = (py * 456.21).fract();
@@ -324,6 +338,60 @@ fn pack_radius_alpha(radius_dev: f32, alpha: f32, is_bokeh: bool) -> f32 {
     } else {
         packed
     }
+}
+
+#[inline]
+fn pack_u12_u12(a: f32, b: f32) -> f32 {
+    let aq = a.clamp(0.0, 4095.0).round();
+    let bq = b.clamp(0.0, 4095.0).round();
+    aq * 4096.0 + bq
+}
+
+#[inline]
+fn pack_two_field_indices(a: u32, b: u32) -> f32 {
+    let a = a.min(AMBIENT_EMPTY_SLOT);
+    let b = b.min(AMBIENT_EMPTY_SLOT);
+    // Biased exponent keeps every packed pair a normal positive finite f32 for lossless GPU bitcast.
+    f32::from_bits(((b + 256) << 15) | (a & 0x7FFF))
+}
+
+#[inline]
+fn pack_field_meta(opacity: f32, corner_radius: f32, dark: bool, still: bool) -> f32 {
+    let opacity_q = (opacity.clamp(0.0, 1.0) * 1023.0).round();
+    let cr_q = (corner_radius.clamp(0.0, 63.75) * 4.0).round();
+    let flags = (u32::from(dark) | (u32::from(still) << 1)) as f32;
+    flags * 262_144.0 + cr_q * 1024.0 + opacity_q
+}
+
+#[inline]
+fn pack_glow_meta(opacity: f32, corner_radius_dev: f32, corner_id: u32) -> f32 {
+    let opacity_q = (opacity.clamp(0.0, 1.0) * 1023.0).round();
+    let cr_q = (corner_radius_dev.clamp(0.0, 63.75) * 4.0).round();
+    corner_id as f32 * 262_144.0 + cr_q * 1024.0 + opacity_q
+}
+
+#[inline]
+fn pack_mark_meta(span: f32, scale: f32, corner_radius: f32, still: bool) -> f32 {
+    let span_q = (span.clamp(1.0, 1023.75) * 4.0).round() as u32 & 0xFFF;
+    let scale_q = (scale.clamp(1.0, 15.9) * 32.0).round() as u32 & 0x1FF;
+    let still_bit = u32::from(still);
+    let cr_q = (corner_radius.clamp(0.0, 63.5) * 2.0).round() as u32;
+    f32::from_bits(((cr_q + 4) << 22) | (still_bit << 21) | (scale_q << 12) | span_q)
+}
+
+#[inline]
+fn pack_mark_uv(u: f32, v: f32) -> f32 {
+    let u_q = ((u + 0.5).clamp(0.0, 1.0) * 32767.0).round() as u32 & 0x7FFF;
+    let v_q = ((v + 0.5).clamp(0.0, 1.0) * 32767.0).round() as u32 & 0x7FFF;
+    f32::from_bits(((v_q + 256) << 15) | u_q)
+}
+
+#[inline]
+fn pack_mark_rac(base_radius: f32, base_alpha: f32, cy: f32) -> f32 {
+    let rad_q = (base_radius.clamp(0.0, 4.0) * (1023.0 / 4.0)).round() as u32 & 0x3FF;
+    let alpha_q = (base_alpha.clamp(0.0, 1.5) * (1023.0 / 1.5)).round() as u32 & 0x3FF;
+    let cy_q = (cy.clamp(0.0, 1.0) * 255.0).round() as u32 & 0xFF;
+    f32::from_bits(((cy_q + 8) << 20) | (alpha_q << 10) | rad_q)
 }
 
 #[inline]
@@ -687,7 +755,7 @@ fn mark_grains() -> &'static [MarkGrain] {
             })
             .collect();
 
-        // Spatial 2D tile ordering keeps consecutive mark grains within ~4pt so 4-dot packing merges them cleanly.
+        // Spatial 2D tile ordering keeps consecutive mark grains within ~4pt so 3-grain packing stays tight.
         grains.sort_by_key(|g| {
             let gx = ((g.u + 0.5) * 28.0).clamp(0.0, 27.0) as u32;
             let gy = ((g.v + 0.5) * 28.0).clamp(0.0, 27.0) as u32;
@@ -730,6 +798,18 @@ impl Mood {
         self.deep = toward3(self.deep, goal.deep, 3.2, dt);
         self.alt = toward3(self.alt, goal.alt, 3.2, dt);
         self.bright = toward3(self.bright, goal.bright, 3.2, dt);
+    }
+
+    fn matches(&self, goal: Palette) -> bool {
+        let close = |a: [f32; 3], b: [f32; 3]| {
+            (a[0] - b[0]).abs() < 0.002
+                && (a[1] - b[1]).abs() < 0.002
+                && (a[2] - b[2]).abs() < 0.002
+        };
+        close(self.tint, goal.tint)
+            && close(self.deep, goal.deep)
+            && close(self.alt, goal.alt)
+            && close(self.bright, goal.bright)
     }
 }
 
@@ -784,49 +864,40 @@ impl PointerState {
     }
 }
 
-#[derive(Clone, Copy, Default)]
-struct FieldSample {
-    cloud: f32,
-    warmth: f32,
-    other: f32,
-}
-
-struct SimGrids {
+struct InteractiveGrids {
     curl: Vec<(f32, f32)>,
-    field: Vec<FieldSample>,
     mark_curl: Vec<(f32, f32)>,
     mark_shine: Vec<f32>,
-    last_field_t: f32,
-    last_field_w: f32,
-    last_field_h: f32,
+    last_curl_t: f32,
+    last_curl_w: f32,
+    last_curl_h: f32,
     last_mark_t: f32,
     last_mark_span: f32,
 }
 
-impl SimGrids {
+impl InteractiveGrids {
     fn new() -> Self {
         Self {
             curl: vec![(0.0, 0.0); CURL_GRID_W * CURL_GRID_H],
-            field: vec![FieldSample::default(); FIELD_GRID_W * FIELD_GRID_H],
             mark_curl: vec![(0.0, 0.0); MARK_CURL_W * MARK_CURL_H],
             mark_shine: vec![0.0; MARK_SHINE_W * MARK_SHINE_H],
-            last_field_t: f32::NAN,
-            last_field_w: 0.0,
-            last_field_h: 0.0,
+            last_curl_t: f32::NAN,
+            last_curl_w: 0.0,
+            last_curl_h: 0.0,
             last_mark_t: f32::NAN,
             last_mark_span: 0.0,
         }
     }
 
-    fn update_field(&mut self, width: f32, height: f32, t: f32) {
+    fn update_field_curl(&mut self, width: f32, height: f32, t: f32) {
         let same_size =
-            (self.last_field_w - width).abs() <= 0.5 && (self.last_field_h - height).abs() <= 0.5;
-        if same_size && (self.last_field_t - t).abs() < GRID_UPDATE_STEP {
+            (self.last_curl_w - width).abs() <= 0.5 && (self.last_curl_h - height).abs() <= 0.5;
+        if same_size && (self.last_curl_t - t).abs() < GRID_UPDATE_STEP {
             return;
         }
-        self.last_field_t = t;
-        self.last_field_w = width;
-        self.last_field_h = height;
+        self.last_curl_t = t;
+        self.last_curl_w = width;
+        self.last_curl_h = height;
 
         let cw_inv = width / (CURL_GRID_W - 1) as f32;
         let ch_inv = height / (CURL_GRID_H - 1) as f32;
@@ -837,26 +908,6 @@ impl SimGrids {
                 let px = gx as f32 * cw_inv / 230.0;
                 let (dx, dy) = curl(px, py, ct);
                 *cell = (dx * 14.0, dy * 14.0);
-            }
-        }
-
-        let fw_inv = width / (FIELD_GRID_W - 1) as f32;
-        let fh_inv = height / (FIELD_GRID_H - 1) as f32;
-        for (gy, row) in self.field.chunks_mut(FIELD_GRID_W).enumerate() {
-            let py = gy as f32 * fh_inv;
-            let dy = py / 150.0;
-            let wy_py = py / 330.0 - t * 0.008;
-            let oy_py = py / 210.0 + t * 0.01 + 17.0;
-            for (gx, cell) in row.iter_mut().enumerate() {
-                let px = gx as f32 * fw_inv;
-                let dx = px / 150.0;
-                let wx = noise2(dx * 0.7 + t * 0.02, dy * 0.7 + t * 0.02);
-                let wy = noise2(dx * 0.7 + 9.0 - t * 0.02, dy * 0.7 + 9.0 - t * 0.02);
-                *cell = FieldSample {
-                    cloud: noise2(dx + t * 0.025 + 2.0 * wx, dy - t * 0.015 + 2.0 * wy),
-                    warmth: noise2(px / 330.0 + t * 0.011, wy_py),
-                    other: noise2(px / 210.0 - t * 0.008 + 17.0, oy_py),
-                };
             }
         }
     }
@@ -916,45 +967,6 @@ impl SimGrids {
         let cy0 = a.1 + (b.1 - a.1) * tx;
         let cy1 = c.1 + (d.1 - c.1) * tx;
         (cx0 + (cx1 - cx0) * ty, cy0 + (cy1 - cy0) * ty)
-    }
-
-    #[inline]
-    fn sample_field_cloud(&self, u: f32, v: f32) -> (f32, usize, f32, f32) {
-        let fx = (u * (FIELD_GRID_W - 1) as f32).clamp(0.0, (FIELD_GRID_W - 1) as f32);
-        let fy = (v * (FIELD_GRID_H - 1) as f32).clamp(0.0, (FIELD_GRID_H - 1) as f32);
-        let x0 = (fx as usize).min(FIELD_GRID_W - 2);
-        let y0 = (fy as usize).min(FIELD_GRID_H - 2);
-        let tx = fx - x0 as f32;
-        let ty = fy - y0 as f32;
-        let i00 = y0 * FIELD_GRID_W + x0;
-        let (Some(&a), Some(&b), Some(&c), Some(&d)) = (
-            self.field.get(i00),
-            self.field.get(i00 + 1),
-            self.field.get(i00 + FIELD_GRID_W),
-            self.field.get(i00 + FIELD_GRID_W + 1),
-        ) else {
-            return (0.0, 0, 0.0, 0.0);
-        };
-        let top = a.cloud + (b.cloud - a.cloud) * tx;
-        let bot = c.cloud + (d.cloud - c.cloud) * tx;
-        (top + (bot - top) * ty, i00, tx, ty)
-    }
-
-    #[inline]
-    fn sample_field_colors(&self, i00: usize, tx: f32, ty: f32) -> (f32, f32) {
-        let (Some(&a), Some(&b), Some(&c), Some(&d)) = (
-            self.field.get(i00),
-            self.field.get(i00 + 1),
-            self.field.get(i00 + FIELD_GRID_W),
-            self.field.get(i00 + FIELD_GRID_W + 1),
-        ) else {
-            return (0.0, 0.0);
-        };
-        let wt = a.warmth + (b.warmth - a.warmth) * tx;
-        let wb = c.warmth + (d.warmth - c.warmth) * tx;
-        let ot = a.other + (b.other - a.other) * tx;
-        let ob = c.other + (d.other - c.other) * tx;
-        (wt + (wb - wt) * ty, ot + (ob - ot) * ty)
     }
 
     #[inline]
@@ -1066,11 +1078,21 @@ impl FieldSpatialGrid {
             if let Some(slice) = self.indices.get_mut(start..end) {
                 slice.sort_unstable_by_key(|&idx| {
                     let Some(spec) = draw_specs.get(idx as usize) else {
-                        return (0u32, 0u32);
+                        return 0u32;
                     };
-                    let fx = (spec.hx * (SPATIAL_W * 4) as f32) as u32;
-                    let fy = (spec.hy * (SPATIAL_H * 4) as f32) as u32;
-                    (fy, fx)
+                    let fx = (spec.hx * (SPATIAL_W * 8) as f32) as u32;
+                    let fy = (spec.hy * (SPATIAL_H * 8) as f32) as u32;
+                    // Interleave low bits (2D Morton Z-order) so 4 consecutive dots are tight 2x2 neighbors.
+                    let morton = |mut x: u32, mut y: u32| -> u32 {
+                        x &= 0x7;
+                        y &= 0x7;
+                        x = (x | (x << 2)) & 0x13;
+                        x = (x | (x << 1)) & 0x15;
+                        y = (y | (y << 2)) & 0x13;
+                        y = (y | (y << 1)) & 0x15;
+                        x | (y << 1)
+                    };
+                    morton(fx, fy)
                 });
             }
         }
@@ -1132,49 +1154,49 @@ struct PackedQuad {
 }
 
 #[derive(Clone, Copy)]
-struct GlowQuad {
+struct GlowCell {
     x0: f32,
     y0: f32,
     w: f32,
     h: f32,
-    params: [f32; 16],
+    corner_id: u32,
 }
 
-#[derive(Clone, Copy)]
-struct GlowCacheKey {
-    t_bucket: i32,
-    seen_q: u16,
-    ptr_x: i32,
-    ptr_y: i32,
-    opacity_q: u16,
+#[derive(Clone, Copy, PartialEq)]
+struct GlowGridKey {
     w_bits: u32,
     h_bits: u32,
     origin_x_bits: u32,
     origin_y_bits: u32,
     scale_bits: u32,
     corner_bits: u32,
+}
+
+#[derive(Clone, Copy)]
+struct AmbientFieldQuad {
+    slots: [u32; 4],
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct AmbientMarkKey {
+    center_x_bits: u32,
+    center_y_bits: u32,
+    span_bits: u32,
+    scale_bits: u32,
+    glow_q: u16,
+    corner_bits: u32,
+    still: bool,
     tint_packed: u32,
     deep_packed: u32,
     alt_packed: u32,
+    bright_packed: u32,
 }
 
-impl PartialEq for GlowCacheKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.t_bucket == other.t_bucket
-            && self.seen_q == other.seen_q
-            && self.ptr_x == other.ptr_x
-            && self.ptr_y == other.ptr_y
-            && self.opacity_q == other.opacity_q
-            && self.w_bits == other.w_bits
-            && self.h_bits == other.h_bits
-            && self.origin_x_bits == other.origin_x_bits
-            && self.origin_y_bits == other.origin_y_bits
-            && self.scale_bits == other.scale_bits
-            && self.corner_bits == other.corner_bits
-            && self.tint_packed == other.tint_packed
-            && self.deep_packed == other.deep_packed
-            && self.alt_packed == other.alt_packed
-    }
+#[derive(Clone, Copy)]
+enum ShaderClock {
+    GpuAmbient { base: f32, gpu_t0: f32, cruise: f32 },
+    Static { t: f32 },
+    Interactive { t: f32, ptr: [f32; 2], seen: f32 },
 }
 
 #[derive(Clone, Copy)]
@@ -1200,6 +1222,13 @@ pub struct WelcomeDots {
     frame_scheduled: bool,
     ambient_task: Option<Task<()>>,
 
+    gpu_ambient_active: bool,
+    ambient_clock_base: f32,
+    ambient_gpu_t0: f32,
+    ambient_started_now: f32,
+    ambient_cruise: f32,
+    ambient_stop_after: f32,
+
     pane_w: f32,
     pane_h: f32,
     mark_center: [f32; 2],
@@ -1213,18 +1242,29 @@ pub struct WelcomeDots {
     field_perturbed: Vec<u32>,
     spatial: FieldSpatialGrid,
 
+    ambient_field_dirty: bool,
+    ambient_field_quads: Vec<AmbientFieldQuad>,
+    ambient_field_dot_count: usize,
+    field_idx_to_quad: Vec<(u32, u8)>,
+    masked_quad_scratch: Vec<[u32; 4]>,
+    masked_quad_flags: Vec<u8>,
+    masked_quad_touched: Vec<u32>,
+
     mark_fresh: bool,
     mark_active: bool,
     mark: Vec<ParticleState>,
+    grids: InteractiveGrids,
+    ambient_mark_key: Option<AmbientMarkKey>,
+    ambient_mark_quads: Vec<[f32; 16]>,
+    ambient_mark_dot_count: usize,
 
-    grids: SimGrids,
     draws: Vec<DotDraw>,
     packed: Vec<PackedQuad>,
-    glow_corners: Vec<[f32; 3]>,
-    glow_quads: Vec<GlowQuad>,
-    glow_cache_key: Option<GlowCacheKey>,
+    glow_grid_key: Option<GlowGridKey>,
+    glow_cells: Vec<GlowCell>,
     draws_gen: u64,
     packed_key: (u64, u32, u32, u32, u32),
+    last_emitted_quads: usize,
     last_step_us: u64,
     last_collect_us: u64,
     last_emit_us: u64,
@@ -1246,6 +1286,12 @@ impl WelcomeDots {
             dirty: true,
             frame_scheduled: false,
             ambient_task: None,
+            gpu_ambient_active: false,
+            ambient_clock_base: 4.0,
+            ambient_gpu_t0: 0.0,
+            ambient_started_now: 0.0,
+            ambient_cruise: 0.0,
+            ambient_stop_after: 0.0,
             pane_w: 0.0,
             pane_h: 0.0,
             mark_center: [0.0, 0.0],
@@ -1257,17 +1303,27 @@ impl WelcomeDots {
             field_is_perturbed: Vec::new(),
             field_perturbed: Vec::with_capacity(2048),
             spatial: FieldSpatialGrid::new(),
+            ambient_field_dirty: true,
+            ambient_field_quads: Vec::with_capacity(4096),
+            ambient_field_dot_count: 0,
+            field_idx_to_quad: Vec::new(),
+            masked_quad_scratch: Vec::new(),
+            masked_quad_flags: Vec::new(),
+            masked_quad_touched: Vec::with_capacity(512),
             mark_fresh: true,
             mark_active: false,
             mark: vec![ParticleState::default(); mark_len],
-            grids: SimGrids::new(),
-            draws: Vec::with_capacity(6144),
-            packed: Vec::with_capacity(2048),
-            glow_corners: Vec::with_capacity((GLOW_MAX_COLS + 1) * (GLOW_MAX_ROWS + 1)),
-            glow_quads: Vec::with_capacity(512),
-            glow_cache_key: None,
+            grids: InteractiveGrids::new(),
+            ambient_mark_key: None,
+            ambient_mark_quads: Vec::with_capacity(1024),
+            ambient_mark_dot_count: 0,
+            draws: Vec::with_capacity(2048),
+            packed: Vec::with_capacity(1024),
+            glow_grid_key: None,
+            glow_cells: Vec::with_capacity(512),
             draws_gen: 0,
             packed_key: (0, 0, 0, 0, 0),
+            last_emitted_quads: 0,
             last_step_us: 0,
             last_collect_us: 0,
             last_emit_us: 0,
@@ -1278,14 +1334,35 @@ impl WelcomeDots {
         self.started.elapsed().as_secs_f32()
     }
 
+    fn sync_clock_from_ambient(&mut self) {
+        if self.gpu_ambient_active {
+            let now = self.now();
+            let elapsed = (now - self.ambient_started_now).max(0.0);
+            self.clock = eval_ambient_clock(self.ambient_clock_base, self.ambient_cruise, elapsed);
+            self.life = if elapsed <= self.ambient_cruise {
+                1.0
+            } else {
+                (-AMBIENT_LIFE_DECAY * (elapsed - self.ambient_cruise).min(20.0)).exp()
+            };
+            self.gpu_ambient_active = false;
+            self.last_frame = Some(now);
+        }
+    }
+
     fn sync_props(&mut self, next: Props) -> bool {
         let palette_changed = self.props.palette != next.palette;
+        let dark_changed = self.props.palette.dark != next.palette.dark;
         let motion_changed = self.props.reduce_motion != next.reduce_motion;
         let glow_changed = (self.props.glow - next.glow).abs() > 0.001;
         let field_changed = self.props.show_field != next.show_field;
         let radius_changed = (self.props.corner_radius - next.corner_radius).abs() > 0.01;
         self.props = next;
+        if dark_changed {
+            self.ambient_field_dirty = true;
+        }
         if next.reduce_motion {
+            self.sync_clock_from_ambient();
+            self.ambient_task = None;
             self.awake = false;
             self.last_frame = None;
             self.dirty = true;
@@ -1296,6 +1373,8 @@ impl WelcomeDots {
                 || radius_changed;
         }
         if palette_changed || motion_changed || glow_changed || field_changed || radius_changed {
+            self.sync_clock_from_ambient();
+            self.ambient_task = None;
             self.dirty = true;
         }
         if palette_changed || motion_changed || field_changed {
@@ -1324,8 +1403,9 @@ impl WelcomeDots {
             return false;
         }
         let now = self.now();
-        let was_ambient_paced = self.ambient_task.is_some();
+        let was_ambient = self.ambient_task.is_some() || self.gpu_ambient_active;
         let woke = if bounds.contains(&pos) {
+            self.sync_clock_from_ambient();
             let local = [
                 f32::from(pos.x - bounds.origin.x),
                 f32::from(pos.y - bounds.origin.y),
@@ -1334,13 +1414,19 @@ impl WelcomeDots {
             self.ambient_task = None;
             self.wake_for(PLAYS_ON_AFTER_POINTER)
         } else if self.pointer.here {
+            self.sync_clock_from_ambient();
             self.pointer.here = false;
             self.ambient_task = None;
             self.wake_for(PLAYS_ON_AFTER_POINTER)
         } else {
             false
         };
-        (woke || was_ambient_paced) && !self.frame_scheduled
+        (woke || was_ambient) && !self.frame_scheduled
+    }
+
+    fn mood_settled(&self) -> bool {
+        self.mood
+            .is_some_and(|mood| mood.matches(self.props.palette))
     }
 
     fn wants_full_vsync(&self) -> bool {
@@ -1349,6 +1435,27 @@ impl WelcomeDots {
             || !self.field_perturbed.is_empty()
             || self.mark_active
             || self.props.glow < 0.999
+            || !self.mood_settled()
+    }
+
+    fn can_use_gpu_ambient(&self) -> bool {
+        !self.props.reduce_motion && self.awake && !self.wants_full_vsync()
+    }
+
+    fn tick_gpu_ambient(&mut self, gpu_now: f32, active: bool) -> (bool, bool) {
+        if !self.gpu_ambient_active || self.props.reduce_motion || !self.awake {
+            self.ambient_task = None;
+            return (false, false);
+        }
+        let elapsed = (gpu_now - self.ambient_gpu_t0).max(0.0);
+        self.clock = eval_ambient_clock(self.ambient_clock_base, self.ambient_cruise, elapsed);
+        if !active || elapsed >= self.ambient_stop_after {
+            self.awake = false;
+            self.last_frame = None;
+            self.ambient_task = None;
+            return (false, false);
+        }
+        (true, true)
     }
 
     fn sync_geometry(&mut self, bounds: Bounds<Pixels>) {
@@ -1421,6 +1528,7 @@ impl WelcomeDots {
             if self.quiet_rect != next_quiet {
                 self.quiet_rect = next_quiet;
                 self.dirty = true;
+                self.ambient_field_dirty = true;
             }
         } else if self.quiet_rect.is_none() {
             let quiet_half_w = (width * 0.42).min(330.0);
@@ -1432,6 +1540,7 @@ impl WelcomeDots {
                 (height * 0.72).max(quiet_top + 48.0),
             ]);
             self.dirty = true;
+            self.ambient_field_dirty = true;
         }
 
         if geom_changed {
@@ -1441,14 +1550,323 @@ impl WelcomeDots {
                 self.mark_center,
                 self.mark_span,
             );
+            self.ambient_field_dirty = true;
+        }
+    }
+
+    fn ensure_ambient_field_quads(&mut self) {
+        if !self.ambient_field_dirty {
+            return;
+        }
+        self.ambient_field_dirty = false;
+        self.ambient_field_quads.clear();
+        self.ambient_field_dot_count = 0;
+        self.field_idx_to_quad.clear();
+        self.field_idx_to_quad
+            .resize(self.field_used, (u32::MAX, 0));
+
+        if self.field_used == 0 {
+            return;
+        }
+
+        let draw_specs = &field_specs().draw;
+        let w = self.pane_w;
+        let h = self.pane_h;
+        let center = self.mark_center;
+        let span = self.mark_span;
+        let diag = len2(w, h);
+        let reach = diag * 0.62;
+        let inv_reach = 1.0 / reach.max(1.0);
+        let clearing = span * 0.50;
+        let inv_core_denom = 1.0 / (span * span * 0.55).max(1.0);
+        let core_cutoff = (span * span * 2.5).sqrt();
+        let rich = if self.props.palette.dark { 0.90 } else { 0.88 };
+        let quiet = self.quiet_rect;
+        let cell_w = w / SPATIAL_W as f32;
+        let cell_h = h / SPATIAL_H as f32;
+        // Max ambient curl (~21pt) + float (4pt) = 25pt margin for conservative static culling.
+        const DRIFT_MARGIN: f32 = 26.0;
+
+        let mut cur_slots = [AMBIENT_EMPTY_SLOT; 4];
+        let mut cur_count = 0usize;
+        let mut cur_min_x = 0.0f32;
+        let mut cur_min_y = 0.0f32;
+        let mut cur_max_x = 0.0f32;
+        let mut cur_max_y = 0.0f32;
+
+        let flush = |quads: &mut Vec<AmbientFieldQuad>,
+                     map: &mut [(u32, u8)],
+                     count: &mut usize,
+                     slots: &mut [u32; 4]| {
+            if *count > 0 {
+                let q_idx = quads.len() as u32;
+                for (slot_i, &idx) in slots.iter().take(*count).enumerate() {
+                    if let Some(entry) = map.get_mut(idx as usize) {
+                        *entry = (q_idx, slot_i as u8);
+                    }
+                }
+                quads.push(AmbientFieldQuad { slots: *slots });
+                *count = 0;
+                *slots = [AMBIENT_EMPTY_SLOT; 4];
+            }
+        };
+
+        for cell in 0..SPATIAL_CELLS {
+            if self.spatial.cell_in_reach.get(cell).copied().unwrap_or(0) == 0 {
+                continue;
+            }
+            if let Some([ql, qt, qr, qb]) = quiet {
+                let gx = cell % SPATIAL_W;
+                let gy = cell / SPATIAL_W;
+                let x0 = gx as f32 * cell_w - DRIFT_MARGIN;
+                let x1 = (gx + 1) as f32 * cell_w + DRIFT_MARGIN;
+                let y0 = gy as f32 * cell_h - DRIFT_MARGIN;
+                let y1 = (gy + 1) as f32 * cell_h + DRIFT_MARGIN;
+                if x0 >= ql && x1 <= qr && y0 >= qt && y1 <= qb {
+                    continue;
+                }
+            }
+
+            let slice = self.spatial.cell_slice(cell);
+            for &idx_u32 in slice {
+                let idx = idx_u32 as usize;
+                let Some(spec) = draw_specs.get(idx) else {
+                    continue;
+                };
+                let hx = spec.hx * w;
+                let hy = spec.hy * h;
+
+                if let Some([ql, qt, qr, qb]) = quiet {
+                    if hx >= ql + DRIFT_MARGIN
+                        && hx <= qr - DRIFT_MARGIN
+                        && hy >= qt + DRIFT_MARGIN
+                        && hy <= qb - DRIFT_MARGIN
+                    {
+                        continue;
+                    }
+                }
+
+                let away_home = len2(hx - center[0], hy - center[1]);
+                let away_min = (away_home - DRIFT_MARGIN).max(0.0);
+                if away_min >= reach && away_min > core_cutoff {
+                    continue;
+                }
+                let away_max = away_home + DRIFT_MARGIN;
+                let max_fade = (1.0 - away_min * inv_reach).max(0.0)
+                    * smoothstep(clearing - 34.0, clearing + 30.0, away_max);
+                let core_arg = away_min * away_min * inv_core_denom;
+                let max_core = if core_arg < 8.5 {
+                    (-core_arg).exp()
+                } else {
+                    0.0
+                };
+                if max_fade <= 0.002 && max_core <= 0.015 {
+                    continue;
+                }
+                if !spec.is_bokeh {
+                    let max_tone = max_fade * 1.45 * rich + max_core * 0.5 * rich;
+                    if max_tone <= spec.cut - 0.1 {
+                        continue;
+                    }
+                }
+
+                self.ambient_field_dot_count += 1;
+
+                if spec.is_bokeh {
+                    flush(
+                        &mut self.ambient_field_quads,
+                        &mut self.field_idx_to_quad,
+                        &mut cur_count,
+                        &mut cur_slots,
+                    );
+                    let q_idx = self.ambient_field_quads.len() as u32;
+                    if let Some(entry) = self.field_idx_to_quad.get_mut(idx) {
+                        *entry = (q_idx, 0);
+                    }
+                    self.ambient_field_quads.push(AmbientFieldQuad {
+                        slots: [
+                            idx_u32,
+                            AMBIENT_EMPTY_SLOT,
+                            AMBIENT_EMPTY_SLOT,
+                            AMBIENT_EMPTY_SLOT,
+                        ],
+                    });
+                    continue;
+                }
+
+                if cur_count > 0 && cur_count < 4 {
+                    let next_min_x = cur_min_x.min(hx);
+                    let next_min_y = cur_min_y.min(hy);
+                    let next_max_x = cur_max_x.max(hx);
+                    let next_max_y = cur_max_y.max(hy);
+                    let mw = next_max_x - next_min_x;
+                    let mh = next_max_y - next_min_y;
+                    if mw <= AMBIENT_PACK_MAX_SIDE
+                        && mh <= AMBIENT_PACK_MAX_SIDE
+                        && mw * mh <= AMBIENT_PACK_MAX_AREA
+                    {
+                        cur_min_x = next_min_x;
+                        cur_min_y = next_min_y;
+                        cur_max_x = next_max_x;
+                        cur_max_y = next_max_y;
+                        if let Some(slot) = cur_slots.get_mut(cur_count) {
+                            *slot = idx_u32;
+                        }
+                        cur_count += 1;
+                        if cur_count == 4 {
+                            flush(
+                                &mut self.ambient_field_quads,
+                                &mut self.field_idx_to_quad,
+                                &mut cur_count,
+                                &mut cur_slots,
+                            );
+                        }
+                        continue;
+                    }
+                    flush(
+                        &mut self.ambient_field_quads,
+                        &mut self.field_idx_to_quad,
+                        &mut cur_count,
+                        &mut cur_slots,
+                    );
+                }
+
+                cur_min_x = hx;
+                cur_min_y = hy;
+                cur_max_x = hx;
+                cur_max_y = hy;
+                cur_slots = [
+                    idx_u32,
+                    AMBIENT_EMPTY_SLOT,
+                    AMBIENT_EMPTY_SLOT,
+                    AMBIENT_EMPTY_SLOT,
+                ];
+                cur_count = 1;
+            }
+        }
+
+        flush(
+            &mut self.ambient_field_quads,
+            &mut self.field_idx_to_quad,
+            &mut cur_count,
+            &mut cur_slots,
+        );
+
+        let n = self.ambient_field_quads.len();
+        self.masked_quad_scratch.resize(n, [AMBIENT_EMPTY_SLOT; 4]);
+        self.masked_quad_flags.resize(n, 0);
+    }
+
+    fn ensure_ambient_mark_quads(&mut self, mood: &Mood, scale: f32) {
+        let grains = mark_grains();
+        let shown = self.props.glow;
+        let still = self.props.reduce_motion;
+        if grains.is_empty() || shown <= 0.002 {
+            self.ambient_mark_quads.clear();
+            self.ambient_mark_dot_count = 0;
+            self.ambient_mark_key = None;
+            return;
+        }
+
+        let key = AmbientMarkKey {
+            center_x_bits: self.mark_center[0].to_bits(),
+            center_y_bits: self.mark_center[1].to_bits(),
+            span_bits: self.mark_span.to_bits(),
+            scale_bits: scale.to_bits(),
+            glow_q: (shown.clamp(0.0, 1.0) * 1023.0).round() as u16,
+            corner_bits: self.props.corner_radius.to_bits(),
+            still,
+            tint_packed: pack_rgb(mood.tint) as u32,
+            deep_packed: pack_rgb(mood.deep) as u32,
+            alt_packed: pack_rgb(mood.alt) as u32,
+            bright_packed: pack_rgb(mood.bright) as u32,
+        };
+        if self.ambient_mark_key == Some(key) {
+            return;
+        }
+        self.ambient_mark_key = Some(key);
+        self.ambient_mark_quads.clear();
+        self.ambient_mark_dot_count = 0;
+
+        let radius_scale = (self.mark_span / 430.0).max(0.76) * 0.96;
+        let p0 = [
+            self.mark_center[0],
+            self.mark_center[1],
+            pack_mark_meta(self.mark_span, scale, self.props.corner_radius, still),
+            pack_rgb(mood.bright),
+        ];
+
+        let mut cur = [0.0f32; 16];
+        cur[0] = p0[0];
+        cur[1] = p0[1];
+        cur[2] = p0[2];
+        cur[3] = p0[3];
+        let mut count = 0usize;
+
+        for g in grains {
+            let fade = smoothstep(g.cy * 0.36, g.cy * 0.36 + 0.64, shown);
+            let base_radius = g.radius * radius_scale;
+            let base_alpha = g.light * fade;
+            if base_radius < 0.04 || base_alpha < 0.01 {
+                continue;
+            }
+            self.ambient_mark_dot_count += 1;
+            let uv = pack_mark_uv(g.u, g.v);
+            let rac = pack_mark_rac(base_radius, base_alpha, g.cy);
+            let rgb = pack_rgb(ink_of(g.lit, g.rim, mood));
+            match count {
+                0 => {
+                    cur[7] = uv;
+                    cur[8] = rac;
+                    cur[9] = rgb;
+                }
+                1 => {
+                    cur[10] = uv;
+                    cur[11] = rac;
+                    cur[12] = rgb;
+                }
+                _ => {
+                    cur[13] = uv;
+                    cur[14] = rac;
+                    cur[15] = rgb;
+                }
+            }
+            count += 1;
+            if count == 3 {
+                self.ambient_mark_quads.push(cur);
+                cur = [0.0; 16];
+                cur[0] = p0[0];
+                cur[1] = p0[1];
+                cur[2] = p0[2];
+                cur[3] = p0[3];
+                count = 0;
+            }
+        }
+        if count > 0 {
+            self.ambient_mark_quads.push(cur);
         }
     }
 
     fn step_and_collect(&mut self, bounds: Bounds<Pixels>, active: bool) -> (f32, Mood) {
         self.sync_geometry(bounds);
 
+        if self.gpu_ambient_active {
+            if !self.dirty && active && !self.props.reduce_motion {
+                let elapsed = (self.now() - self.ambient_started_now).max(0.0);
+                let t = eval_ambient_clock(self.ambient_clock_base, self.ambient_cruise, elapsed);
+                self.clock = t;
+                let mood = self
+                    .mood
+                    .unwrap_or_else(|| Mood::from_palette(self.props.palette));
+                self.last_step_us = 0;
+                self.last_collect_us = 0;
+                return (t, mood);
+            }
+            self.sync_clock_from_ambient();
+        }
+
         let still = self.props.reduce_motion;
-        if !self.awake && !self.dirty && !self.draws.is_empty() {
+        if !self.awake && !self.dirty && self.mood.is_some() {
             let t = if still { STILL_TIME } else { self.clock };
             let mood = self
                 .mood
@@ -1461,7 +1879,7 @@ impl WelcomeDots {
         let now = self.now();
         if !still
             && !self.dirty
-            && !self.draws.is_empty()
+            && self.mood.is_some()
             && self
                 .last_frame
                 .is_some_and(|prev| (now - prev) < MIN_STEP_INTERVAL)
@@ -1490,7 +1908,7 @@ impl WelcomeDots {
             } else {
                 0.0
             };
-            self.life = toward(self.life, want_life, 2.2, dt);
+            self.life = toward(self.life, want_life, AMBIENT_LIFE_DECAY, dt);
             self.clock += dt * self.life;
             self.pointer.pass(now, dt);
         } else {
@@ -1519,13 +1937,6 @@ impl WelcomeDots {
         let step_dt = dt / steps as f32;
 
         let t0 = Instant::now();
-        if self.props.show_field {
-            self.grids.update_field(self.pane_w, self.pane_h, t);
-        }
-        if !still {
-            self.grids.update_mark(self.mark_span, t);
-        }
-
         let mut max_motion = 0.0f32;
         if self.props.show_field {
             for _ in 0..steps {
@@ -1554,10 +1965,12 @@ impl WelcomeDots {
 
         let t1 = Instant::now();
         self.draws.clear();
-        if self.props.show_field {
-            self.collect_field_draws(t, still, &mood);
+        if self.props.show_field && !self.field_perturbed.is_empty() {
+            self.collect_perturbed_field_draws(t, still, &mood);
         }
-        self.collect_mark_draws(t, still, &mood);
+        if self.mark_active {
+            self.collect_mark_draws(t, still, &mood);
+        }
         self.draws_gen = self.draws_gen.wrapping_add(1);
         self.last_collect_us = t1.elapsed().as_micros() as u64;
 
@@ -1598,6 +2011,8 @@ impl WelcomeDots {
             return 0.0;
         }
 
+        self.grids.update_field_curl(w, h, t);
+
         let min_px = ptr[0].min(self.pointer.before[0]) - 420.0;
         let max_px = ptr[0].max(self.pointer.before[0]) + 420.0;
         let min_py = ptr[1].min(self.pointer.before[1]) - 420.0;
@@ -1636,13 +2051,22 @@ impl WelcomeDots {
                         else {
                             continue;
                         };
+                        let hx_px = dspec.hx * w;
+                        let hy_py = dspec.hy * h;
+                        if hx_px < min_px - 26.0
+                            || hx_px > max_px + 26.0
+                            || hy_py < min_py - 26.0
+                            || hy_py > max_py + 26.0
+                        {
+                            continue;
+                        }
                         let (curl_x, curl_y) = self.grids.sample_curl(dspec.hx, dspec.hy);
                         let float_x =
                             (sin_f1 * dspec.float_cos_x + cos_f1 * dspec.float_sin_x) * 4.0;
                         let float_y =
                             (cos_f2 * dspec.float_cos_y - sin_f2 * dspec.float_sin_y) * 4.0;
-                        let bx = dspec.hx * w + curl_x + float_x;
-                        let by = dspec.hy * h + curl_y + float_y;
+                        let bx = hx_px + curl_x + float_x;
+                        let by = hy_py + curl_y + float_y;
                         if bx < min_px || bx > max_px || by < min_py || by > max_py {
                             continue;
                         }
@@ -1814,6 +2238,8 @@ impl WelcomeDots {
             return 0.0;
         }
 
+        self.grids.update_mark(span, t);
+
         if !self.mark_active {
             for (g, p) in grains.iter().zip(self.mark.iter_mut()) {
                 let (cx_off, cy_off) = self.grids.sample_mark_curl(g.u, g.v);
@@ -1948,15 +2374,10 @@ impl WelcomeDots {
         max_motion
     }
 
-    fn collect_field_draws(&mut self, t: f32, still: bool, mood: &Mood) {
+    fn collect_perturbed_field_draws(&mut self, t: f32, still: bool, mood: &Mood) {
         let draw_specs = &field_specs().draw;
-        if self.field_used == 0 {
-            return;
-        }
         let w = self.pane_w;
         let h = self.pane_h;
-        let inv_w = 1.0 / w;
-        let inv_h = 1.0 / h;
         let center = self.mark_center;
         let span = self.mark_span;
         let diag = len2(w, h);
@@ -1974,200 +2395,168 @@ impl WelcomeDots {
         let quiet = self.quiet_rect;
         let twinkle_mul = if still { 0.0 } else { 0.16 };
         let bokeh_light_mul = if self.props.palette.dark { 1.0 } else { 0.72 };
-        let (sin_f1, cos_f1) = (t * 0.2).sin_cos();
-        let (sin_f2, cos_f2) = (t * 0.17).sin_cos();
-        let has_perturbed = !self.field_perturbed.is_empty();
-        let cell_w = w / SPATIAL_W as f32;
-        let cell_h = h / SPATIAL_H as f32;
 
-        for cell in 0..SPATIAL_CELLS {
-            if self.spatial.cell_in_reach.get(cell).copied().unwrap_or(0) == 0 {
+        for &idx_u32 in &self.field_perturbed {
+            let idx = idx_u32 as usize;
+            let (Some(spec), Some(p)) = (draw_specs.get(idx), self.field.get(idx)) else {
+                continue;
+            };
+            let (px, py, vx, vy) = (p.x, p.y, p.vx, p.vy);
+            if px < -16.0 || py < -16.0 || px > w + 16.0 || py > h + 16.0 {
                 continue;
             }
-            if !has_perturbed {
-                if let Some([ql, qt, qr, qb]) = quiet {
-                    let gx = cell % SPATIAL_W;
-                    let gy = cell / SPATIAL_W;
-                    let x0 = gx as f32 * cell_w - 22.0;
-                    let x1 = (gx + 1) as f32 * cell_w + 22.0;
-                    let y0 = gy as f32 * cell_h - 22.0;
-                    let y1 = (gy + 1) as f32 * cell_h + 22.0;
-                    if x0 >= ql && x1 <= qr && y0 >= qt && y1 <= qb {
-                        continue;
-                    }
-                }
+
+            let dx_c = px - center[0];
+            let dy_c = py - center[1];
+            let away2 = dx_c * dx_c + dy_c * dy_c;
+            if away2 >= reach_sq && away2 > core_cutoff_sq {
+                continue;
             }
 
-            let slice = self.spatial.cell_slice(cell);
-            for &idx_u32 in slice {
-                let idx = idx_u32 as usize;
-                let Some(spec) = draw_specs.get(idx) else {
-                    continue;
-                };
-                let (px, py, vx, vy) = if has_perturbed
-                    && self.field_is_perturbed.get(idx).copied().unwrap_or(0) != 0
-                {
-                    let Some(p) = self.field.get(idx) else {
+            let calm = match quiet {
+                Some([ql, qt, qr, qb]) => {
+                    if px >= ql && px <= qr && py >= qt && py <= qb {
                         continue;
-                    };
-                    (p.x, p.y, p.vx, p.vy)
-                } else {
-                    let (curl_x, curl_y) = self.grids.sample_curl(spec.hx, spec.hy);
-                    let float_x = (sin_f1 * spec.float_cos_x + cos_f1 * spec.float_sin_x) * 4.0;
-                    let float_y = (cos_f2 * spec.float_cos_y - sin_f2 * spec.float_sin_y) * 4.0;
-                    (
-                        spec.hx * w + curl_x + float_x,
-                        spec.hy * h + curl_y + float_y,
-                        0.0,
-                        0.0,
-                    )
-                };
-
-                if px < -16.0 || py < -16.0 || px > w + 16.0 || py > h + 16.0 {
-                    continue;
-                }
-
-                let dx_c = px - center[0];
-                let dy_c = py - center[1];
-                let away2 = dx_c * dx_c + dy_c * dy_c;
-                if away2 >= reach_sq && away2 > core_cutoff_sq {
-                    continue;
-                }
-
-                let calm = match quiet {
-                    Some([ql, qt, qr, qb]) => {
-                        if px >= ql && px <= qr && py >= qt && py <= qb {
+                    }
+                    let dx_q = px - px.clamp(ql, qr);
+                    let dy_q = py - py.clamp(qt, qb);
+                    let qd2 = dx_q * dx_q + dy_q * dy_q;
+                    if qd2 >= 12_100.0 {
+                        1.0
+                    } else {
+                        let c = smoothstep(0.0, 110.0, qd2.sqrt());
+                        if c <= 0.005 {
                             continue;
                         }
-                        let dx_q = px - px.clamp(ql, qr);
-                        let dy_q = py - py.clamp(qt, qb);
-                        let qd2 = dx_q * dx_q + dy_q * dy_q;
-                        if qd2 >= 12_100.0 {
-                            1.0
-                        } else {
-                            let c = smoothstep(0.0, 110.0, qd2.sqrt());
-                            if c <= 0.005 {
-                                continue;
-                            }
-                            c
-                        }
+                        c
                     }
-                    None => 1.0,
-                };
+                }
+                None => 1.0,
+            };
 
-                let away = away2.sqrt();
-                let fade = (1.0 - away * inv_reach).max(0.0)
-                    * smoothstep(clearing - 34.0, clearing + 30.0, away);
-                let core_arg = away2 * inv_core_denom;
-                let core = if core_arg < 8.5 {
-                    (-core_arg).exp()
+            let away = away2.sqrt();
+            let fade = (1.0 - away * inv_reach).max(0.0)
+                * smoothstep(clearing - 34.0, clearing + 30.0, away);
+            let core_arg = away2 * inv_core_denom;
+            let core = if core_arg < 8.5 {
+                (-core_arg).exp()
+            } else {
+                0.0
+            };
+            if fade <= 0.002 && core <= 0.015 {
+                continue;
+            }
+
+            let dx = px * (1.0 / 150.0);
+            let dy = py * (1.0 / 150.0);
+            let wx = noise2(dx * 0.7 + t * 0.02, dy * 0.7 + t * 0.02);
+            let wy = noise2(dx * 0.7 + 9.0 - t * 0.02, dy * 0.7 + 9.0 - t * 0.02);
+            let cloud = noise2(dx + t * 0.025 + 2.0 * wx, dy - t * 0.015 + 2.0 * wy);
+            let mut tone = fade * smoothstep(0.12, 0.86, cloud) * 1.45 * rich;
+            if away >= clearing {
+                tone += core * 0.5 * rich;
+            }
+
+            let cx = spec.cx;
+            let cy = spec.cy;
+            let (radius, alpha, lit) = if spec.is_bokeh {
+                let r = spec.bokeh_radius;
+                let a = fade
+                    * spec.bokeh_alpha
+                    * smoothstep(0.1, 0.6, tone + 0.2)
+                    * calm
+                    * bokeh_light_mul
+                    * opacity;
+                if r < 0.05 || a < 0.012 {
+                    continue;
+                }
+                let lit = if ptr_lit {
+                    let pdx = px - ptr[0];
+                    let pdy = py - ptr[1];
+                    let pd2 = pdx * pdx + pdy * pdy;
+                    if pd2 < 230_000.0 {
+                        seen * (-pd2 * (1.0 / 27_000.0)).exp()
+                    } else {
+                        0.0
+                    }
                 } else {
                     0.0
                 };
-                if fade <= 0.002 && core <= 0.015 {
+                (r, a, lit)
+            } else {
+                if tone <= spec.cut - 0.1 {
                     continue;
                 }
-
-                let (cloud, i00, tx, ty) = self.grids.sample_field_cloud(px * inv_w, py * inv_h);
-                let mut tone = fade * smoothstep(0.12, 0.86, cloud) * 1.45 * rich;
-                if away >= clearing {
-                    tone += core * 0.5 * rich;
+                let shown = smoothstep(spec.cut - 0.1, spec.cut + 0.1, tone);
+                if shown <= 0.01 {
+                    continue;
                 }
-
-                let cx = spec.cx;
-                let cy = spec.cy;
-                let (radius, alpha, lit) = if spec.is_bokeh {
-                    let r = spec.bokeh_radius;
-                    let a = fade
-                        * spec.bokeh_alpha
-                        * smoothstep(0.1, 0.6, tone + 0.2)
-                        * calm
-                        * bokeh_light_mul
-                        * opacity;
-                    if r < 0.05 || a < 0.012 {
-                        continue;
-                    }
-                    let lit = if ptr_lit {
-                        let pdx = px - ptr[0];
-                        let pdy = py - ptr[1];
-                        let pd2 = pdx * pdx + pdy * pdy;
-                        if pd2 < 230_000.0 {
-                            seen * (-pd2 * (1.0 / 27_000.0)).exp()
-                        } else {
-                            0.0
-                        }
+                let lit = if ptr_lit {
+                    let pdx = px - ptr[0];
+                    let pdy = py - ptr[1];
+                    let pd2 = pdx * pdx + pdy * pdy;
+                    if pd2 < 230_000.0 {
+                        seen * (-pd2 * (1.0 / 27_000.0)).exp()
                     } else {
                         0.0
-                    };
-                    (r, a, lit)
+                    }
                 } else {
-                    if tone <= spec.cut - 0.1 {
-                        continue;
-                    }
-                    let shown = smoothstep(spec.cut - 0.1, spec.cut + 0.1, tone);
-                    if shown <= 0.01 {
-                        continue;
-                    }
-                    let lit = if ptr_lit {
-                        let pdx = px - ptr[0];
-                        let pdy = py - ptr[1];
-                        let pd2 = pdx * pdx + pdy * pdy;
-                        if pd2 < 230_000.0 {
-                            seen * (-pd2 * (1.0 / 27_000.0)).exp()
-                        } else {
-                            0.0
-                        }
-                    } else {
-                        0.0
-                    };
-                    let speed_boost = if vx != 0.0 || vy != 0.0 {
-                        0.5 * (len2(vx, vy) * (1.0 / 160.0)).min(1.0)
-                    } else {
-                        0.0
-                    };
-                    let clamped_tone = tone.clamp(0.0, 1.0);
-                    let r = spec.base_radius + 0.28 * clamped_tone;
-                    let mut a = shown * (0.24 + 0.46 * clamped_tone) * (1.0 + lit + speed_boost);
-                    if twinkle_mul > 0.0 {
-                        a *= 0.84 + twinkle_mul * fast_sin(t * (0.2 + cx * 0.5) + cy * 60.0);
-                    }
-                    a *= calm * opacity;
-                    if r < 0.05 || a < 0.012 {
-                        continue;
-                    }
-                    (r, a, lit)
+                    0.0
                 };
+                let speed_boost = if vx != 0.0 || vy != 0.0 {
+                    0.5 * (len2(vx, vy) * (1.0 / 160.0)).min(1.0)
+                } else {
+                    0.0
+                };
+                let clamped_tone = tone.clamp(0.0, 1.0);
+                let r = spec.base_radius + 0.28 * clamped_tone;
+                let mut a = shown * (0.24 + 0.46 * clamped_tone) * (1.0 + lit + speed_boost);
+                if twinkle_mul > 0.0 {
+                    a *= 0.84 + twinkle_mul * fast_sin(t * (0.2 + cx * 0.5) + cy * 60.0);
+                }
+                a *= calm * opacity;
+                if r < 0.05 || a < 0.012 {
+                    continue;
+                }
+                (r, a, lit)
+            };
 
-                let (warmth, other) = self.grids.sample_field_colors(i00, tx, ty);
-                let mut shade = mix3(
-                    mood.deep,
-                    mood.tint,
-                    smoothstep(0.18, 0.62, warmth + 0.5 * core + 0.22 * (cx - 0.5)),
-                );
-                shade = mix3(
-                    shade,
-                    mood.alt,
-                    smoothstep(0.5, 0.74, other + 0.18 * (cy - 0.5)) * (1.0 - 0.6 * core),
-                );
-                let bright_mix =
-                    (core * 1.2 * cx * cx + spec.sparkle_step + 0.45 * lit * cy).clamp(0.0, 0.92);
-                shade = mix3(shade, mood.bright, bright_mix);
-                let mul = spec.shade_mul;
-                shade = [
-                    (shade[0] * mul).clamp(0.0, 1.0),
-                    (shade[1] * mul).clamp(0.0, 1.0),
-                    (shade[2] * mul).clamp(0.0, 1.0),
-                ];
+            let warmth = noise2(
+                px * (1.0 / 330.0) + t * 0.011,
+                py * (1.0 / 330.0) - t * 0.008,
+            );
+            let other = noise2(
+                px * (1.0 / 210.0) - t * 0.008 + 17.0,
+                py * (1.0 / 210.0) + t * 0.01 + 17.0,
+            );
+            let mut shade = mix3(
+                mood.deep,
+                mood.tint,
+                smoothstep(0.18, 0.62, warmth + 0.5 * core + 0.22 * (cx - 0.5)),
+            );
+            shade = mix3(
+                shade,
+                mood.alt,
+                smoothstep(0.5, 0.74, other + 0.18 * (cy - 0.5)) * (1.0 - 0.6 * core),
+            );
+            let bright_mix =
+                (core * 1.2 * cx * cx + spec.sparkle_step + 0.45 * lit * cy).clamp(0.0, 0.92);
+            shade = mix3(shade, mood.bright, bright_mix);
+            let mul = spec.shade_mul;
+            shade = [
+                (shade[0] * mul).clamp(0.0, 1.0),
+                (shade[1] * mul).clamp(0.0, 1.0),
+                (shade[2] * mul).clamp(0.0, 1.0),
+            ];
 
-                self.draws.push(DotDraw {
-                    cx: px,
-                    cy: py,
-                    radius,
-                    is_bokeh: spec.is_bokeh,
-                    rgb: shade,
-                    alpha: alpha.min(1.0),
-                });
-            }
+            self.draws.push(DotDraw {
+                cx: px,
+                cy: py,
+                radius,
+                is_bokeh: spec.is_bokeh,
+                rgb: shade,
+                alpha: alpha.min(1.0),
+            });
         }
     }
 
@@ -2188,24 +2577,14 @@ impl WelcomeDots {
         let radius_scale = (span / 430.0).max(0.76) * 0.96;
         let w = self.pane_w;
         let h = self.pane_h;
-        let mark_active = self.mark_active;
         let t_half = t * 0.5;
 
         for (idx, g) in grains.iter().enumerate() {
-            let (px, py) = if mark_active {
-                let Some(p) = self.mark.get(idx) else {
-                    continue;
-                };
-                (center[0] + p.x, center[1] + p.y)
-            } else if still {
-                (center[0] + g.u * span, center[1] + g.v * span)
-            } else {
-                let (cx_off, cy_off) = self.grids.sample_mark_curl(g.u, g.v);
-                (
-                    center[0] + g.u * span + cx_off,
-                    center[1] + g.v * span + cy_off,
-                )
+            let Some(p) = self.mark.get(idx) else {
+                continue;
             };
+            let px = center[0] + p.x;
+            let py = center[1] + p.y;
             if px < -8.0 || py < -8.0 || px > w + 8.0 || py > h + 8.0 {
                 continue;
             }
@@ -2465,263 +2844,385 @@ impl WelcomeDots {
         );
     }
 
-    fn paint_glow(&mut self, bounds: Bounds<Pixels>, t: f32, mood: &Mood, window: &mut Window) {
+    fn ensure_glow_cells(&mut self, bounds: Bounds<Pixels>, ground_scale: f32) {
         let w = self.pane_w;
         let h = self.pane_h;
         let origin_x = f32::from(bounds.origin.x);
         let origin_y = f32::from(bounds.origin.y);
-        let ground_scale = window.ground_scale().max(1.0);
-        let opacity = self.props.glow;
-        let seen = self.pointer.seen;
-        let ptr = self.pointer.at;
-
-        // Quantize slow glow updates to ~20Hz so macOS's ground-layer cache skips redrawing on 5/6 frames at 120Hz.
-        let key = GlowCacheKey {
-            t_bucket: (t / GLOW_UPDATE_STEP).floor() as i32,
-            seen_q: (seen.clamp(0.0, 1.0) * 64.0).round() as u16,
-            ptr_x: if seen > 0.001 {
-                (ptr[0] * 0.5).round() as i32
-            } else {
-                0
-            },
-            ptr_y: if seen > 0.001 {
-                (ptr[1] * 0.5).round() as i32
-            } else {
-                0
-            },
-            opacity_q: (opacity.clamp(0.0, 1.0) * 255.0).round() as u16,
+        let key = GlowGridKey {
             w_bits: w.to_bits(),
             h_bits: h.to_bits(),
             origin_x_bits: origin_x.to_bits(),
             origin_y_bits: origin_y.to_bits(),
             scale_bits: ground_scale.to_bits(),
             corner_bits: self.props.corner_radius.to_bits(),
-            tint_packed: pack_rgb(mood.tint) as u32,
-            deep_packed: pack_rgb(mood.deep) as u32,
-            alt_packed: pack_rgb(mood.alt) as u32,
         };
-
-        if self.glow_cache_key != Some(key) {
-            self.glow_cache_key = Some(key);
-            self.glow_quads.clear();
-
-            let cols = ((w / GLOW_CELL_TARGET).ceil() as usize).clamp(12, GLOW_MAX_COLS);
-            let rows = ((h / GLOW_CELL_TARGET).ceil() as usize).clamp(8, GLOW_MAX_ROWS);
-            let stride = cols + 1;
-            let total = stride * (rows + 1);
-            self.glow_corners.resize(total, [0.0; 3]);
-
-            let glow_t = key.t_bucket as f32 * GLOW_UPDATE_STEP;
-            let diag = len2(w, h);
-            let center = self.mark_center;
-            let span = self.mark_span.max(60.0);
-            let glow_gain = 0.16_f32;
-
-            let w0 = (span * 1.6).max(diag * 0.22);
-            let w1 = span * 0.72;
-            let w2 = (diag * 0.46).max(1.0);
-            let w3 = (diag * 0.34).max(1.0);
-            let inv_w0_sq = 1.0 / (w0 * w0);
-            let inv_w1_sq = 1.0 / (w1 * w1);
-            let inv_w2_sq = 1.0 / (w2 * w2);
-            let inv_w3_sq = 1.0 / (w3 * w3);
-            let inv_ptr_sq = 1.0 / (230.0 * 230.0);
-            let p2_origin = [w * 0.12, h * 1.04];
-            let p3_origin = [w * 0.98, h * 1.02];
-
-            let deep_tint = [
-                mood.deep[0] * 0.62 + mood.tint[0] * 0.16,
-                mood.deep[1] * 0.62 + mood.tint[1] * 0.16,
-                mood.deep[2] * 0.62 + mood.tint[2] * 0.16,
-            ];
-            let cell_w = w / cols as f32;
-            let cell_h = h / rows as f32;
-
-            for gy in 0..=rows {
-                let ly = gy as f32 * cell_h;
-                let dy_c = ly - center[1];
-                let dy_c2 = dy_c * dy_c;
-                let dy_2 = ly - p2_origin[1];
-                let dy_22 = dy_2 * dy_2;
-                let dy_3 = ly - p3_origin[1];
-                let dy_32 = dy_3 * dy_3;
-                let dy_p = ly - ptr[1];
-                let dy_p2 = dy_p * dy_p;
-                let row_base = gy * stride;
-                for gx in 0..=cols {
-                    let lx = gx as f32 * cell_w;
-                    let slant_x = 0.8 * lx + 0.6 * ly;
-                    let slant_y = -0.6 * lx + 0.8 * ly;
-                    let s1x = slant_x * (1.0 / 260.0);
-                    let s1y = slant_y * (1.0 / 260.0);
-                    let cloud = 0.5
-                        + 0.28 * (s1x + glow_t * 0.08 + 0.7 * (s1y - glow_t * 0.06).cos()).sin()
-                        + 0.22 * (s1y * 1.15 - glow_t * 0.05 + 0.6 * (s1x * 0.85).sin()).cos();
-                    let s2x = slant_x * (1.0 / 340.0);
-                    let s2y = slant_y * (1.0 / 340.0);
-                    let second = 0.5
-                        + 0.28 * (s2x - glow_t * 0.06 + 0.7 * (s2y + glow_t * 0.07).sin()).cos()
-                        + 0.22 * (s2y * 1.1 + glow_t * 0.05).sin();
-
-                    let dx_c = lx - center[0];
-                    let d_c2 = dx_c * dx_c + dy_c2;
-                    let l0 = (-d_c2 * inv_w0_sq).exp() * (0.5 + cloud);
-                    let l1 = (-d_c2 * inv_w1_sq).exp() * (0.62 + 0.55 * cloud) * 0.30;
-
-                    let dx_2 = lx - p2_origin[0];
-                    let l2 =
-                        (-(dx_2 * dx_2 + dy_22) * inv_w2_sq).exp() * (0.4 + 1.1 * second) * 0.10;
-
-                    let dx_3 = lx - p3_origin[0];
-                    let l3 = (-(dx_3 * dx_3 + dy_32) * inv_w3_sq).exp() * (0.35 + second) * 0.22;
-
-                    let lp = if seen > 0.001 {
-                        let dx_p = lx - ptr[0];
-                        let d_p2 = dx_p * dx_p + dy_p2;
-                        if d_p2 < 450_000.0 {
-                            0.14 * seen * (-d_p2 * inv_ptr_sq).exp()
-                        } else {
-                            0.0
-                        }
-                    } else {
-                        0.0
-                    };
-
-                    let light = [
-                        (deep_tint[0] * l0
-                            + mood.tint[0] * (l1 + lp)
-                            + mood.alt[0] * l2
-                            + mood.deep[0] * l3)
-                            * glow_gain,
-                        (deep_tint[1] * l0
-                            + mood.tint[1] * (l1 + lp)
-                            + mood.alt[1] * l2
-                            + mood.deep[1] * l3)
-                            * glow_gain,
-                        (deep_tint[2] * l0
-                            + mood.tint[2] * (l1 + lp)
-                            + mood.alt[2] * l2
-                            + mood.deep[2] * l3)
-                            * glow_gain,
-                    ];
-                    if let Some(slot) = self.glow_corners.get_mut(row_base + gx) {
-                        *slot = light;
-                    }
-                }
-            }
-
-            let corner_radius_dev = self.props.corner_radius * ground_scale;
-            let t_fract = glow_t.fract();
-            let inv_scale = 1.0 / ground_scale;
-            let snap_x = |gx: usize| -> f32 {
-                if gx == cols {
-                    w
-                } else {
-                    ((origin_x + gx as f32 * cell_w) * ground_scale).round() * inv_scale - origin_x
-                }
-            };
-            let snap_y = |gy: usize| -> f32 {
-                if gy == rows {
-                    h
-                } else {
-                    ((origin_y + gy as f32 * cell_h) * ground_scale).round() * inv_scale - origin_y
-                }
-            };
-
-            for gy in 0..rows {
-                let y0 = snap_y(gy);
-                let y1 = snap_y(gy + 1);
-                let r0 = gy * stride;
-                let r1 = (gy + 1) * stride;
-                for gx in 0..cols {
-                    let (Some(&c00), Some(&c10), Some(&c01), Some(&c11)) = (
-                        self.glow_corners.get(r0 + gx),
-                        self.glow_corners.get(r0 + gx + 1),
-                        self.glow_corners.get(r1 + gx),
-                        self.glow_corners.get(r1 + gx + 1),
-                    ) else {
-                        continue;
-                    };
-                    let peak = c00[0]
-                        .max(c00[1])
-                        .max(c00[2])
-                        .max(c10[0])
-                        .max(c10[1])
-                        .max(c10[2])
-                        .max(c01[0])
-                        .max(c01[1])
-                        .max(c01[2])
-                        .max(c11[0])
-                        .max(c11[1])
-                        .max(c11[2]);
-                    if peak * opacity <= 0.0015 {
-                        continue;
-                    }
-                    let x0 = snap_x(gx);
-                    let x1 = snap_x(gx + 1);
-                    let (cr, cid) = if corner_radius_dev > 0.0 {
-                        match (gx == 0, gx + 1 == cols, gy == 0, gy + 1 == rows) {
-                            (true, _, true, _) => (corner_radius_dev, 1.0),
-                            (_, true, true, _) => (corner_radius_dev, 2.0),
-                            (true, _, _, true) => (corner_radius_dev, 3.0),
-                            (_, true, _, true) => (corner_radius_dev, 4.0),
-                            _ => (0.0, 0.0),
-                        }
-                    } else {
-                        (0.0, 0.0)
-                    };
-                    self.glow_quads.push(GlowQuad {
-                        x0,
-                        y0,
-                        w: x1 - x0,
-                        h: y1 - y0,
-                        params: [
-                            c00[0], c00[1], c00[2], opacity, c10[0], c10[1], c10[2], t_fract,
-                            c01[0], c01[1], c01[2], cr, c11[0], c11[1], c11[2], cid,
-                        ],
-                    });
-                }
-            }
-        }
-
-        if self.glow_quads.is_empty() {
+        if self.glow_grid_key == Some(key) {
             return;
         }
+        self.glow_grid_key = Some(key);
+        self.glow_cells.clear();
+
+        let cols = ((w / GLOW_CELL_TARGET).ceil() as usize).clamp(12, GLOW_MAX_COLS);
+        let rows = ((h / GLOW_CELL_TARGET).ceil() as usize).clamp(8, GLOW_MAX_ROWS);
+        let cell_w = w / cols as f32;
+        let cell_h = h / rows as f32;
+        let inv_scale = 1.0 / ground_scale;
+        let corner_radius_dev = self.props.corner_radius * ground_scale;
+
+        let snap_x = |gx: usize| -> f32 {
+            if gx == cols {
+                w
+            } else {
+                ((origin_x + gx as f32 * cell_w) * ground_scale).round() * inv_scale - origin_x
+            }
+        };
+        let snap_y = |gy: usize| -> f32 {
+            if gy == rows {
+                h
+            } else {
+                ((origin_y + gy as f32 * cell_h) * ground_scale).round() * inv_scale - origin_y
+            }
+        };
+
+        for gy in 0..rows {
+            let y0 = snap_y(gy);
+            let y1 = snap_y(gy + 1);
+            for gx in 0..cols {
+                let x0 = snap_x(gx);
+                let x1 = snap_x(gx + 1);
+                let corner_id = if corner_radius_dev > 0.0 {
+                    match (gx == 0, gx + 1 == cols, gy == 0, gy + 1 == rows) {
+                        (true, _, true, _) => 1,
+                        (_, true, true, _) => 2,
+                        (true, _, _, true) => 3,
+                        (_, true, _, true) => 4,
+                        _ => 0,
+                    }
+                } else {
+                    0
+                };
+                self.glow_cells.push(GlowCell {
+                    x0,
+                    y0,
+                    w: x1 - x0,
+                    h: y1 - y0,
+                    corner_id,
+                });
+            }
+        }
+    }
+
+    fn paint_glow(
+        &mut self,
+        bounds: Bounds<Pixels>,
+        clock: ShaderClock,
+        mood: &Mood,
+        window: &mut Window,
+    ) {
+        let ground_scale = window.ground_scale().max(1.0);
+        self.ensure_glow_cells(bounds, ground_scale);
+        if self.glow_cells.is_empty() {
+            return;
+        }
+        let origin_x = f32::from(bounds.origin.x);
+        let origin_y = f32::from(bounds.origin.y);
+        let opacity = self.props.glow;
+        let corner_radius_dev = self.props.corner_radius * ground_scale;
+        let tint_p = pack_rgb(mood.tint);
+        let deep_p = pack_rgb(mood.deep);
+        let alt_p = pack_rgb(mood.alt);
+        let interior_meta = pack_glow_meta(opacity, 0.0, 0);
+
+        let p3 = match clock {
+            ShaderClock::GpuAmbient {
+                base,
+                gpu_t0,
+                cruise,
+            } => [base, gpu_t0, cruise, 0.0],
+            ShaderClock::Static { t } => [t, -1.0, 0.0, 0.0],
+            ShaderClock::Interactive { t, ptr, seen } => {
+                if seen > 0.001 {
+                    [t, ptr[0], ptr[1], seen]
+                } else {
+                    [t, -1.0, 0.0, 0.0]
+                }
+            }
+        };
+
+        let base_params = [
+            origin_x * ground_scale,
+            origin_y * ground_scale,
+            self.pane_w,
+            self.pane_h,
+            self.mark_center[0],
+            self.mark_center[1],
+            self.mark_span,
+            1.0 / ground_scale,
+            tint_p,
+            deep_p,
+            alt_p,
+            interior_meta,
+            p3[0],
+            p3[1],
+            p3[2],
+            p3[3],
+        ];
+
         window.paint_layer(bounds, |window| {
-            for quad in &self.glow_quads {
+            for cell in &self.glow_cells {
+                let mut params = base_params;
+                if cell.corner_id != 0 {
+                    params[11] = pack_glow_meta(opacity, corner_radius_dev, cell.corner_id);
+                }
                 let cell_bounds = Bounds::new(
-                    point(px(origin_x + quad.x0), px(origin_y + quad.y0)),
-                    size(px(quad.w), px(quad.h)),
+                    point(px(origin_x + cell.x0), px(origin_y + cell.y0)),
+                    size(px(cell.w), px(cell.h)),
                 );
-                let _ = window.paint_ground_shader(cell_bounds, &WELCOME_GLOW, quad.params, None);
+                let _ = window.paint_ground_shader(cell_bounds, &WELCOME_GLOW, params, None);
             }
         });
     }
 
-    fn paint_all(&mut self, bounds: Bounds<Pixels>, t: f32, mood: &Mood, window: &mut Window) {
+    fn paint_ambient_field(
+        &mut self,
+        bounds: Bounds<Pixels>,
+        clock: ShaderClock,
+        mood: &Mood,
+        scale: f32,
+        window: &mut Window,
+    ) -> usize {
+        self.ensure_ambient_field_quads();
+        if self.ambient_field_quads.is_empty() {
+            return 0;
+        }
+
+        let (p2_x, p2_y, p2_z) = match clock {
+            ShaderClock::GpuAmbient {
+                base,
+                gpu_t0,
+                cruise,
+            } => (base, gpu_t0, cruise),
+            ShaderClock::Static { t } => (t, -1.0, 0.0),
+            ShaderClock::Interactive { t, ptr, seen } => {
+                if seen > 0.001 {
+                    (t, pack_u12_u12(ptr[0], ptr[1]), -seen)
+                } else {
+                    (t, -1.0, 0.0)
+                }
+            }
+        };
+
+        let meta = pack_field_meta(
+            self.props.glow,
+            self.props.corner_radius,
+            self.props.palette.dark,
+            self.props.reduce_motion,
+        );
+        let (q_lr, q_tb) = match self.quiet_rect {
+            Some([ql, qt, qr, qb]) => (pack_u12_u12(ql, qr), pack_u12_u12(qt, qb)),
+            None => (-1.0, 0.0),
+        };
+
+        let base_params = [
+            self.mark_center[0],
+            self.mark_center[1],
+            self.mark_span,
+            scale,
+            pack_rgb(mood.deep),
+            pack_rgb(mood.tint),
+            pack_rgb(mood.alt),
+            pack_rgb(mood.bright),
+            p2_x,
+            p2_y,
+            p2_z,
+            meta,
+            q_lr,
+            q_tb,
+            0.0,
+            0.0,
+        ];
+
+        // Exclude any currently CPU-perturbed field particles from the static GPU ambient pass.
+        self.masked_quad_touched.clear();
+        if !self.field_perturbed.is_empty() {
+            for &idx_u32 in &self.field_perturbed {
+                let Some(&(q_idx, slot_i)) = self.field_idx_to_quad.get(idx_u32 as usize) else {
+                    continue;
+                };
+                if q_idx == u32::MAX {
+                    continue;
+                }
+                let qi = q_idx as usize;
+                if self.masked_quad_flags.get(qi).copied().unwrap_or(1) == 0 {
+                    if let (Some(flag), Some(dst), Some(src)) = (
+                        self.masked_quad_flags.get_mut(qi),
+                        self.masked_quad_scratch.get_mut(qi),
+                        self.ambient_field_quads.get(qi),
+                    ) {
+                        *flag = 1;
+                        *dst = src.slots;
+                        self.masked_quad_touched.push(q_idx);
+                    }
+                }
+                if let Some(dst) = self.masked_quad_scratch.get_mut(qi) {
+                    if let Some(slot) = dst.get_mut(slot_i as usize) {
+                        *slot = AMBIENT_EMPTY_SLOT;
+                    }
+                }
+            }
+        }
+
+        let has_masked = !self.masked_quad_touched.is_empty();
+        let mut emitted = 0usize;
+        window.paint_layer(bounds, |window| {
+            for (qi, quad) in self.ambient_field_quads.iter().enumerate() {
+                let slots =
+                    if has_masked && self.masked_quad_flags.get(qi).copied().unwrap_or(0) != 0 {
+                        let Some(&s) = self.masked_quad_scratch.get(qi) else {
+                            continue;
+                        };
+                        if s[0] == AMBIENT_EMPTY_SLOT
+                            && s[1] == AMBIENT_EMPTY_SLOT
+                            && s[2] == AMBIENT_EMPTY_SLOT
+                            && s[3] == AMBIENT_EMPTY_SLOT
+                        {
+                            continue;
+                        }
+                        s
+                    } else {
+                        quad.slots
+                    };
+                let mut params = base_params;
+                params[14] = pack_two_field_indices(slots[0], slots[1]);
+                params[15] = pack_two_field_indices(slots[2], slots[3]);
+                let _ = window.paint_raw_shader(bounds, &WELCOME_FIELD, params, None);
+                emitted += 1;
+            }
+        });
+
+        for &q_idx in &self.masked_quad_touched {
+            if let Some(flag) = self.masked_quad_flags.get_mut(q_idx as usize) {
+                *flag = 0;
+            }
+        }
+        self.masked_quad_touched.clear();
+        emitted
+    }
+
+    fn paint_ambient_mark(
+        &mut self,
+        bounds: Bounds<Pixels>,
+        clock: ShaderClock,
+        mood: &Mood,
+        scale: f32,
+        window: &mut Window,
+    ) -> usize {
+        self.ensure_ambient_mark_quads(mood, scale);
+        if self.ambient_mark_quads.is_empty() {
+            return 0;
+        }
+        let (p1_x, p1_y, p1_z) = match clock {
+            ShaderClock::GpuAmbient {
+                base,
+                gpu_t0,
+                cruise,
+            } => (base, gpu_t0, cruise),
+            ShaderClock::Static { t } => (t, -1.0, 0.0),
+            ShaderClock::Interactive { t, ptr, seen } => {
+                if seen > 0.001 {
+                    (t, pack_u12_u12(ptr[0], ptr[1]), -seen)
+                } else {
+                    (t, -1.0, 0.0)
+                }
+            }
+        };
+
+        let emitted = self.ambient_mark_quads.len();
+        window.paint_layer(bounds, |window| {
+            for quad in &self.ambient_mark_quads {
+                let mut params = *quad;
+                params[4] = p1_x;
+                params[5] = p1_y;
+                params[6] = p1_z;
+                let _ = window.paint_raw_shader(bounds, &WELCOME_MARK, params, None);
+            }
+        });
+        emitted
+    }
+
+    fn paint_all(
+        &mut self,
+        bounds: Bounds<Pixels>,
+        t: f32,
+        mood: &Mood,
+        active: bool,
+        window: &mut Window,
+    ) {
         let scale = window.scale_factor().max(1.0);
         let origin_x = f32::from(bounds.origin.x);
         let origin_y = f32::from(bounds.origin.y);
 
-        if self.props.show_field && self.props.palette.dark && self.props.glow > 0.001 {
-            self.paint_glow(bounds, t, mood, window);
-        }
-
-        self.ensure_packed(bounds, scale);
-        if self.packed.is_empty() {
-            return;
-        }
-
-        // One layer assigns every dot quad the same draw order: 1 BoundsTree insert and 1 Metal instanced draw call.
-        window.paint_layer(bounds, |window| {
-            for quad in &self.packed {
-                let dot_bounds = Bounds::new(
-                    point(px(origin_x + quad.min_x), px(origin_y + quad.min_y)),
-                    size(px(quad.max_x - quad.min_x), px(quad.max_y - quad.min_y)),
-                );
-                let _ = window.paint_raw_shader(dot_bounds, &WELCOME_DOT, quad.params, None);
+        let clock = if active && self.can_use_gpu_ambient() {
+            if !self.gpu_ambient_active {
+                let now = self.now();
+                self.gpu_ambient_active = true;
+                self.ambient_clock_base = t;
+                self.ambient_gpu_t0 = window.shader_time();
+                self.ambient_started_now = now;
+                self.ambient_cruise = (self.until - SETTLES_FOR - now).max(0.0);
+                self.ambient_stop_after = (self.until + MAX_COAST_AFTER_UNTIL - now).max(0.0);
             }
-        });
+            ShaderClock::GpuAmbient {
+                base: self.ambient_clock_base,
+                gpu_t0: self.ambient_gpu_t0,
+                cruise: self.ambient_cruise,
+            }
+        } else {
+            self.gpu_ambient_active = false;
+            if self.pointer.seen > 0.001 {
+                ShaderClock::Interactive {
+                    t,
+                    ptr: self.pointer.at,
+                    seen: self.pointer.seen,
+                }
+            } else {
+                ShaderClock::Static { t }
+            }
+        };
+
+        if self.props.show_field && self.props.palette.dark && self.props.glow > 0.001 {
+            self.paint_glow(bounds, clock, mood, window);
+        }
+
+        let mut total_quads = 0usize;
+        if self.props.show_field && self.props.glow > 0.001 {
+            total_quads += self.paint_ambient_field(bounds, clock, mood, scale, window);
+        }
+        if !self.mark_active {
+            total_quads += self.paint_ambient_mark(bounds, clock, mood, scale, window);
+        }
+
+        if !self.draws.is_empty() {
+            self.ensure_packed(bounds, scale);
+            if !self.packed.is_empty() {
+                total_quads += self.packed.len();
+                // One layer assigns every perturbed dot quad the same draw order: 1 BoundsTree insert and 1 draw call.
+                window.paint_layer(bounds, |window| {
+                    for quad in &self.packed {
+                        let dot_bounds = Bounds::new(
+                            point(px(origin_x + quad.min_x), px(origin_y + quad.min_y)),
+                            size(px(quad.max_x - quad.min_x), px(quad.max_y - quad.min_y)),
+                        );
+                        let _ =
+                            window.paint_raw_shader(dot_bounds, &WELCOME_DOT, quad.params, None);
+                    }
+                });
+            }
+        } else {
+            self.packed.clear();
+        }
+        self.last_emitted_quads = total_quads;
     }
 }
 
@@ -2757,12 +3258,14 @@ impl Render for WelcomeDots {
                 });
 
                 let t_emit = Instant::now();
-                strong.update(cx, |dots, _| dots.paint_all(bounds, t, &mood, window));
+                strong.update(cx, |dots, _| {
+                    dots.paint_all(bounds, t, &mood, active, window)
+                });
                 let emit_us = t_emit.elapsed().as_micros() as u64;
                 enum NextPace {
                     None,
                     Vsync,
-                    Ambient,
+                    GpuAmbient,
                 }
                 let pace = strong.update(cx, |dots, _| {
                     dots.last_emit_us = emit_us;
@@ -2776,7 +3279,7 @@ impl Render for WelcomeDots {
                                 NextPace::None
                             }
                         } else if !dots.frame_scheduled && dots.ambient_task.is_none() {
-                            NextPace::Ambient
+                            NextPace::GpuAmbient
                         } else {
                             NextPace::None
                         }
@@ -2802,22 +3305,38 @@ impl Render for WelcomeDots {
                             }
                         });
                     }
-                    NextPace::Ambient => {
+                    NextPace::GpuAmbient => {
                         let next_weak = entity.clone();
-                        let id = strong.entity_id();
-                        let task = cx.spawn(async move |cx| {
+                        let window_handle = window.window_handle();
+                        let task = cx.spawn(async move |cx| loop {
                             cx.background_executor().timer(AMBIENT_FRAME_INTERVAL).await;
-                            cx.update(|cx| {
-                                if let Some(view) = next_weak.upgrade() {
-                                    let still_awake = view.update(cx, |dots, _| {
-                                        dots.ambient_task = None;
-                                        dots.awake && !dots.props.reduce_motion
-                                    });
-                                    if still_awake {
-                                        cx.repaint(id);
-                                    }
-                                }
+                            let keep_going = cx.update(|cx| {
+                                let Some(view) = next_weak.upgrade() else {
+                                    return false;
+                                };
+                                window_handle
+                                    .update(cx, |_, window, cx| {
+                                        let active =
+                                            window.is_window_active() && window.is_visible();
+                                        let gpu_now = window.shader_time();
+                                        let (present, still_awake) = view.update(cx, |dots, _| {
+                                            dots.tick_gpu_ambient(gpu_now, active)
+                                        });
+                                        if present {
+                                            window.present_shaders();
+                                            #[cfg(feature = "drive")]
+                                            WELCOME_PRESENTS.fetch_add(1, Ordering::Relaxed);
+                                        }
+                                        if !still_awake {
+                                            sync_awake_flag(cx);
+                                        }
+                                        still_awake
+                                    })
+                                    .unwrap_or(false)
                             });
+                            if !keep_going {
+                                break;
+                            }
                         });
                         strong.update(cx, |dots, _| dots.ambient_task = Some(task));
                     }
@@ -2892,6 +3411,11 @@ pub fn theme_changed(cx: &mut App) {
     let palette = Palette::from_app(cx);
     for view in views {
         let woke = view.update(cx, |dots, _| {
+            dots.sync_clock_from_ambient();
+            dots.ambient_task = None;
+            if dots.props.palette.dark != palette.dark {
+                dots.ambient_field_dirty = true;
+            }
             dots.props.palette = palette;
             dots.dirty = true;
             dots.wake_for(PLAYS_FOR);
@@ -2913,6 +3437,8 @@ pub fn window_activated(cx: &mut App) {
     for view in views {
         let should_repaint = view.update(cx, |dots, _| {
             if !dots.props.reduce_motion && dots.now() < dots.until {
+                dots.sync_clock_from_ambient();
+                dots.ambient_task = None;
                 dots.awake = true;
                 dots.last_frame = None;
                 !dots.frame_scheduled
@@ -2951,6 +3477,8 @@ pub fn bench_pointer_move(pos: [f32; 2], cx: &mut App) {
     };
     for view in views {
         view.update(cx, |dots, _| {
+            dots.sync_clock_from_ambient();
+            dots.ambient_task = None;
             let now = dots.now();
             dots.pointer.move_to(pos, now);
             dots.pointer.seen = 1.0;
@@ -2973,7 +3501,7 @@ pub fn bench_stats(cx: &App) -> (usize, usize, bool, u64, u64, u64) {
     for view in reg.views.values() {
         let d = view.read(cx);
         field += d.field_used;
-        draws += d.draws.len();
+        draws += d.draws.len() + d.ambient_field_dot_count + d.ambient_mark_dot_count;
         awake |= d.awake;
         step_us += d.last_step_us;
         collect_us += d.last_collect_us;
@@ -2984,13 +3512,19 @@ pub fn bench_stats(cx: &App) -> (usize, usize, bool, u64, u64, u64) {
 
 pub fn bench_packed_count(cx: &App) -> usize {
     cx.try_global::<WelcomeRegistry>()
-        .map(|reg| reg.views.values().map(|v| v.read(cx).packed.len()).sum())
+        .map(|reg| {
+            reg.views
+                .values()
+                .map(|v| v.read(cx).last_emitted_quads)
+                .sum()
+        })
         .unwrap_or(0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui::InteractiveElement;
     use std::cell::Cell;
     use std::rc::Rc;
 
@@ -3021,6 +3555,104 @@ mod tests {
             let diff = (fast_sin(x) - x.sin()).abs();
             assert!(diff < 0.0015, "fast_sin({x}) diverged by {diff}");
         }
+    }
+
+    #[test]
+    fn stateless_gpu_roll_matches_field_specs_exact() {
+        let specs = &field_specs().draw;
+        let roll_gpu = |state: u32| -> f32 {
+            let mut v = (state ^ (state >> 15)).wrapping_mul(1 | state);
+            v = v.wrapping_add((v ^ (v >> 7)).wrapping_mul(61 | v)) ^ v;
+            (v ^ (v >> 14)) as f32 * (1.0 / 4_294_967_296.0)
+        };
+        for (idx, spec) in specs.iter().enumerate() {
+            let i = idx as u32;
+            let s1 = 3u32.wrapping_add((2 * i + 1).wrapping_mul(0x6d2b79f5));
+            let s2 = s1.wrapping_add(0x6d2b79f5);
+            let cx = roll_gpu(s1);
+            let cy = roll_gpu(s2);
+            let hx = (0.5 + i as f32 * 0.754_877_7 + cx * 0.004).fract();
+            let hy = (0.5 + i as f32 * 0.569_840_3 + cy * 0.004).fract();
+            assert!((cx - spec.cx).abs() < 1e-6, "cx mismatch at {idx}");
+            assert!((cy - spec.cy).abs() < 1e-6, "cy mismatch at {idx}");
+            assert!((hx - spec.hx).abs() < 1e-5, "hx mismatch at {idx}");
+            assert!((hy - spec.hy).abs() < 1e-5, "hy mismatch at {idx}");
+        }
+    }
+
+    #[test]
+    fn packed_gpu_formats_roundtrip_as_normal_finite_floats() {
+        for &(a, b) in &[
+            (0u32, 0u32),
+            (0, AMBIENT_EMPTY_SLOT),
+            (12_345, 23_999),
+            (AMBIENT_EMPTY_SLOT, AMBIENT_EMPTY_SLOT),
+        ] {
+            let f = pack_two_field_indices(a, b);
+            assert!(f.is_normal() && f > 0.0, "non-normal f32 for ({a}, {b})");
+            let bits = f.to_bits();
+            assert_eq!(bits & 0x7FFF, a);
+            assert_eq!((bits >> 15) - 256, b);
+        }
+
+        for &(u, v) in &[(-0.5_f32, -0.5_f32), (0.0, 0.0), (0.25, -0.37), (0.5, 0.5)] {
+            let f = pack_mark_uv(u, v);
+            assert!(f.is_normal() && f > 0.0);
+            let bits = f.to_bits();
+            let u_out = (bits & 0x7FFF) as f32 / 32767.0 - 0.5;
+            let v_out = ((bits >> 15) - 256) as f32 / 32767.0 - 0.5;
+            assert!((u_out - u).abs() < 1e-4);
+            assert!((v_out - v).abs() < 1e-4);
+        }
+
+        for &(r, a, cy) in &[(0.5_f32, 0.6_f32, 0.0_f32), (1.35, 1.28, 1.0)] {
+            let f = pack_mark_rac(r, a, cy);
+            assert!(f.is_normal() && f > 0.0);
+            let bits = f.to_bits();
+            let r_out = (bits & 0x3FF) as f32 * (4.0 / 1023.0);
+            let a_out = ((bits >> 10) & 0x3FF) as f32 * (1.5 / 1023.0);
+            let cy_out = ((bits >> 20) - 8) as f32 / 255.0;
+            assert!((r_out - r).abs() < 0.005);
+            assert!((a_out - a).abs() < 0.003);
+            assert!((cy_out - cy).abs() < 0.005);
+        }
+
+        for &(span, scale, cr, still) in &[
+            (116.0_f32, 2.0_f32, 10.0_f32, false),
+            (256.0, 1.25, 0.0, true),
+        ] {
+            let f = pack_mark_meta(span, scale, cr, still);
+            assert!(f.is_normal() && f > 0.0);
+            let bits = f.to_bits();
+            let span_out = (bits & 0xFFF) as f32 * 0.25;
+            let scale_out = ((bits >> 12) & 0x1FF) as f32 / 32.0;
+            let still_out = ((bits >> 21) & 1) != 0;
+            let cr_out = ((bits >> 22) - 4) as f32 * 0.5;
+            assert!((span_out - span).abs() < 0.3);
+            assert!((scale_out - scale).abs() < 0.04);
+            assert_eq!(still_out, still);
+            assert!((cr_out - cr).abs() < 0.6);
+        }
+    }
+
+    #[test]
+    fn ambient_clock_matches_euler_ease_out() {
+        let base = 4.0f32;
+        let cruise = 2.0f32;
+        let dt = 0.001f32;
+        let mut clock = base;
+        let mut life = 1.0f32;
+        for step in 0..5000 {
+            let elapsed = step as f32 * dt;
+            let target = if elapsed < cruise { 1.0 } else { 0.0 };
+            life = toward(life, target, AMBIENT_LIFE_DECAY, dt);
+            clock += dt * life;
+        }
+        let analytical = eval_ambient_clock(base, cruise, 5.0);
+        assert!(
+            (clock - analytical).abs() < 0.003,
+            "euler={clock} analytical={analytical}"
+        );
     }
 
     #[test]
@@ -3057,13 +3689,25 @@ mod tests {
         let mut dots = WelcomeDots::new(test_props());
         let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(2560.0), px(1440.0)));
 
-        // Coalesce 200 high-rate pointer events before stepping once: only perturbed particles step.
+        // Calm ambient drift uses GPU ambient mode with zero CPU dot collection.
         dots.step_and_collect(bounds, true);
         assert_eq!(dots.field_used, MOST_IN_FIELD);
         assert!(dots.field_perturbed.is_empty());
         assert!(
-            !dots.wants_full_vsync(),
-            "calm ambient drift should pace at 30Hz instead of full 120Hz VSync"
+            dots.draws.is_empty(),
+            "ambient frame should not collect CPU draws"
+        );
+        assert!(
+            dots.can_use_gpu_ambient(),
+            "calm ambient drift should use zero-draw_roots GPU ambient mode"
+        );
+        dots.ensure_ambient_field_quads();
+        assert!(
+            !dots.ambient_field_quads.is_empty()
+                && dots.ambient_field_quads.len() < dots.ambient_field_dot_count,
+            "ambient field quads should pack surviving particles ({} quads for {} dots)",
+            dots.ambient_field_quads.len(),
+            dots.ambient_field_dot_count
         );
 
         let base_t = dots.now();
@@ -3091,13 +3735,7 @@ mod tests {
         dots.ensure_packed(bounds, 2.0);
         assert!(
             !dots.draws.is_empty() && !dots.packed.is_empty(),
-            "welcome screen must emit draws and packed quads"
-        );
-        assert!(
-            dots.packed.len() < dots.draws.len(),
-            "tight spatial packing should merge nearby dots ({} quads for {} dots)",
-            dots.packed.len(),
-            dots.draws.len()
+            "perturbed welcome screen must emit CPU draws and packed quads"
         );
 
         // Once past until + coast, animation must go completely to sleep.
@@ -3114,6 +3752,8 @@ mod tests {
         struct StageHost {
             dots: Entity<WelcomeDots>,
             renders: Rc<Cell<usize>>,
+            focus_a: gpui::FocusHandle,
+            focus_b: gpui::FocusHandle,
         }
 
         impl Render for StageHost {
@@ -3128,11 +3768,23 @@ mod tests {
                     .size_full()
                     .child(
                         gpui::div()
+                            .track_focus(&self.focus_a)
+                            .tab_stop(true)
+                            .tab_index(0),
+                    )
+                    .child(
+                        gpui::div()
                             .absolute()
                             .inset_0()
                             .child(self.dots.clone().into_element().isolated()),
                     )
                     .child(mark_placeholder(116.0))
+                    .child(
+                        gpui::div()
+                            .track_focus(&self.focus_b)
+                            .tab_stop(true)
+                            .tab_index(1),
+                    )
             }
         }
 
@@ -3145,13 +3797,21 @@ mod tests {
                 StageHost {
                     dots,
                     renders: renders.clone(),
+                    focus_a: cx.focus_handle().tab_stop(true).tab_index(0),
+                    focus_b: cx.focus_handle().tab_stop(true).tab_index(1),
                 }
             });
             wcx.run_until_parked();
             let baseline_renders = renders.get();
             assert!(baseline_renders >= 1);
 
-            let dots = host.read_with(wcx, |host, _| host.dots.clone());
+            let (dots, focus_a, focus_b) = host.read_with(wcx, |host, _| {
+                (
+                    host.dots.clone(),
+                    host.focus_a.clone(),
+                    host.focus_b.clone(),
+                )
+            });
             for frame in 0..8 {
                 dots.update(wcx, |d, _| {
                     let now = d.now();
@@ -3169,6 +3829,16 @@ mod tests {
                     "WelcomeDots animation frame must repaint in isolation without re-rendering parent stage (scale={scale}, frame={frame})"
                 );
             }
+
+            // Tab navigation must remain intact after isolated repaints skip TabStopMap rebuild.
+            wcx.update(|window, cx| {
+                window.focus_next(cx);
+                assert_eq!(window.focused(cx), Some(focus_a.clone()));
+                window.focus_next(cx);
+                assert_eq!(window.focused(cx), Some(focus_b.clone()));
+                window.focus_prev(cx);
+                assert_eq!(window.focused(cx), Some(focus_a.clone()));
+            });
         }
     }
 }

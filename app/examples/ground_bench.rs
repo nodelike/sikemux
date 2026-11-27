@@ -364,9 +364,11 @@ fn offscreen(frames: usize) -> anyhow::Result<()> {
         grain::glow_shown(false, cx);
         grain::glow_shown(true, cx);
     });
-    for (label, dims, base_ms) in [
-        ("welcome", WINDOW_SIZE, empty),
-        ("welcome-4k", (2560.0_f32, 1440.0_f32), empty_4k),
+    for (label, dims, base_ms, ambient) in [
+        ("welcome-amb", WINDOW_SIZE, empty, true),
+        ("welcome", WINDOW_SIZE, empty, false),
+        ("welcome-4k-amb", (2560.0_f32, 1440.0_f32), empty_4k, true),
+        ("welcome-4k", (2560.0_f32, 1440.0_f32), empty_4k, false),
     ] {
         let window = cx.update(|cx| {
             cx.open_window(
@@ -383,21 +385,33 @@ fn offscreen(frames: usize) -> anyhow::Result<()> {
             )
         })?;
         cx.run_until_parked();
-        let mut took = Vec::with_capacity(frames);
-        let mut draw_took = Vec::with_capacity(frames);
-        for frame in 0..frames + 10 {
-            let angle = frame as f32 * 0.14;
-            let ptr = [
-                dims.0 * 0.5 + angle.cos() * 140.,
-                dims.1 * 0.38 + angle.sin() * 90.,
-            ];
-            cx.update(|cx| sikemux_gpui::ui::welcome_dots::bench_pointer_move(ptr, cx));
-            let started = std::time::Instant::now();
+        if ambient {
             cx.update_window(window.into(), |_, window, cx| {
                 window.refresh();
                 window.draw(cx).clear(cx)
             })?;
-            let draw_ms = started.elapsed().as_secs_f64() * 1000.;
+        }
+        let mut took = Vec::with_capacity(frames);
+        let mut draw_took = Vec::with_capacity(frames);
+        for frame in 0..frames + 10 {
+            let started = std::time::Instant::now();
+            let draw_ms = if ambient {
+                cx.update_window(window.into(), |_, window, _| window.present_shaders())?;
+                started.elapsed().as_secs_f64() * 1000.
+            } else {
+                let angle = frame as f32 * 0.14;
+                let ptr = [
+                    dims.0 * 0.5 + angle.cos() * 140.,
+                    dims.1 * 0.38 + angle.sin() * 90.,
+                ];
+                cx.update(|cx| sikemux_gpui::ui::welcome_dots::bench_pointer_move(ptr, cx));
+                let draw_started = std::time::Instant::now();
+                cx.update_window(window.into(), |_, window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx)
+                })?;
+                draw_started.elapsed().as_secs_f64() * 1000.
+            };
             cx.capture_screenshot(window.into())?;
             if frame >= 10 {
                 draw_took.push(draw_ms);
@@ -415,7 +429,7 @@ fn offscreen(frames: usize) -> anyhow::Result<()> {
             .context("no frames were timed")?;
         let draw_mean = draw_took.iter().sum::<f64>() / draw_took.len() as f64;
         println!(
-            "{label:>10}: {mean:.3} ms a frame (p95 {p95:.3}, draw {draw_mean:.3} ms), {:+.3} ms over no backdrop ({field_n} field, {draw_n} dots -> {packed_n} quads, awake={awake}, step={step_us}us, collect={collect_us}us, emit={emit_us}us)",
+            "{label:>14}: {mean:.3} ms a frame (p95 {p95:.3}, draw {draw_mean:.3} ms), {:+.3} ms over no backdrop ({field_n} field, {draw_n} dots -> {packed_n} quads, awake={awake}, step={step_us}us, collect={collect_us}us, emit={emit_us}us)",
             mean - base_ms
         );
         cx.update_window(window.into(), |_, window, _| window.remove_window())?;

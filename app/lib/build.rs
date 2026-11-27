@@ -212,7 +212,12 @@ fn shaders() -> Result {
         {
             continue;
         }
-        let source = shared.clone() + &read(&path)?;
+        let body = read(&path)?;
+        let source = if body.contains("@vertex") {
+            body
+        } else {
+            shared.clone() + &body
+        };
         let shown = path.display().to_string();
         let module = naga::front::wgsl::parse_str(&source)
             .map_err(|error| Failed(error.emit_to_string_with_path(&source, &shown)))?;
