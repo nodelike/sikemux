@@ -1486,12 +1486,14 @@ fn space_menu(
             profile_id.map(str::to_owned),
         );
         move |submenu: PopupMenu, _: &mut Window, cx: &mut Context<PopupMenu>| {
-            crate::browser_profiles::space_profile_menu(
+            crate::browser_profiles::profile_picker_menu(
                 submenu,
                 bench.clone(),
-                space_id.clone(),
-                space_name.clone(),
-                current.clone(),
+                crate::browser_profiles::PickerMode::Space {
+                    space_id: space_id.clone(),
+                    space_name: space_name.clone(),
+                    current_profile_id: current.clone(),
+                },
                 cx,
             )
         }

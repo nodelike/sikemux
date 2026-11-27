@@ -251,6 +251,7 @@ pub(crate) struct Floating {
     no: Answer,
     inner: Option<FocusHandle>,
     focus: Option<FocusHandle>,
+    flat: bool,
 }
 
 impl Floating {
@@ -258,6 +259,12 @@ impl Floating {
     /// them.
     pub(crate) fn keys_to(mut self, inner: Option<FocusHandle>) -> Self {
         self.inner = inner;
+        self
+    }
+
+    /// Strictly flat surface with 1px hairline border and no drop shadow.
+    pub(crate) fn flat(mut self) -> Self {
+        self.flat = true;
         self
     }
 
@@ -281,14 +288,15 @@ pub(crate) fn floating(
         no,
         inner: None,
         focus: None,
+        flat: false,
     }
 }
 
 impl RenderOnce for Floating {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let inner_holds = (self.inner.as_ref()).is_some_and(|inner| inner.is_focused(window));
-        let dialog =
-            float(self.width, self.content, self.yes, self.no, cx).close_on_escape(!inner_holds);
+        let dialog = float(self.width, self.content, self.yes, self.no, self.flat, cx)
+            .close_on_escape(!inner_holds);
         if let Some(focus) = self.focus {
             return dialog.focus_handle(focus);
         }
@@ -322,17 +330,23 @@ fn float(
     content: impl IntoElement,
     yes: Answer,
     no: Answer,
+    flat: bool,
     cx: &mut App,
 ) -> AlertDialog {
     let t = Tokens::get(cx).clone();
-    AlertDialog::new(cx)
-        .open(true)
-        .backdrop(div().size_full().bg(Hsla {
+    let scrim = if flat {
+        t.surface_sunken.opacity(0.62)
+    } else {
+        Hsla {
             h: 0.,
             s: 0.,
             l: 0.,
             a: 0.55,
-        }))
+        }
+    };
+    AlertDialog::new(cx)
+        .open(true)
+        .backdrop(div().size_full().bg(scrim))
         .on_cancel(move |_, window, cx| {
             no(window, cx);
             true
@@ -352,7 +366,7 @@ fn float(
                 .border(crate::theme::border())
                 .border_color(t.border)
                 .rounded(radius_4())
-                .shadow(t.shadow_float())
+                .when(!flat, |popup| popup.shadow(t.shadow_float()))
                 .child(content),
         )
 }

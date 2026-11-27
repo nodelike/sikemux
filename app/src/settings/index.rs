@@ -72,7 +72,7 @@ impl Page {
             ),
             BrowserProfiles => (
                 n!("Browser profiles"),
-                n!("Each profile keeps its own cookies and sign-ins. Spaces and Playbooks only point at one."),
+                n!("Each keeps its own cookies and sign-ins."),
                 Icon::Globe,
             ),
             Appearance => (

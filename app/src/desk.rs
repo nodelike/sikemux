@@ -3397,8 +3397,8 @@ fn profile_pill(
     let bench_weak = cx.weak_entity();
     let agent_id = agent.to_owned();
     let tab_id = tab.id.clone();
-    let effective_clone = effective.clone();
-    let inherited_clone = inherited.clone();
+    let active_profile_id = effective.profile.id.clone();
+    let inherited_profile_id = is_override.then(|| inherited.profile.id.clone());
 
     KitButton::new(SharedString::from(format!("desk-profile-pill-{}", tab.id)))
         .ghost()
@@ -3428,190 +3428,18 @@ fn profile_pill(
         )
         .dropdown_menu_with_anchor(
             Anchor::TopLeft,
-            ui::menu(move |mut menu, _window, cx| {
-                let Some(bench_entity) = bench_weak.upgrade() else {
-                    return menu;
-                };
-                let menu_weak = cx.entity().downgrade();
-                let profiles = bench_entity.read(cx).browser_profiles();
-                menu = menu.min_w(px(224.));
-
-                for profile in &profiles {
-                    let chosen = effective_clone.profile.id == profile.id;
-                    let show_inherited = is_override && inherited_clone.profile.id == profile.id;
-                    let (bench_pick, aid, tid, pid) = (
-                        bench_weak.clone(),
-                        agent_id.clone(),
-                        tab_id.clone(),
-                        profile.id.clone(),
-                    );
-                    let (bench_new, aid_new, pid_new, menu_dismiss) = (
-                        bench_weak.clone(),
-                        agent_id.clone(),
-                        profile.id.clone(),
-                        menu_weak.clone(),
-                    );
-                    let name: SharedString = profile.name.clone().into();
-                    let new_tab_tip: SharedString = format!("New tab in {}", profile.name).into();
-                    let row_group: SharedString = format!("desk-bp-row-{}", profile.id).into();
-                    let row_id: SharedString = format!("desk-bp-item-{}", profile.id).into();
-                    let btn_id: SharedString = format!("desk-bp-newtab-{}", profile.id).into();
-
-                    let row = PopupMenuItem::element(move |_, cx| {
-                        let t = Tokens::get(cx).clone();
-                        let side = px(8.);
-                        let bench_new = bench_new.clone();
-                        let aid_new = aid_new.clone();
-                        let pid_new = pid_new.clone();
-                        let menu_dismiss = menu_dismiss.clone();
-                        div()
-                            .id(row_id.clone())
-                            .group(row_group.clone())
-                            .relative()
-                            .flex_1()
-                            .min_w_0()
-                            .h(px(crate::theme::dense(28.)))
-                            .flex()
-                            .items_center()
-                            .gap(SPACE_2)
-                            .when(chosen, |row| {
-                                row.child(
-                                    div()
-                                        .absolute()
-                                        .top_0()
-                                        .bottom_0()
-                                        .left(-side)
-                                        .right(-side)
-                                        .rounded(radius_2())
-                                        .bg(t.surface_chosen),
-                                )
-                            })
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_color(t.text_primary)
-                                    .child(name.clone()),
-                            )
-                            .when(show_inherited, |row| {
-                                row.child(
-                                    div()
-                                        .flex_none()
-                                        .whitespace_nowrap()
-                                        .text_size(crate::theme::ui_text(crate::theme::TEXT_2XS))
-                                        .text_color(t.text_tertiary)
-                                        .child(t!("inherited")),
-                                )
-                            })
-                            .child(
-                                div()
-                                    .id(btn_id.clone())
-                                    .flex_none()
-                                    .size(px(22.))
-                                    .rounded(crate::theme::radius_1())
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .opacity(0.)
-                                    .group_hover(row_group.clone(), |btn| btn.opacity(1.))
-                                    .text_color(t.text_tertiary)
-                                    .hover(move |btn| {
-                                        btn.bg(t.surface_chosen).text_color(t.text_primary)
-                                    })
-                                    .tooltip(ui::tooltip(new_tab_tip.clone()))
-                                    .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| {
-                                        cx.stop_propagation();
-                                    })
-                                    .clicks(move |_, _, cx| {
-                                        cx.stop_propagation();
-                                        let _ = bench_new.update(cx, |bench, cx| {
-                                            bench.open_tab_in_named_profile(
-                                                aid_new.clone(),
-                                                pid_new.clone(),
-                                                cx,
-                                            );
-                                        });
-                                        let _ = menu_dismiss.update(cx, |_, cx| {
-                                            cx.emit(gpui_kit::DismissEvent);
-                                        });
-                                    })
-                                    .child(ui::icon(Icon::SquarePlus, 13.)),
-                            )
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .w(px(13.))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .when(chosen, |slot| {
-                                        slot.child(
-                                            ui::icon(Icon::Check, 13.).text_color(t.text_primary),
-                                        )
-                                    }),
-                            )
-                    })
-                    .on_click(move |_, _, cx| {
-                        let _ = bench_pick.update(cx, |bench, cx| {
-                            bench.switch_tab_to_profile(
-                                aid.clone(),
-                                tid.clone(),
-                                Some(pid.clone()),
-                                cx,
-                            );
-                        });
-                    });
-
-                    menu = menu.item(row);
-                }
-
-                let bench_add = bench_weak.clone();
-                let bench_manage = bench_weak.clone();
-                menu.separator()
-                    .item(
-                        PopupMenuItem::element(|_, cx| {
-                            let t = Tokens::get(cx);
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .flex()
-                                .items_center()
-                                .gap(px(9.))
-                                .text_color(t.text_primary)
-                                .child(ui::icon(Icon::Plus, 13.).text_color(t.text_tertiary))
-                                .child(t!("Add profile…"))
-                        })
-                        .on_click(move |_, window, cx| {
-                            let _ = bench_add.update(cx, |bench, cx| {
-                                crate::settings::open_add_browser_profile(bench, window, cx);
-                            });
-                        }),
-                    )
-                    .item(
-                        PopupMenuItem::element(|_, cx| {
-                            let t = Tokens::get(cx);
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .flex()
-                                .items_center()
-                                .gap(px(9.))
-                                .text_color(t.text_primary)
-                                .child(ui::icon(Icon::Settings, 13.).text_color(t.text_tertiary))
-                                .child(t!("Manage profiles…"))
-                        })
-                        .on_click(move |_, window, cx| {
-                            let _ = bench_manage.update(cx, |bench, cx| {
-                                crate::settings::open(
-                                    bench,
-                                    crate::settings::Page::BrowserProfiles,
-                                    window,
-                                    cx,
-                                );
-                            });
-                        }),
-                    )
+            ui::menu(move |menu, _window, cx| {
+                crate::browser_profiles::profile_picker_menu(
+                    menu,
+                    bench_weak.clone(),
+                    crate::browser_profiles::PickerMode::DeskTab {
+                        agent_id: agent_id.clone(),
+                        tab_id: tab_id.clone(),
+                        active_profile_id: active_profile_id.clone(),
+                        inherited_profile_id: inherited_profile_id.clone(),
+                    },
+                    cx,
+                )
             }),
         )
 }

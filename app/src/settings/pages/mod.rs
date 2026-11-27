@@ -197,6 +197,26 @@ pub fn render(
     }
 }
 
+pub(super) fn header_action(
+    bench: &Workbench,
+    page: Page,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> Option<AnyElement> {
+    match page {
+        Page::BrowserProfiles => Some(browser_profiles::header_action(bench, this, cx)),
+        _ => None,
+    }
+}
+
+pub(super) fn select_browser_profile(
+    bench: &mut Workbench,
+    profile_id: String,
+    cx: &mut Context<Workbench>,
+) {
+    browser_profiles::select_profile(bench, profile_id, cx);
+}
+
 /// A vault editor or org key dialog over whichever page is open.
 pub fn dialogs(
     bench: &Workbench,

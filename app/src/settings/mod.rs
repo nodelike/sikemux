@@ -166,14 +166,13 @@ pub fn open(bench: &mut Workbench, page: Page, window: &mut Window, cx: &mut Con
     cx.notify();
 }
 
-/// Opens Settings on Browser Profiles and immediately creates a new profile ready to rename.
-pub fn open_add_browser_profile(
+/// Selects and expands a browser profile row if Settings → Browser profiles is open.
+pub fn select_browser_profile(
     bench: &mut Workbench,
-    window: &mut Window,
+    profile_id: String,
     cx: &mut Context<Workbench>,
 ) {
-    open(bench, Page::BrowserProfiles, window, cx);
-    pages::browser_profiles::create_profile(bench, window, cx);
+    pages::select_browser_profile(bench, profile_id, cx);
 }
 
 /// Scrolls the list of pages so the page shown is in it: to its end for a page in the
@@ -565,21 +564,31 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             crate::i18n::tr(settings.page.about()).into(),
         ),
     };
-    let header = div().flex().items_start().gap(SPACE_3).pb(SPACE_0).child(
-        div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap(SPACE_1)
-            .child(ui::text(title, TEXT_XL, FontWeight::SEMIBOLD).text_color(t.text_primary))
-            .child(
-                div()
-                    .text_size(crate::theme::ui_text(TEXT_XS_H))
-                    .text_color(t.text_secondary)
-                    .child(about),
-            ),
-    );
+    let header_action = (!searching)
+        .then(|| pages::header_action(bench, settings.page, &this, cx))
+        .flatten();
+    let header = div()
+        .flex()
+        .items_start()
+        .justify_between()
+        .gap(SPACE_3)
+        .pb(SPACE_0)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(SPACE_1)
+                .child(ui::text(title, TEXT_XL, FontWeight::SEMIBOLD).text_color(t.text_primary))
+                .child(
+                    div()
+                        .text_size(crate::theme::ui_text(TEXT_XS_H))
+                        .text_color(t.text_secondary)
+                        .child(about),
+                ),
+        )
+        .children(header_action.map(|action| div().flex_none().pt(px(2.)).child(action)));
     let close_button = {
         let this = this.clone();
         ui::IconButton::new(

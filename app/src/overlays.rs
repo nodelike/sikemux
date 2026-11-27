@@ -77,6 +77,7 @@ overlays! {
     /// The process the person is writing in the Add a process dialog, while it is open.
     adding_task: crate::tasks::add_task::AddTask => AddingTask, Dialog, true, crate::tasks::add_task::view;
     adding_provider: crate::add_provider::AddProvider => AddingProvider, Dialog, true, crate::add_provider::view;
+    adding_browser_profile: crate::browser_profiles::AddBrowserProfile => AddingBrowserProfile, Dialog, true, crate::browser_profiles::add_modal_view;
     buddy_picker: crate::buddy_picker::BuddyPicker => BuddyPicker, Dialog, true, crate::buddy_picker::view;
     sharing: crate::share::Sharing => Sharing, Dialog, true, crate::share::view;
     installing_mod: crate::mod_install::Installing => InstallingMod, Dialog, true, crate::mod_install::view;
