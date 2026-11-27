@@ -188,13 +188,13 @@ impl Render for Field {
 struct WelcomeView;
 
 impl Render for WelcomeView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = Tokens::get(cx).clone();
+        window.set_ground(Some(t.surface_sunken));
         grain::welcome_stage_begin();
         div()
             .relative()
             .size_full()
-            .bg(t.surface_sunken)
             .child(grain::pane_ground(None, 1., cx))
             .child(
                 div()
@@ -315,6 +315,47 @@ fn offscreen(frames: usize) -> anyhow::Result<()> {
         );
         cx.update_window(window.into(), |_, window, _| window.remove_window())?;
     }
+    let empty_4k = {
+        let preferences = Preferences {
+            pane_backdrop: PaneBackdrop::None,
+            ..Preferences::default()
+        };
+        cx.update(|cx| grain::set(&preferences, cx));
+        let window = cx.update(|cx| {
+            cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(Bounds {
+                        origin: gpui::point(px(0.), px(0.)),
+                        size: size(px(2560.), px(1440.)),
+                    })),
+                    focus: false,
+                    show: false,
+                    ..Default::default()
+                },
+                |_, cx| cx.new(|_| Field),
+            )
+        })?;
+        cx.run_until_parked();
+        let mut took = Vec::with_capacity(frames);
+        for frame in 0..frames + 10 {
+            let started = std::time::Instant::now();
+            cx.update_window(window.into(), |_, window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx)
+            })?;
+            cx.capture_screenshot(window.into())?;
+            if frame >= 10 {
+                took.push(started.elapsed().as_secs_f64() * 1000.);
+            }
+        }
+        let mean = took.iter().sum::<f64>() / took.len() as f64;
+        println!(
+            "{:>10}: {mean:.3} ms a frame (baseline at 2560x1440)",
+            "none-4k"
+        );
+        cx.update_window(window.into(), |_, window, _| window.remove_window())?;
+        mean
+    };
     let prefs = Preferences::default();
     let pal = sikemux_corekit::themes::palette(&sikemux_corekit::themes::Shelf::default(), &prefs);
     cx.update(|cx| {
@@ -323,52 +364,63 @@ fn offscreen(frames: usize) -> anyhow::Result<()> {
         grain::glow_shown(false, cx);
         grain::glow_shown(true, cx);
     });
-    let window = cx.update(|cx| {
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(Bounds {
-                    origin: gpui::point(px(0.), px(0.)),
-                    size: size(px(WINDOW_SIZE.0), px(WINDOW_SIZE.1)),
-                })),
-                focus: false,
-                show: false,
-                ..Default::default()
-            },
-            |_, cx| cx.new(|_| WelcomeView),
-        )
-    })?;
-    cx.run_until_parked();
-    let mut took = Vec::with_capacity(frames);
-    for frame in 0..frames + 10 {
-        let angle = frame as f32 * 0.14;
-        let ptr = [
-            WINDOW_SIZE.0 * 0.5 + angle.cos() * 140.,
-            WINDOW_SIZE.1 * 0.38 + angle.sin() * 90.,
-        ];
-        cx.update(|cx| sikemux_gpui::ui::welcome_dots::bench_pointer_move(ptr, cx));
-        let started = std::time::Instant::now();
-        cx.update_window(window.into(), |_, window, cx| {
-            window.refresh();
-            window.draw(cx).clear(cx)
+    for (label, dims, base_ms) in [
+        ("welcome", WINDOW_SIZE, empty),
+        ("welcome-4k", (2560.0_f32, 1440.0_f32), empty_4k),
+    ] {
+        let window = cx.update(|cx| {
+            cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(Bounds {
+                        origin: gpui::point(px(0.), px(0.)),
+                        size: size(px(dims.0), px(dims.1)),
+                    })),
+                    focus: false,
+                    show: false,
+                    ..Default::default()
+                },
+                |_, cx| cx.new(|_| WelcomeView),
+            )
         })?;
-        cx.capture_screenshot(window.into())?;
-        if frame >= 10 {
-            took.push(started.elapsed().as_secs_f64() * 1000.);
+        cx.run_until_parked();
+        let mut took = Vec::with_capacity(frames);
+        let mut draw_took = Vec::with_capacity(frames);
+        for frame in 0..frames + 10 {
+            let angle = frame as f32 * 0.14;
+            let ptr = [
+                dims.0 * 0.5 + angle.cos() * 140.,
+                dims.1 * 0.38 + angle.sin() * 90.,
+            ];
+            cx.update(|cx| sikemux_gpui::ui::welcome_dots::bench_pointer_move(ptr, cx));
+            let started = std::time::Instant::now();
+            cx.update_window(window.into(), |_, window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx)
+            })?;
+            let draw_ms = started.elapsed().as_secs_f64() * 1000.;
+            cx.capture_screenshot(window.into())?;
+            if frame >= 10 {
+                draw_took.push(draw_ms);
+                took.push(started.elapsed().as_secs_f64() * 1000.);
+            }
         }
+        let (field_n, draw_n, awake, step_us, collect_us, emit_us) =
+            cx.update(|cx| sikemux_gpui::ui::welcome_dots::bench_stats(cx));
+        let packed_n = cx.update(|cx| sikemux_gpui::ui::welcome_dots::bench_packed_count(cx));
+        took.sort_by(f64::total_cmp);
+        draw_took.sort_by(f64::total_cmp);
+        let mean = took.iter().sum::<f64>() / took.len() as f64;
+        let p95 = *took
+            .get(took.len() * 95 / 100)
+            .context("no frames were timed")?;
+        let draw_mean = draw_took.iter().sum::<f64>() / draw_took.len() as f64;
+        println!(
+            "{label:>10}: {mean:.3} ms a frame (p95 {p95:.3}, draw {draw_mean:.3} ms), {:+.3} ms over no backdrop ({field_n} field, {draw_n} dots -> {packed_n} quads, awake={awake}, step={step_us}us, collect={collect_us}us, emit={emit_us}us)",
+            mean - base_ms
+        );
+        cx.update_window(window.into(), |_, window, _| window.remove_window())?;
+        cx.update(sikemux_gpui::ui::welcome_dots::clear_all);
     }
-    let (field_n, draw_n, awake, step_us, collect_us, emit_us) =
-        cx.update(|cx| sikemux_gpui::ui::welcome_dots::bench_stats(cx));
-    took.sort_by(f64::total_cmp);
-    let mean = took.iter().sum::<f64>() / took.len() as f64;
-    let p95 = *took
-        .get(took.len() * 95 / 100)
-        .context("no frames were timed")?;
-    println!(
-        "{:>8}: {mean:.3} ms a frame (p95 {p95:.3}), {:+.3} ms over no backdrop ({field_n} field, {draw_n} drawn, awake={awake}, step={step_us}us, collect={collect_us}us, emit={emit_us}us)",
-        "welcome",
-        mean - empty
-    );
-    cx.update_window(window.into(), |_, window, _| window.remove_window())?;
     Ok(())
 }
 

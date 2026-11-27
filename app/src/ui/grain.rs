@@ -730,7 +730,12 @@ pub fn pane_ground(agent: Option<&str>, glow: f32, cx: &mut App) -> AnyElement {
         .inset_0()
         .children(field.filter(|_| glow < 1.).map(|draw| draw(1. - glow)))
         .children(welcome_picture.filter(|_| glow > 0.).map(|draw| draw(glow)))
-        .children(dots.map(|view| div().absolute().inset_0().child(view)))
+        .children(dots.map(|view| {
+            div()
+                .absolute()
+                .inset_0()
+                .child(view.into_element().isolated())
+        }))
         .children(edge.map(|draw| draw()))
         .into_any_element()
 }
