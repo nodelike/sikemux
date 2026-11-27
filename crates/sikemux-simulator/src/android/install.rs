@@ -480,7 +480,7 @@ fn make_device(root: &Path, home: &Path, api: &str, tag: &str) -> SimResult<()> 
          hw.lcd.height=2400\n\
          hw.lcd.density=420\n\
          hw.ramSize=2048\n\
-         disk.dataPartition.size=6G\n\
+         disk.dataPartition.size=12G\n\
          hw.keyboard=yes\n\
          hw.gpu.enabled=yes\n\
          hw.gpu.mode=auto\n\

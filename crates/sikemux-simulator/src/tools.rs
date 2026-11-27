@@ -973,6 +973,11 @@ async fn attach(
     let mut state = settled_state(manager, agent_id, None, Report::Full).await?;
     if let Some(state) = state.as_object_mut() {
         state.insert("shown".to_owned(), SHOWN_ON_DESK.into());
+        if is_android(&device.udid) {
+            if let Some(warning) = manager.android().low_storage_warning(&device.udid).await {
+                state.insert("warning".to_owned(), warning.into());
+            }
+        }
     }
     Ok(state)
 }

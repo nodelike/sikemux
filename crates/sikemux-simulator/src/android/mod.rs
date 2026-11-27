@@ -29,6 +29,12 @@ const PLUGGED: &str = "adb:";
 const BOOT_POLL: Duration = Duration::from_secs(1);
 const PACKAGE_SETTLE_TRIES: usize = 8;
 const PACKAGE_SETTLE_STEP: Duration = Duration::from_millis(150);
+const LOW_DATA_MB: u64 = 500;
+const LOW_DATA_KB: u64 = LOW_DATA_MB * 1024;
+const MAX_REPORTED_PACKAGES: usize = 5;
+const STORAGE_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
+const PACKAGE_SIZES_TIMEOUT: Duration = Duration::from_secs(10);
+const PACKAGE_SIZES_CMD: &str = r#"pm list packages -3 -f | while IFS= read -r line; do p=${line#package:}; [ "$p" = "$line" ] && continue; pkg=${p##*=}; apk=${p%=*}; dir=${apk%/*}; set -- $(du -sk "$dir" 2>/dev/null); kb=$1; if [ -z "$kb" ]; then set -- $(du -sk "$apk" 2>/dev/null); kb=$1; fi; printf '%s %s\n' "${kb:-0}" "$pkg"; done"#;
 const SWIPE_STEP: f64 = 1.0 / 60.0;
 
 /// Whether `udid` names an Android device rather than an iOS simulator.
@@ -714,6 +720,47 @@ impl Android {
         }
     }
 
+    async fn data_space(&self, serial: &str) -> Option<DataSpace> {
+        let output = self
+            .adb(
+                &["-s", serial, "shell", "df -k /data"],
+                STORAGE_CHECK_TIMEOUT,
+            )
+            .await
+            .ok()?;
+        parse_df_k(&output)
+    }
+
+    async fn third_party_package_sizes(&self, serial: &str) -> Vec<(String, u64)> {
+        let Ok(output) = self
+            .adb(
+                &["-s", serial, "shell", PACKAGE_SIZES_CMD],
+                PACKAGE_SIZES_TIMEOUT,
+            )
+            .await
+        else {
+            return Vec::new();
+        };
+        parse_package_sizes(&output)
+    }
+
+    pub(crate) async fn low_storage_warning(&self, udid: &str) -> Option<String> {
+        let serial = self.target(udid).serial?;
+        let space = self.data_space(&serial).await?;
+        low_storage_warning_for(space)
+    }
+
+    async fn storage_error(&self, serial: &str, error: &str) -> String {
+        if !is_insufficient_storage(error) {
+            return error.to_owned();
+        }
+        let (space, packages) = tokio::join!(
+            self.data_space(serial),
+            self.third_party_package_sizes(serial)
+        );
+        insufficient_storage_error(error, space, &packages)
+    }
+
     async fn finish_install(
         &self,
         serial: &str,
@@ -801,10 +848,13 @@ impl Android {
                     self.pids
                         .locked()
                         .remove(&(serial.to_owned(), package.clone()));
-                    let answer = self
+                    let answer = match self
                         .run_install(&["-s", serial, "install", "-t", "-g", path])
                         .await
-                        .map_err(|fresh| insufficient_storage_error(&fresh))?;
+                    {
+                        Ok(answer) => answer,
+                        Err(fresh) => return Err(self.storage_error(serial, &fresh).await),
+                    };
                     if !self.wait_for_package(serial, &package).await {
                         return Err(format!(
                             "adb install reported success, but {package} is still not installed on the device"
@@ -820,7 +870,7 @@ impl Android {
                         ),
                     }));
                 }
-                Err(insufficient_storage_error(&error))
+                Err(self.storage_error(serial, &error).await)
             }
             Err(error) => Err(error),
         }
@@ -1237,18 +1287,136 @@ fn launch_command(activity: &str, arguments: Option<&Value>) -> String {
     format!("am start -S -n {}{extras}", quoted(activity))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DataSpace {
+    total_kb: u64,
+    used_kb: u64,
+    available_kb: u64,
+    used_percent: u8,
+}
+
+impl DataSpace {
+    fn total_mb(self) -> u64 {
+        self.total_kb / 1024
+    }
+
+    fn available_mb(self) -> u64 {
+        self.available_kb / 1024
+    }
+}
+
+fn parse_df_k(output: &str) -> Option<DataSpace> {
+    let tokens: Vec<&str> = output
+        .lines()
+        .skip(1)
+        .flat_map(str::split_whitespace)
+        .collect();
+    for idx in 0..tokens.len() {
+        let Some(total_kb) = tokens.get(idx).and_then(|value| value.parse::<u64>().ok()) else {
+            continue;
+        };
+        let Some(used_kb) = tokens
+            .get(idx + 1)
+            .and_then(|value| value.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        let Some(available_kb) = tokens
+            .get(idx + 2)
+            .and_then(|value| value.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        if total_kb == 0 {
+            return None;
+        }
+        let used_percent = tokens
+            .get(idx + 3)
+            .and_then(|value| value.strip_suffix('%'))
+            .and_then(|value| value.parse::<u8>().ok())
+            .unwrap_or_else(|| ((used_kb.saturating_mul(100)) / total_kb).min(100) as u8);
+        return Some(DataSpace {
+            total_kb,
+            used_kb,
+            available_kb,
+            used_percent,
+        });
+    }
+    None
+}
+
+fn low_storage_warning_for(space: DataSpace) -> Option<String> {
+    if space.available_kb >= LOW_DATA_KB {
+        return None;
+    }
+    Some(format!(
+        "Low /data storage: {} MB free ({}% used); APK installs may fail. Free space with sim uninstall <bundleId> on unused apps.",
+        space.available_mb(),
+        space.used_percent,
+    ))
+}
+
+fn parse_package_sizes(output: &str) -> Vec<(String, u64)> {
+    let mut packages: Vec<(String, u64)> = output
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let kb = parts.next()?.parse::<u64>().ok()?;
+            let package = parts.next()?.trim();
+            (!package.is_empty()).then(|| (package.to_owned(), kb))
+        })
+        .collect();
+    packages.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    packages
+}
+
+fn format_package_sizes(packages: &[(String, u64)]) -> String {
+    let mut shown: Vec<String> = packages
+        .iter()
+        .take(MAX_REPORTED_PACKAGES)
+        .map(|(package, kb)| match *kb {
+            0 => package.clone(),
+            1..1024 => format!("{package} (<1 MB)"),
+            kb => format!("{package} ({} MB)", (kb + 512) / 1024),
+        })
+        .collect();
+    if let Some(extra) = packages.len().checked_sub(MAX_REPORTED_PACKAGES) {
+        if extra > 0 {
+            shown.push(format!("+{extra} more"));
+        }
+    }
+    shown.join(", ")
+}
+
 fn is_insufficient_storage(error: &str) -> bool {
     error.contains("INSTALL_FAILED_INSUFFICIENT_STORAGE")
 }
 
-fn insufficient_storage_error(error: &str) -> String {
-    if is_insufficient_storage(error) {
-        format!(
-            "{error} (the device's /data partition is full even after trimming caches; free space or wipe/resize the AVD)"
-        )
-    } else {
-        error.to_owned()
+fn insufficient_storage_error(
+    error: &str,
+    space: Option<DataSpace>,
+    packages: &[(String, u64)],
+) -> String {
+    if !is_insufficient_storage(error) {
+        return error.to_owned();
     }
+    let mut detail = match space {
+        Some(space) => format!(
+            "/data has {} MB free ({}% used of {} MB) even after trimming caches",
+            space.available_mb(),
+            space.used_percent,
+            space.total_mb(),
+        ),
+        None => "/data partition is full even after trimming caches".to_owned(),
+    };
+    if !packages.is_empty() {
+        detail.push_str("; largest third-party apps (APK/code): ");
+        detail.push_str(&format_package_sizes(packages));
+    }
+    detail.push_str(
+        ". Free space with sim uninstall <bundleId> on unused apps, or wipe/recreate the AVD with a larger data partition in Android Studio.",
+    );
+    format!("{error} ({detail})")
 }
 
 fn save_screenshot(shot: &Value, path: &str) -> SimResult<Value> {
@@ -1972,5 +2140,167 @@ esac
             no_launcher.contains("has no launcher activity"),
             "{no_launcher}"
         );
+    }
+
+    #[test]
+    fn df_parsing_and_low_storage_warning_threshold() {
+        let android17 = "Filesystem      1K-blocks    Used Available Use% Mounted on\n\
+/dev/block/dm-5   6082144 5537104    152576  98% /data/user/0\n";
+        let space = parse_df_k(android17).expect("parse Android 17 df -k");
+        assert_eq!(
+            space,
+            DataSpace {
+                total_kb: 6_082_144,
+                used_kb: 5_537_104,
+                available_kb: 152_576,
+                used_percent: 98,
+            }
+        );
+        assert_eq!(space.available_mb(), 149);
+        assert_eq!(space.total_mb(), 5939);
+
+        let wrapped = "Filesystem           1K-blocks      Used Available Use% Mounted on\n\
+/dev/block/platform/soc/1d84000.ufshc/by-name/userdata\n\
+                       6082144   5537104    402828  94% /data\n";
+        let wrapped_space = parse_df_k(wrapped).expect("parse wrapped df -k");
+        assert_eq!(wrapped_space.available_mb(), 393);
+        assert_eq!(wrapped_space.used_percent, 94);
+
+        let warning = low_storage_warning_for(space).expect("149 MB free should warn");
+        assert!(
+            warning.contains("149 MB free")
+                && warning.contains("98% used")
+                && warning.contains("sim uninstall"),
+            "{warning}"
+        );
+
+        let at_threshold = DataSpace {
+            total_kb: 6_082_144,
+            used_kb: 5_570_144,
+            available_kb: LOW_DATA_KB,
+            used_percent: 92,
+        };
+        assert_eq!(low_storage_warning_for(at_threshold), None);
+
+        let just_below = DataSpace {
+            available_kb: LOW_DATA_KB - 1,
+            ..at_threshold
+        };
+        let below_warning = low_storage_warning_for(just_below).expect("499 MB free should warn");
+        assert!(below_warning.contains("499 MB free"), "{below_warning}");
+        assert_eq!(parse_df_k("Filesystem 1K-blocks Used Available"), None);
+    }
+
+    #[test]
+    fn package_sizes_sort_format_and_enrich_storage_error() {
+        let raw = "\
+98144 com.swishx.academy
+512 com.example.tiny
+0 com.example.unknown
+262144 com.nodelike.sikemux.mobile.dev
+104820 com.swishx.app
+204800 com.nodelike.sikemux.mobile
+15360 com.example.extra
+";
+        let packages = parse_package_sizes(raw);
+        assert_eq!(
+            format_package_sizes(&packages),
+            "com.nodelike.sikemux.mobile.dev (256 MB), com.nodelike.sikemux.mobile (200 MB), com.swishx.app (102 MB), com.swishx.academy (96 MB), com.example.extra (15 MB), +2 more"
+        );
+        assert_eq!(
+            format_package_sizes(&[
+                ("com.example.tiny".into(), 512),
+                ("com.example.unknown".into(), 0),
+            ]),
+            "com.example.tiny (<1 MB), com.example.unknown"
+        );
+
+        let space = DataSpace {
+            total_kb: 6_082_144,
+            used_kb: 5_537_104,
+            available_kb: 152_576,
+            used_percent: 98,
+        };
+        let error = insufficient_storage_error(
+            "Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]",
+            Some(space),
+            &packages,
+        );
+        assert!(
+            error.contains("149 MB free")
+                && error.contains("98% used")
+                && error.contains("com.nodelike.sikemux.mobile.dev (256 MB)")
+                && error.contains("sim uninstall <bundleId>")
+                && error.contains("wipe/recreate the AVD"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn low_storage_warning_and_install_error_use_live_device_diagnostics() {
+        let dir = tempfile::tempdir().unwrap();
+        let mode = dir.path().join("mode");
+        let script = format!(
+            r#"#!/bin/sh
+if [ "$1" = "-s" ]; then shift 2; fi
+case "$1" in
+  get-state) echo "device" ;;
+  shell)
+    shift
+    case "$*" in
+      "df -k /data")
+        if [ "$(cat '{mode}')" = "df-fail" ]; then
+          exit 1
+        fi
+        printf 'Filesystem      1K-blocks    Used Available Use%% Mounted on\n'
+        printf '/dev/block/dm-5   6082144 5537104    152576  98%% /data/user/0\n'
+        ;;
+      *"pm list packages -3 -f"*)
+        printf '262144 com.nodelike.sikemux.mobile.dev\n'
+        printf '104820 com.swishx.app\n'
+        ;;
+      "pm trim-caches 1G") ;;
+      *"pm path"*) exit 1 ;;
+    esac
+    ;;
+  install)
+    echo "adb: failed to install app.apk: Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]" >&2
+    exit 1
+    ;;
+esac
+"#,
+            mode = mode.display(),
+        );
+        let (_sdk, android) = fake_sdk(&script);
+
+        std::fs::write(&mode, "low").unwrap();
+        let warning = android
+            .low_storage_warning("adb:pixel")
+            .await
+            .expect("should warn when /data has <500 MB free");
+        assert!(
+            warning.contains("149 MB free") && warning.contains("98% used"),
+            "{warning}"
+        );
+
+        let err = android
+            .request(
+                "install",
+                fields(json!({ "udid": "adb:pixel", "path": "/tmp/app-debug.apk" })),
+                Duration::from_secs(10),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains("INSTALL_FAILED_INSUFFICIENT_STORAGE")
+                && err.contains("149 MB free")
+                && err.contains("com.nodelike.sikemux.mobile.dev (256 MB)")
+                && err.contains("com.swishx.app (102 MB)")
+                && err.contains("sim uninstall <bundleId>"),
+            "{err}"
+        );
+
+        std::fs::write(&mode, "df-fail").unwrap();
+        assert_eq!(android.low_storage_warning("adb:pixel").await, None);
     }
 }
