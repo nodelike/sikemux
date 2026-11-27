@@ -81,12 +81,12 @@ pub(crate) fn composer(
 /// What tells the asker of `call` that the message is about it and leaves it open, carried as
 /// context so the transcript shows a chip instead of the call id.
 fn call_context(call: &PersonCall) -> ChatContext {
-    let about = (call.title.as_deref())
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
-        .or_else(|| (call.question.lines().map(str::trim)).find(|line| !line.is_empty()))
-        .unwrap_or("Call")
-        .replace(['\r', '\n'], " ");
+    let about = super::prose::plain_name(call).replace(['\r', '\n'], " ");
+    let about = if about.trim().is_empty() {
+        "Call".to_owned()
+    } else {
+        about
+    };
     let title = match about.char_indices().nth(240) {
         Some((cut, _)) => format!("{}…", about.get(..cut).unwrap_or(&about).trim_end()),
         None => about,

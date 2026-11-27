@@ -5,6 +5,7 @@
 use crate::ui::Clicks;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui_kit::base::{Button as BaseButton, Popover};
@@ -12,9 +13,11 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, img, px, relative, Anchor, AnyElement, App, AppContext, ClickEvent, Context, Entity,
-    EventEmitter, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ObjectFit,
-    ParentElement, Render, SharedString, Styled, StyledImage, Subscription, WeakEntity, Window,
+    EventEmitter, FocusHandle, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement,
+    ObjectFit, ParentElement, Render, ScrollHandle, SharedString, Styled, StyledImage,
+    Subscription, WeakEntity, Window,
 };
+use gpui_transcript::DocSelect;
 use sikemux_calls::call;
 use sikemux_view::calls::{
     AnswerCallParams, CallAnswer, CallClient, CallKind, CallParams, CallResult, CallState, CallWhy,
@@ -32,8 +35,10 @@ use crate::ui::{self, selectable, Button, Variant};
 use crate::workbench::Workbench;
 
 mod page;
+mod prose;
 pub(crate) mod reply;
-pub(crate) use page::{install, on_desk, project_of, waiting_on_desk, Foot, Page};
+pub(crate) use page::{on_desk, project_of, waiting_on_desk, Foot, Page};
+pub(crate) use prose::{install, plain_name};
 
 /// Whether agent `agent`'s chat lists `call`, as the core places it.
 pub(crate) fn listed_in(call: &PersonCall, agent: &str) -> bool {
@@ -102,6 +107,10 @@ pub struct Cards {
     page_pictures_order: VecDeque<String>,
     page_pictures_loading: HashSet<String>,
     page_pictures_failed: HashMap<String, Instant>,
+    popover_rendered: Option<Rc<prose::RenderedCall>>,
+    popover_select: DocSelect,
+    popover_focus: Option<FocusHandle>,
+    popover_scroll: ScrollHandle,
 }
 
 struct Held {
@@ -360,6 +369,32 @@ impl Cards {
         cx.notify();
     }
 
+    fn popover_prose(
+        &mut self,
+        call: &PersonCall,
+        cx: &mut Context<Self>,
+    ) -> (
+        Rc<prose::RenderedCall>,
+        DocSelect,
+        FocusHandle,
+        ScrollHandle,
+    ) {
+        let (rendered, changed) = prose::RenderedCall::sync(&mut self.popover_rendered, call);
+        if changed {
+            self.popover_select.clear();
+        }
+        let focus = self
+            .popover_focus
+            .get_or_insert_with(|| cx.focus_handle())
+            .clone();
+        (
+            rendered,
+            self.popover_select.clone(),
+            focus,
+            self.popover_scroll.clone(),
+        )
+    }
+
     /// Lets go of what was held for calls no longer open anywhere.
     pub(crate) fn keep(&mut self, open: &HashSet<&str>) {
         self.held.retain(|id, _| open.contains(id.as_str()));
@@ -368,6 +403,14 @@ impl Cards {
         self.seen.retain(|id| open.contains(id.as_str()));
         if self.opened.as_deref().is_some_and(|id| !open.contains(id)) {
             self.opened = None;
+        }
+        if self
+            .popover_rendered
+            .as_ref()
+            .is_some_and(|kept| !open.contains(kept.id()))
+        {
+            self.popover_rendered = None;
+            self.popover_select.clear();
         }
     }
 }
@@ -786,6 +829,7 @@ fn card(
     call: &PersonCall,
     dismiss: crate::ui::list_picker::Dismiss,
     through: Through,
+    prose: &prose::Prose<'_>,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -820,37 +864,46 @@ fn card(
         .as_ref()
         .is_some_and(|field| !field.read(cx).value().trim().is_empty());
     let who = who(call, through, None, cx);
-    let question = div()
+    let question = prose
+        .question("call", &call.id, SPACE_2, None, window, cx)
         .mt(SPACE_2)
-        .mb(px(3.))
-        .text_size(theme::ui_text(15.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .line_height(relative(1.35))
-        .text_color(t.text_primary)
-        .child(selectable::plain(
-            SharedString::from(format!("call-question-{}", call.id)),
-            call.question.clone(),
-        ));
+        .mb(px(3.));
     let pages = SharedString::from(format!("call-pages-{}", call.id));
     let page = linked_page(pages, call, Some(&dismiss), through, cx)
         .map(|page| div().mt(SPACE_3_PX).child(page));
-    let prose = |part: &str, text: String| {
-        div()
-            .text_size(theme::ui_text(12.5))
-            .line_height(relative(1.5))
-            .text_color(t.text_secondary)
-            .child(selectable::plain(
-                SharedString::from(format!("call-{part}-{}", call.id)),
-                text,
+    let context = prose.rendered.context.as_ref().map(|context| {
+        prose
+            .selectable(prose::block(
+                prose.pen.markdown(
+                    SharedString::from(format!("call-context-{}", call.id)),
+                    context,
+                    window,
+                    cx,
+                ),
+                None,
             ))
-    };
-    let context = context_words(call).map(|words| prose("context", words));
-    let evidence_lines = (call.evidence.iter())
+            .when(prose.rendered.body.is_some(), |box_| box_.mt(SPACE_1))
+    });
+    let evidence_lines: Vec<gpui_kit::Div> = prose
+        .rendered
+        .evidence
+        .iter()
         .enumerate()
-        .filter(|(_, evidence)| evidence.picture.is_none())
         .map(|(ix, evidence)| {
-            prose(&format!("evidence-{ix}"), evidence.what.clone()).text_color(t.text_tertiary)
-        });
+            prose
+                .selectable(prose::block(
+                    prose.pen.markdown_with(
+                        &prose.styles.evidence,
+                        SharedString::from(format!("call-evidence-{ix}-{}", call.id)),
+                        evidence,
+                        window,
+                        cx,
+                    ),
+                    None,
+                ))
+                .mt(SPACE_1)
+        })
+        .collect();
     let options_pictured =
         !call.secret && call.options.iter().any(|option| option.picture.is_some());
     let pictures = match options_pictured {
@@ -917,7 +970,11 @@ fn card(
     };
     let block = answers(rows, note, &t);
     let kept = kept_line(call, &t);
-    let against = against_line(call, &t);
+    let against = prose.against_row(
+        SharedString::from(format!("call-against-{}", call.id)),
+        window,
+        cx,
+    );
     let action_open = cards.read(cx).action_open(&call.id);
     let runs = (call.kind == CallKind::Production)
         .then_some(call.action.as_ref())
@@ -1169,27 +1226,6 @@ fn note_hint(call: &PersonCall, chosen: &[String]) -> &'static str {
         (false, false) => t!("Add a note…"),
         (true, false) => t!("Or answer in your own words…"),
     }
-}
-
-fn against_line(call: &PersonCall, t: &Tokens) -> Option<gpui_kit::Div> {
-    call.against.clone().map(|against| {
-        let lead = t!("Against it:");
-        div()
-            .text_size(theme::ui_text(12.5))
-            .line_height(relative(1.5))
-            .text_color(t.text_secondary)
-            .child(selectable::selectable(
-                SharedString::from(format!("call-against-{}", call.id)),
-                format!("{lead} {against}"),
-                [(
-                    0..lead.len(),
-                    gpui_kit::HighlightStyle {
-                        color: Some(t.text_tertiary),
-                        ..Default::default()
-                    },
-                )],
-            ))
-    })
 }
 
 /// The button that answers `call`, worded `words`: `go` sends what its card or its page holds.
@@ -1773,7 +1809,11 @@ fn popover(
         cards,
         bench: &weak,
     };
-    let shown = card(&open, dismiss, through, window, cx);
+    let (rendered, select, focus, scroll) =
+        cards.update(cx, |cards, cx| cards.popover_prose(&open, cx));
+    let styles = prose::ProseStyles::popover(&open, through, dismiss.clone(), cx);
+    let prose = prose::Prose::new(&rendered, styles, select, focus.clone());
+    let shown = card(&open, dismiss, through, &prose, window, cx);
     let rest: Vec<AnyElement> = (calls.iter())
         .filter(|(_, _, call)| call.id != open.id)
         .map(|(target, named, call)| {
@@ -1792,7 +1832,12 @@ fn popover(
         .child(div().flex_1().h(px(1.)).bg(t.line))
         .child(name.tag(11., cx));
     call_keys(
-        div().id("calls-popover").key_context("QuestionDock"),
+        div()
+            .id("calls-popover")
+            .relative()
+            .key_context(prose::POPOVER_CONTEXT)
+            .track_focus(&focus)
+            .on_action(prose.copy_action()),
         &open.id,
         &weak,
     )
@@ -1809,6 +1854,7 @@ fn popover(
         pop.child(div().mx(px(10.)).my(SPACE_1).h(px(1.)).bg(t.line))
             .children(rest)
     })
+    .child(prose.drag_overlay(scroll))
     .into_any_element()
 }
 
@@ -1860,7 +1906,7 @@ fn folded(
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .child(call.headline.clone()),
+                .child(prose::plain_headline(call)),
         )
         .children(elsewhere.map(|named| named.tag(11.5, cx).flex_none().max_w(px(140.))))
         .child(
