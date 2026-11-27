@@ -1,10 +1,40 @@
+import FBSimulatorControl
 import Foundation
 
 /// USB HID usage codes for the characters a US keyboard types, and whether each needs Shift.
 enum Keyboard {
     static let shift: UInt32 = 225
-    /// iOS drops keys sent back to back, so each one waits this long after the last.
-    static let pause: TimeInterval = 0.03
+    /// Brief hold between key down and up (and around Shift) so dtuhidd/backboardd do not coalesce zero-duration keypresses.
+    static let hold: TimeInterval = 0.015
+    /// Pause between keys so iOS Remote Text Input and JS-controlled inputs do not drop fast sequences.
+    static let pause: TimeInterval = 0.045
+
+    static func press(_ code: UInt32) -> SimulatorHIDEvent {
+        .composite([
+            .keyboard(direction: .down, keyCode: code),
+            .delay(hold),
+            .keyboard(direction: .up, keyCode: code),
+        ])
+    }
+
+    static func events(for text: String) throws -> [SimulatorHIDEvent] {
+        var events: [SimulatorHIDEvent] = []
+        for key in try keys(for: text) {
+            if key.shifted {
+                events.append(.keyboard(direction: .down, keyCode: shift))
+                events.append(.delay(hold))
+            }
+            events.append(.keyboard(direction: .down, keyCode: key.code))
+            events.append(.delay(hold))
+            events.append(.keyboard(direction: .up, keyCode: key.code))
+            if key.shifted {
+                events.append(.delay(hold))
+                events.append(.keyboard(direction: .up, keyCode: shift))
+            }
+            events.append(.delay(pause))
+        }
+        return events
+    }
 
     static func keys(for text: String) throws -> [(code: UInt32, shifted: Bool)] {
         try text.map { character in

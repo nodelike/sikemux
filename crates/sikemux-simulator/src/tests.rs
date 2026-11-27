@@ -141,12 +141,14 @@ mod tools {
     use serde_json::json;
 
     use super::{helper, real_helper, REAL_DEVICE};
+    use crate::bundle::url_types_handle_scheme;
     use crate::claims::Claim;
     use crate::tools::{
-        app_size, cap_logs, changes, choose_device, edge_warning, element_lines, elements_from,
-        inside_project, inspect, labelled, landed, launching, newest_iphone, pick_device,
-        popover_dismissed_note, run, tap_point, text_fields_from, trailing_escaped_newline,
-        type_steps, Device, Element, Numbered, Numbering, Pick, Read, TypeStep,
+        app_size, cap_logs, changes, choose_device, custom_url_scheme, dropped_text_warning,
+        edge_warning, element_lines, elements_from, inside_project, inspect, labelled, landed,
+        launching, newest_iphone, pick_device, run, screen_from, tap_point, text_fields_from,
+        trailing_escaped_newline, type_steps, unhandled_custom_url_scheme_error, Device, Element,
+        Numbered, Numbering, Pick, Read, TypeStep,
     };
     use sikemux_process::sync::Locked;
     use std::collections::{HashMap, HashSet};
@@ -847,7 +849,7 @@ done
 
     fn read_from(reply: &serde_json::Value) -> Read {
         let size = app_size(reply);
-        let (app, elements) = elements_from(reply, size);
+        let (app, elements, frames) = screen_from(reply, size);
         let mut flat = Vec::new();
         fn collect<'a>(value: &'a serde_json::Value, out: &mut Vec<&'a serde_json::Value>) {
             for element in value.as_array().into_iter().flatten() {
@@ -865,6 +867,7 @@ done
         Read {
             app,
             elements,
+            frames,
             size,
             keyboard,
             text_fields,
@@ -1166,60 +1169,11 @@ done
     }
 
     #[test]
-    fn sim_tap_notes_when_ipad_popover_dismiss_region_consumes_tap() {
-        let screen = |app: &str, popover: bool| {
-            let mut children = vec![json!({
-                "type": "Button",
-                "label": "Verify & Sign In",
-                "enabled": true,
-                "frame": { "x": 200, "y": 420, "width": 400, "height": 48 }
-            })];
-            if popover {
-                children.push(json!({
-                    "type": "Group",
-                    "label": "dismiss popup",
-                    "identifier": "PopoverDismissRegion",
-                    "enabled": true,
-                    "frame": { "x": 0, "y": 0, "width": 834, "height": 1194 }
-                }));
-            }
-            read_from(&json!({ "elements": [
-                { "type": "Application", "label": app,
-                  "frame": { "x": 0, "y": 0, "width": 834, "height": 1194 },
-                  "children": children }
-            ]}))
-        };
-
-        let with_popover = screen("Academy", true);
-        let without_popover = screen("Academy", false);
-        let other_app = screen("Settings", false);
-
-        assert!(
-            popover_dismissed_note(&with_popover, &without_popover, false).is_some_and(|note| note
-                .contains("PopoverDismissRegion")
-                && note.contains("tap again"))
-        );
-        assert_eq!(
-            popover_dismissed_note(&with_popover, &without_popover, true),
-            None
-        );
-        assert_eq!(
-            popover_dismissed_note(&with_popover, &with_popover, false),
-            None
-        );
-        assert_eq!(
-            popover_dismissed_note(&without_popover, &without_popover, false),
-            None
-        );
-        assert_eq!(
-            popover_dismissed_note(&with_popover, &other_app, false),
-            None
-        );
-
+    fn sim_tap_auto_retaps_once_when_popover_dismiss_region_intercepts_target() {
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("requests");
-        let popover_flag = dir.path().join("popover");
-        std::fs::write(&popover_flag, "1").unwrap();
+        let mode = dir.path().join("mode");
+        std::fs::write(&mode, "popover").unwrap();
         let script = format!(
             r#"#!/bin/sh
 while IFS= read -r line; do
@@ -1229,14 +1183,28 @@ while IFS= read -r line; do
     *'"type":"devices"'*) echo "{{\"id\":$id,\"type\":\"result\",\"devices\":[{{\"udid\":\"P1\",\"name\":\"iPad Pro 11-inch (M5)\",\"runtime\":\"iOS 27.0\",\"state\":\"booted\"}}]}}" ;;
     *'"type":"screen"'*) echo "{{\"id\":$id,\"type\":\"result\",\"width\":834,\"height\":1194,\"scale\":2}}" ;;
     *'"type":"tap"'*)
-      rm -f '{flag}'
+      cur=$(cat '{mode}')
+      if [ "$cur" = "popover" ]; then
+        printf 'open' > '{mode}'
+      elif [ "$cur" = "open" ]; then
+        printf 'signed_in' > '{mode}'
+      elif [ "$cur" = "shifted_popover" ]; then
+        printf 'shifted_open' > '{mode}'
+      elif [ "$cur" = "nested_popover" ]; then
+        printf 'popover' > '{mode}'
+      fi
       echo "{{\"id\":$id,\"type\":\"result\"}}"
       ;;
     *'"type":"tree"'*)
-      if [ -e '{flag}' ]; then
-        echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}},\"children\":[{{\"type\":\"Button\",\"label\":\"Verify & Sign In\",\"enabled\":true,\"frame\":{{\"x\":200,\"y\":420,\"width\":400,\"height\":48}}}},{{\"type\":\"Group\",\"label\":\"dismiss popup\",\"identifier\":\"PopoverDismissRegion\",\"enabled\":true,\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}}}}]}}]}}"
-      else
+      cur=$(cat '{mode}')
+      if [ "$cur" = "popover" ] || [ "$cur" = "shifted_popover" ] || [ "$cur" = "nested_popover" ]; then
+        echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}},\"children\":[{{\"type\":\"Button\",\"label\":\"Verify & Sign In\",\"enabled\":true,\"frame\":{{\"x\":200,\"y\":420,\"width\":400,\"height\":48}}}},{{\"type\":\"Button\",\"label\":\"Popover Action\",\"enabled\":true,\"frame\":{{\"x\":500,\"y\":700,\"width\":160,\"height\":44}}}},{{\"type\":\"Group\",\"label\":\"dismiss popup\",\"identifier\":\"PopoverDismissRegion\",\"enabled\":true,\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}}}}]}}]}}"
+      elif [ "$cur" = "open" ]; then
         echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}},\"children\":[{{\"type\":\"Button\",\"label\":\"Verify & Sign In\",\"enabled\":true,\"frame\":{{\"x\":200,\"y\":420,\"width\":400,\"height\":48}}}}]}}]}}"
+      elif [ "$cur" = "shifted_open" ]; then
+        echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}},\"children\":[{{\"type\":\"Button\",\"label\":\"Verify & Sign In\",\"enabled\":true,\"frame\":{{\"x\":200,\"y\":620,\"width\":400,\"height\":48}}}}]}}]}}"
+      else
+        echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}},\"children\":[{{\"type\":\"StaticText\",\"label\":\"Signed In\",\"enabled\":true,\"frame\":{{\"x\":200,\"y\":200,\"width\":200,\"height\":32}}}}]}}]}}"
       fi
       ;;
     *) echo "{{\"id\":$id,\"type\":\"result\"}}" ;;
@@ -1244,34 +1212,279 @@ while IFS= read -r line; do
 done
 "#,
             log = log.display(),
-            flag = popover_flag.display(),
+            mode = mode.display(),
         );
         let (_dir, manager) = helper(&script);
         let call = |method: &str, params: serde_json::Value| {
             run_now(&manager, "agent-ipad", "/tmp", method, &params)
         };
+        let tap_count = || {
+            std::fs::read_to_string(&log)
+                .unwrap()
+                .lines()
+                .filter(|line| line.contains(r#""type":"tap""#))
+                .count()
+        };
         call("sim.attach", json!({ "device": "iPad Pro 11-inch (M5)" })).expect("attach");
 
-        let dismissed = call("sim.tap", json!({ "label": "Verify & Sign In" })).expect("tap 1");
+        // 1. Tapping a target by label underneath PopoverDismissRegion auto-retaps once and activates it.
+        let before_taps = tap_count();
+        let retapped = call(
+            "sim.tap",
+            json!({ "label": "Verify & Sign In", "report": "full" }),
+        )
+        .expect("label tap");
+        assert_eq!(tap_count() - before_taps, 2);
         assert!(
-            dismissed["note"]
+            retapped["note"]
                 .as_str()
-                .is_some_and(|n| n.contains("PopoverDismissRegion")),
-            "{dismissed}"
+                .is_some_and(|n| n.contains("PopoverDismissRegion") && n.contains("tapped again")),
+            "{retapped}"
         );
-        let tap_count = std::fs::read_to_string(&log)
+        assert!(
+            retapped["elements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|line| line.as_str().unwrap().contains("Signed In")),
+            "{retapped}"
+        );
+
+        // 2. Tapping a target by index underneath PopoverDismissRegion also auto-retaps once.
+        std::fs::write(&mode, "popover").unwrap();
+        let state = call("sim.state", json!({})).expect("state");
+        let verify_index: u64 = state["elements"]
+            .as_array()
             .unwrap()
-            .lines()
-            .filter(|line| line.contains(r#""type":"tap""#))
-            .count();
-        assert_eq!(tap_count, 1, "must not silently double-tap");
+            .iter()
+            .find_map(|line| {
+                let s = line.as_str()?;
+                s.contains("Verify & Sign In")
+                    .then(|| s.split_whitespace().next()?.parse().ok())
+                    .flatten()
+            })
+            .expect("verify button index");
+        let before_taps = tap_count();
+        let by_index = call("sim.tap", json!({ "index": verify_index })).expect("index tap");
+        assert_eq!(tap_count() - before_taps, 2);
+        assert!(by_index["note"]
+            .as_str()
+            .is_some_and(|n| n.contains("tapped again")));
 
-        let activated = call("sim.tap", json!({ "label": "Verify & Sign In" })).expect("tap 2");
-        assert!(activated.get("note").is_none(), "{activated}");
+        // 3. Point tap directly on an interactive target underneath auto-retaps once.
+        std::fs::write(&mode, "popover").unwrap();
+        let before_taps = tap_count();
+        let by_point = call("sim.tap", json!({ "x": 400, "y": 444 })).expect("point tap on button");
+        assert_eq!(tap_count() - before_taps, 2);
+        assert!(by_point["note"]
+            .as_str()
+            .is_some_and(|n| n.contains("tapped again")));
 
-        std::fs::write(&popover_flag, "1").unwrap();
+        // 4. Point tap on empty space intentionally dismisses without double-tapping.
+        std::fs::write(&mode, "popover").unwrap();
+        let before_taps = tap_count();
+        let empty = call("sim.tap", json!({ "x": 40, "y": 100 })).expect("point tap empty space");
+        assert_eq!(tap_count() - before_taps, 1, "must not retap empty space");
+        assert!(empty.get("note").is_none(), "{empty}");
+
+        // 5. Explicitly targeting PopoverDismissRegion does not retap or warn.
+        std::fs::write(&mode, "popover").unwrap();
+        let before_taps = tap_count();
         let explicit = call("sim.tap", json!({ "label": "dismiss popup" })).expect("dismiss");
+        assert_eq!(tap_count() - before_taps, 1);
         assert!(explicit.get("note").is_none(), "{explicit}");
+
+        // 6. Tapping an action inside the popover that closes it (and disappears) does NOT retap.
+        std::fs::write(&mode, "popover").unwrap();
+        let before_taps = tap_count();
+        let inside = call("sim.tap", json!({ "label": "Popover Action" })).expect("popover action");
+        assert_eq!(tap_count() - before_taps, 1);
+        assert!(inside.get("note").is_none(), "{inside}");
+
+        // 7. Point tap where layout shifted away after popover dismissal does NOT retap the old point.
+        std::fs::write(&mode, "shifted_popover").unwrap();
+        let before_taps = tap_count();
+        let shifted = call("sim.tap", json!({ "x": 400, "y": 444 })).expect("shifted point tap");
+        assert_eq!(tap_count() - before_taps, 1);
+        assert!(
+            shifted["note"]
+                .as_str()
+                .is_some_and(|n| n.contains("tap again")),
+            "{shifted}"
+        );
+
+        // 8. Nested popover stays bounded (no retap when PopoverDismissRegion is still present).
+        std::fs::write(&mode, "nested_popover").unwrap();
+        let before_taps = tap_count();
+        let _nested = call("sim.tap", json!({ "label": "Verify & Sign In" })).expect("nested");
+        assert_eq!(tap_count() - before_taps, 1);
+    }
+
+    #[test]
+    fn sim_type_warns_when_readback_misses_a_dropped_character() {
+        let field_screen = |role: &str, value: &str| {
+            read_from(&json!({ "elements": [
+                { "type": "Application", "label": "Academy", "frame": { "x": 0, "y": 0, "width": 834, "height": 1194 },
+                  "children": [
+                    { "type": role, "label": "Slug", "value": value, "enabled": true, "traits": ["IsEditing"],
+                      "frame": { "x": 40, "y": 240, "width": 400, "height": 48 } }
+                  ] }
+            ]}))
+        };
+
+        let empty = field_screen("TextField", "");
+        let dropped = field_screen("TextField", "dem-owner");
+        let warning = dropped_text_warning(&empty, &dropped, "demo-owner", false)
+            .expect("should warn when 'o' was dropped");
+        assert!(
+            warning.contains("demo-owner") && warning.contains("dem-owner"),
+            "{warning}"
+        );
+
+        // Exact match, case fold, non-alphanumeric stripping, formatting, and SecureTextField do not warn.
+        assert_eq!(
+            dropped_text_warning(
+                &empty,
+                &field_screen("TextField", "demo-owner"),
+                "demo-owner",
+                false
+            ),
+            None
+        );
+        assert_eq!(
+            dropped_text_warning(
+                &empty,
+                &field_screen("TextField", "demo-owner"),
+                "Demo-Owner",
+                false
+            ),
+            None
+        );
+        assert_eq!(
+            dropped_text_warning(
+                &empty,
+                &field_screen("TextField", "5551234"),
+                "555-1234",
+                false
+            ),
+            None
+        );
+        assert_eq!(
+            dropped_text_warning(
+                &empty,
+                &field_screen("TextField", "(555) 123-4"),
+                "5551234",
+                false
+            ),
+            None
+        );
+        assert_eq!(
+            dropped_text_warning(
+                &empty,
+                &field_screen("SecureTextField", "•••••"),
+                "secret",
+                false
+            ),
+            None
+        );
+        assert_eq!(
+            dropped_text_warning(&empty, &dropped, "demo-owner", true),
+            None
+        );
+
+        // Appending into an existing value detects a drop in the newly appended suffix.
+        let prefixed = field_screen("TextField", "team-");
+        let appended_drop = field_screen("TextField", "team-dem-owner");
+        assert!(dropped_text_warning(&prefixed, &appended_drop, "demo-owner", false).is_some());
+    }
+
+    #[test]
+    fn sim_open_url_errors_when_no_app_handles_custom_scheme_and_allows_system_schemes() {
+        assert_eq!(
+            custom_url_scheme("MyApp://expo-development-client/?url=http://127.0.0.1:8081"),
+            Some("myapp".into())
+        );
+        for system in [
+            "http://127.0.0.1:8081",
+            "https://example.com/invite",
+            "tel:5551234",
+            "mailto:test@example.com",
+            "prefs:root=WIFI",
+            "maps://?q=apple",
+        ] {
+            assert_eq!(custom_url_scheme(system), None, "{system}");
+        }
+
+        let url_types = json!([{ "CFBundleURLSchemes": ["SwishXAcademy", "com.swishx.academy"] }]);
+        assert!(url_types_handle_scheme(&url_types, "swishxacademy"));
+        assert!(!url_types_handle_scheme(&url_types, "otherapp"));
+
+        let springboard = read_from(&home_screen());
+        let system_blank = read_from(&json!({ "elements": [
+            { "type": "Application", "label": " ", "frame": { "x": 0, "y": 0, "width": 402, "height": 874 },
+              "children": [{ "type": "StaticText", "label": "9:41", "frame": { "x": 40, "y": 20, "width": 44, "height": 20 } }] }
+        ]}));
+        let system_alert = read_from(&json!({ "elements": [
+            { "type": "Application", "label": " ", "frame": { "x": 0, "y": 0, "width": 402, "height": 874 },
+              "children": [{ "type": "Button", "label": "Open", "frame": { "x": 200, "y": 460, "width": 120, "height": 44 } }] }
+        ]}));
+        let opened_app = read_from(&json!({ "elements": [
+            { "type": "Application", "label": "Academy", "frame": { "x": 0, "y": 0, "width": 402, "height": 874 },
+              "children": [{ "type": "StaticText", "label": "Welcome", "frame": { "x": 40, "y": 200, "width": 200, "height": 32 } }] }
+        ]}));
+
+        let err = unhandled_custom_url_scheme_error(
+            "myapp://open",
+            &springboard,
+            &springboard,
+            Some(false),
+        )
+        .expect("unhandled custom scheme on Home Screen must error");
+        assert!(
+            err.contains("myapp://") && err.contains("sim install"),
+            "{err}"
+        );
+
+        assert!(unhandled_custom_url_scheme_error(
+            "myapp://open",
+            &system_blank,
+            &system_blank,
+            None,
+        )
+        .is_some());
+        assert_eq!(
+            unhandled_custom_url_scheme_error("myapp://open", &springboard, &opened_app, None),
+            None
+        );
+        assert_eq!(
+            unhandled_custom_url_scheme_error("myapp://open", &springboard, &system_alert, None),
+            None
+        );
+        assert_eq!(
+            unhandled_custom_url_scheme_error(
+                "https://example.com",
+                &springboard,
+                &springboard,
+                Some(false)
+            ),
+            None
+        );
+
+        // End-to-end sim.openUrl through the fake helper: stays on Home Screen -> error for custom scheme, ok for https.
+        let dir = tempfile::tempdir().unwrap();
+        let (_helper_dir, manager) = helper(&recording_helper(&dir.path().join("requests")));
+        let call = |method: &str, params: serde_json::Value| {
+            run_now(&manager, "agent-url", "/tmp", method, &params)
+        };
+        call("sim.attach", json!({ "device": "iPhone 17" })).expect("attach");
+        let missing = call("sim.openUrl", json!({ "url": "swishxacademy://open" })).unwrap_err();
+        assert!(
+            missing.contains("no installed app handles scheme 'swishxacademy://'")
+                && missing.contains("sim install"),
+            "{missing}"
+        );
+        call("sim.openUrl", json!({ "url": "https://example.com" }))
+            .expect("built-in https scheme must not false-positive");
     }
 
     #[test]

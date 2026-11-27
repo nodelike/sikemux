@@ -187,31 +187,55 @@ pub(super) async fn run(
             let device = attached(manager, agent_id)?;
             let before = read_screen(manager, &device).await?;
             let numbered = manager.number(agent_id, &before.elements);
-            let (point, target) = match text("label") {
+            let (point, intent) = match text("label") {
                 Some(label) => {
-                    let element = labelled_element(&numbered, label)?;
-                    (element.center, Some(element))
+                    let element = labelled_element(&numbered, label)?.clone();
+                    (element.center, TapIntent::Label(label.to_owned(), element))
                 }
-                None => tap_target(
-                    &numbered,
-                    params.get("index").and_then(Value::as_u64),
-                    number("x"),
-                    number("y"),
-                )?,
+                None => match params.get("index").and_then(Value::as_u64) {
+                    Some(index) => {
+                        let (_, target) = tap_target(&numbered, Some(index), None, None)?;
+                        let element = target.ok_or("element is not on the screen now")?.clone();
+                        (element.center, TapIntent::Index(element))
+                    }
+                    None => {
+                        let (point, _) = tap_target(&numbered, None, number("x"), number("y"))?;
+                        let hit = interactive_element_at(&before, point).cloned();
+                        (point, TapIntent::Point(point, hit))
+                    }
+                },
             };
-            let targeted_dismiss_region = target.is_some_and(is_popover_dismiss_region);
-            let mut fields = json!({ "udid": device.udid, "x": point.0, "y": point.1 });
-            if let (Some(duration), Some(fields)) = (number("duration"), fields.as_object_mut()) {
-                fields.insert("duration".to_owned(), duration.into());
-            }
-            manager.request("tap", fields).await?;
-            let (mut state, after) =
-                settled_state_with_read(manager, agent_id, Some(before.clone()), report(params)?)
-                    .await?;
-            if let (Some(note), Some(state)) = (
-                popover_dismissed_note(&before, &after, targeted_dismiss_region),
-                state.as_object_mut(),
-            ) {
+            let targeted_dismiss_region = intent.targets_dismiss_region();
+            let duration = number("duration");
+            let report = report(params)?;
+            send_tap(manager, &device.udid, point, duration).await?;
+            let after_first = settle_read(manager, &device, Some(&before)).await?;
+            let retap = if popover_was_dismissed(&before, &after_first)
+                && !targeted_dismiss_region
+                && !near_deadline()
+            {
+                popover_retap_point(&intent, &before, &after_first)
+            } else {
+                None
+            };
+            let (mut state, note) = if let Some(retap_point) = retap {
+                send_tap(manager, &device.udid, retap_point, duration).await?;
+                let after_second = settle_read(manager, &device, Some(&after_first)).await?;
+                let (state, _) =
+                    finish_state(manager, agent_id, &device, after_second, report).await?;
+                (state, Some(POPOVER_RETAPPED_NOTE))
+            } else {
+                let (state, after) =
+                    finish_state(manager, agent_id, &device, after_first, report).await?;
+                let note = popover_dismissed_note_for_tap(
+                    &intent,
+                    &before,
+                    &after,
+                    targeted_dismiss_region,
+                );
+                (state, note)
+            };
+            if let (Some(note), Some(state)) = (note, state.as_object_mut()) {
                 state.insert("note".to_owned(), note.into());
             }
             Ok(state)
@@ -268,21 +292,24 @@ pub(super) async fn run(
                     }
                 }
             }
-            let mut state =
-                settled_state(manager, agent_id, Some(before.clone()), report(params)?).await?;
-            let after = read_screen(manager, &device).await?;
+            let (mut state, after) =
+                settled_state_with_read(manager, agent_id, Some(before.clone()), report(params)?)
+                    .await?;
             let printable = raw.chars().any(|typed| !typed.is_control());
             let submitted = submit || steps.contains(&TypeStep::Key("Enter"));
             if printable && !landed(before.keyboard, &fields, &after, raw, submitted) {
                 return Err(NOT_TYPED.into());
             }
-            if !submit && trailing_escaped_newline(raw) {
-                if let Some(state) = state.as_object_mut() {
-                    state.insert(
-                        "warning".to_owned(),
-                        "text ended with literal \\n instead of a newline; pass submit: true (or a real newline) to press Return".into(),
-                    );
-                }
+            let warning = if !submit && trailing_escaped_newline(raw) {
+                Some(
+                    "text ended with literal \\n instead of a newline; pass submit: true (or a real newline) to press Return"
+                        .to_owned(),
+                )
+            } else {
+                dropped_text_warning(&fields, &after, raw, submitted)
+            };
+            if let (Some(warning), Some(state)) = (warning, state.as_object_mut()) {
+                state.insert("warning".to_owned(), warning.into());
             }
             Ok(state)
         }
@@ -363,7 +390,26 @@ pub(super) async fn run(
             manager
                 .request("openUrl", json!({ "udid": device.udid, "url": url }))
                 .await?;
-            settled_state(manager, agent_id, Some(before), report(params)?).await
+            let (state, after) =
+                settled_state_with_read(manager, agent_id, Some(before.clone()), report(params)?)
+                    .await?;
+            if !is_android(&device.udid) && (after.app == HOME_SCREEN || after.app == SYSTEM) {
+                if let Some(scheme) = custom_url_scheme(url) {
+                    let udid = device.udid.clone();
+                    let installed = tokio::task::spawn_blocking(move || {
+                        super::bundle::installed_handles_scheme(&udid, &scheme)
+                    })
+                    .await
+                    .ok()
+                    .flatten();
+                    if let Some(error) =
+                        unhandled_custom_url_scheme_error(url, &before, &after, installed)
+                    {
+                        return Err(error);
+                    }
+                }
+            }
+            Ok(state)
         }
         "sim.touchPath" => {
             let device = attached(manager, agent_id)?;
@@ -486,6 +532,9 @@ pub(crate) struct Element {
 /// An element with the number an agent refers to it by.
 pub(crate) type Numbered = (usize, Element);
 
+/// A frame in device points: `(x, y, width, height)`.
+pub(super) type Frame = (f64, f64, f64, f64);
+
 /// One accessibility read: the frontmost app, its elements, the size of the
 /// app's window, which follows the app when it turns, whether iOS's own
 /// keyboard is on screen, and its text fields with focus metadata.
@@ -493,6 +542,7 @@ pub(crate) type Numbered = (usize, Element);
 pub(super) struct Read {
     pub app: String,
     pub elements: Vec<Element>,
+    pub frames: Vec<Frame>,
     pub size: Option<(f64, f64)>,
     pub keyboard: bool,
     pub text_fields: Vec<TextFieldState>,
@@ -504,6 +554,7 @@ pub(super) struct TextFieldState {
     pub label: String,
     pub value: String,
     pub focused: bool,
+    pub secure: bool,
 }
 
 /// Gives each element a number that stays with it from read to read. An
@@ -1239,7 +1290,7 @@ async fn read_screen(manager: &SimulatorManager, device: &Device) -> Result<Read
         }
     };
     let size = app_size(&reply).or(device.screen);
-    let (app, elements) = elements_from(&reply, size);
+    let (app, elements, frames) = screen_from(&reply, size);
     let elements_read = reply.get("elements").map(flattened).unwrap_or_default();
     let keyboard = elements_read
         .iter()
@@ -1248,6 +1299,7 @@ async fn read_screen(manager: &SimulatorManager, device: &Device) -> Result<Read
     Ok(Read {
         app,
         elements,
+        frames,
         size,
         keyboard,
         text_fields,
@@ -1426,6 +1478,7 @@ pub(super) fn text_fields_from(elements: &[&Value]) -> Vec<TextFieldState> {
                 label: text_field("label"),
                 value: value_text(element),
                 focused,
+                secure: role == "SecureTextField",
             })
         })
         .collect()
@@ -1514,6 +1567,67 @@ pub(super) fn landed(
         })
 }
 
+/// Non-fatal readback warning when a single non-secure text field changed on a non-submitted
+/// `sim type` and read back a shorter subsequence missing at least one alphanumeric character.
+pub(super) fn dropped_text_warning(
+    before: &Read,
+    after: &Read,
+    raw: &str,
+    submitted: bool,
+) -> Option<String> {
+    if submitted || raw.contains('\u{8}') || raw.contains('\t') {
+        return None;
+    }
+    let expected = expected_typed(raw);
+    if expected.chars().count() < 2 {
+        return None;
+    }
+    let mut changed = before
+        .text_fields
+        .iter()
+        .zip(&after.text_fields)
+        .filter(|(was, now)| {
+            was.identifier == now.identifier && was.label == now.label && was.value != now.value
+        });
+    let (was, now) = changed.next()?;
+    if changed.next().is_some() || now.secure || now.value.contains('•') {
+        return None;
+    }
+    let entered = if !was.value.is_empty() {
+        now.value
+            .strip_prefix(&was.value)
+            .filter(|suffix| !suffix.is_empty())
+            .unwrap_or(now.value.as_str())
+    } else {
+        now.value.as_str()
+    };
+    if entered.is_empty() || entered.chars().count() >= expected.chars().count() {
+        return None;
+    }
+    if !is_subsequence_missing_alnum(entered, &expected) {
+        return None;
+    }
+    Some(format!(
+        "typed \"{expected}\" but the field reads \"{entered}\" (a character may have been dropped)"
+    ))
+}
+
+fn is_subsequence_missing_alnum(actual: &str, expected: &str) -> bool {
+    let mut actual_chars = actual.chars().peekable();
+    let mut missing_alnum = false;
+    for expected_char in expected.chars() {
+        if actual_chars
+            .peek()
+            .is_some_and(|actual_char| actual_char.eq_ignore_ascii_case(&expected_char))
+        {
+            actual_chars.next();
+        } else if expected_char.is_ascii_alphanumeric() {
+            missing_alnum = true;
+        }
+    }
+    actual_chars.peek().is_none() && missing_alnum
+}
+
 /// The screen once iOS's own keyboard has left it. It starts leaving a second
 /// or more after the key that sends it away, longer than two reads take.
 async fn keyboard_gone(
@@ -1556,22 +1670,29 @@ async fn settled_state_with_read(
     report: Report,
 ) -> Result<(Value, Read), String> {
     let device = attached(manager, agent_id)?;
-    let mut latest = read_screen(manager, &device).await?;
-    if let Some(before) = before.as_ref() {
+    let latest = settle_read(manager, &device, before.as_ref()).await?;
+    finish_state(manager, agent_id, &device, latest, report).await
+}
+
+async fn settle_read(
+    manager: &SimulatorManager,
+    device: &Device,
+    before: Option<&Read>,
+) -> Result<Read, String> {
+    let mut latest = read_screen(manager, device).await?;
+    if let Some(before) = before {
         for _ in 0..CHANGE_READS {
             if &latest != before || near_deadline() {
                 break;
             }
             pause(manager.steps().settle).await?;
-            latest = read_screen(manager, &device).await?;
+            latest = read_screen(manager, device).await?;
         }
     }
     let retry_empty = |read: &Read| {
         read.elements.is_empty()
             && !is_launching(read)
-            && before
-                .as_ref()
-                .is_none_or(|before| !before.elements.is_empty() || before.app != read.app)
+            && before.is_none_or(|before| !before.elements.is_empty() || before.app != read.app)
     };
     let mut reads = 1;
     let mut empty_reads = 0;
@@ -1582,7 +1703,7 @@ async fn settled_state_with_read(
             manager.steps().settle
         };
         pause(step).await?;
-        let next = read_screen(manager, &device).await?;
+        let next = read_screen(manager, device).await?;
         let opening = is_launching(&next);
         let waiting_empty = retry_empty(&next) && {
             empty_reads += 1;
@@ -1596,6 +1717,16 @@ async fn settled_state_with_read(
         }
     }
     checkpoint()?;
+    Ok(latest)
+}
+
+async fn finish_state(
+    manager: &SimulatorManager,
+    agent_id: &str,
+    device: &Device,
+    latest: Read,
+    report: Report,
+) -> Result<(Value, Read), String> {
     let numbered = manager.number(agent_id, &latest.elements);
     let previous = manager.last_read(agent_id);
     let mut state = Map::new();
@@ -1712,8 +1843,17 @@ fn is_launching(read: &Read) -> bool {
 
 /// The frontmost app's name and its elements, from one accessibility read.
 pub(super) fn elements_from(reply: &Value, screen: Option<(f64, f64)>) -> (String, Vec<Element>) {
+    let (app, elements, _) = screen_from(reply, screen);
+    (app, elements)
+}
+
+pub(super) fn screen_from(
+    reply: &Value,
+    screen: Option<(f64, f64)>,
+) -> (String, Vec<Element>, Vec<Frame>) {
     let mut app = String::new();
     let mut elements = Vec::new();
+    let mut frames = Vec::new();
     let mut app_icons = false;
     for value in flattened(&reply["elements"]) {
         app_icons |= value["traits"]
@@ -1752,6 +1892,7 @@ pub(super) fn elements_from(reply: &Value, screen: Option<(f64, f64)>) -> (Strin
         if label.is_empty() && value_text.is_empty() && role == "GenericElement" {
             continue;
         }
+        frames.push((x, y, width, height));
         elements.push(Element {
             role,
             label,
@@ -1774,7 +1915,7 @@ pub(super) fn elements_from(reply: &Value, screen: Option<(f64, f64)>) -> (Strin
     if app.is_empty() {
         app = if app_icons { HOME_SCREEN } else { SYSTEM }.to_owned();
     }
-    (app, elements)
+    (app, elements, frames)
 }
 
 /// Every element of a read and those inside it, in the order a person reads them.
@@ -1881,24 +2022,249 @@ pub(super) fn timed(
 }
 
 const POPOVER_DISMISS_REGION: &str = "PopoverDismissRegion";
+const POPOVER_DISMISSED_NOTE: &str = "This tap dismissed an iPadOS popover overlay (PopoverDismissRegion) and likely did not activate the target underneath; tap again to trigger it.";
+const POPOVER_RETAPPED_NOTE: &str = "First tap dismissed an iPadOS popover overlay (PopoverDismissRegion), so the target was tapped again to activate it.";
+
+const INTERACTIVE_ROLES: [&str; 17] = [
+    "Button",
+    "Link",
+    "Cell",
+    "CheckBox",
+    "RadioButton",
+    "Switch",
+    "TextField",
+    "SecureTextField",
+    "SearchField",
+    "TextView",
+    "TextArea",
+    "Tab",
+    "MenuItem",
+    "Slider",
+    "Stepper",
+    "PopUpButton",
+    "DisclosureTriangle",
+];
+
+enum TapIntent {
+    Label(String, Element),
+    Index(Element),
+    Point((f64, f64), Option<Element>),
+}
+
+impl TapIntent {
+    fn targets_dismiss_region(&self) -> bool {
+        match self {
+            Self::Label(_, element) | Self::Index(element) => is_popover_dismiss_region(element),
+            Self::Point(_, Some(element)) => is_popover_dismiss_region(element),
+            Self::Point(_, None) => false,
+        }
+    }
+}
+
+async fn send_tap(
+    manager: &SimulatorManager,
+    udid: &str,
+    point: (f64, f64),
+    duration: Option<f64>,
+) -> Result<(), String> {
+    let mut fields = json!({ "udid": udid, "x": point.0, "y": point.1 });
+    if let (Some(duration), Some(fields)) = (duration, fields.as_object_mut()) {
+        fields.insert("duration".to_owned(), duration.into());
+    }
+    manager.request("tap", fields).await?;
+    Ok(())
+}
 
 fn is_popover_dismiss_region(element: &Element) -> bool {
     element.identifier == POPOVER_DISMISS_REGION
 }
 
-pub(super) fn popover_dismissed_note(
+fn popover_was_dismissed(before: &Read, after: &Read) -> bool {
+    before.app == after.app
+        && before.elements.iter().any(is_popover_dismiss_region)
+        && !after.elements.iter().any(is_popover_dismiss_region)
+}
+
+fn interactive_element_at(read: &Read, point: (f64, f64)) -> Option<&Element> {
+    read.elements
+        .iter()
+        .zip(&read.frames)
+        .filter(|(element, (x, y, width, height))| {
+            !is_popover_dismiss_region(element)
+                && !element.offscreen
+                && element.enabled
+                && INTERACTIVE_ROLES.contains(&element.role.as_str())
+                && point.0 >= *x
+                && point.0 <= *x + *width
+                && point.1 >= *y
+                && point.1 <= *y + *height
+        })
+        .min_by(|(_, a), (_, b)| (a.2 * a.3).total_cmp(&(b.2 * b.3)))
+        .map(|(element, _)| element)
+}
+
+fn same_identity(a: &Element, b: &Element) -> bool {
+    a.role == b.role && a.label == b.label && a.identifier == b.identifier
+}
+
+fn still_untriggered_target(before: &Element, after: &Element) -> bool {
+    !is_popover_dismiss_region(after)
+        && !after.offscreen
+        && after.enabled
+        && same_identity(before, after)
+        && after.value == before.value
+}
+
+fn find_same_element<'a>(
+    before_elements: &[Element],
+    after_elements: &'a [Element],
+    target: &Element,
+) -> Option<&'a Element> {
+    let matches: Vec<&Element> = after_elements
+        .iter()
+        .filter(|candidate| same_identity(candidate, target))
+        .collect();
+    if matches.len() == 1
+        && before_elements
+            .iter()
+            .filter(|candidate| same_identity(candidate, target))
+            .count()
+            == 1
+    {
+        return matches.first().copied();
+    }
+    matches
+        .into_iter()
+        .map(|candidate| (candidate, distance(target.center, candidate.center)))
+        .filter(|(_, apart)| *apart <= SAME_PLACE)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(candidate, _)| candidate)
+}
+
+fn popover_retap_point(intent: &TapIntent, before: &Read, after: &Read) -> Option<(f64, f64)> {
+    match intent {
+        TapIntent::Label(label, before_el) => {
+            let numbered: Vec<Numbered> = after.elements.iter().cloned().enumerate().collect();
+            let after_el = labelled_element(&numbered, label).ok()?;
+            still_untriggered_target(before_el, after_el).then_some(after_el.center)
+        }
+        TapIntent::Index(before_el) => {
+            let after_el = find_same_element(&before.elements, &after.elements, before_el)?;
+            still_untriggered_target(before_el, after_el).then_some(after_el.center)
+        }
+        TapIntent::Point(point, Some(before_el)) => {
+            let after_el = interactive_element_at(after, *point)?;
+            still_untriggered_target(before_el, after_el).then_some(*point)
+        }
+        TapIntent::Point(_, None) => None,
+    }
+}
+
+fn popover_dismissed_note_for_tap(
+    intent: &TapIntent,
     before: &Read,
     after: &Read,
     targeted_dismiss_region: bool,
 ) -> Option<&'static str> {
-    if targeted_dismiss_region || before.app != after.app {
+    if targeted_dismiss_region || !popover_was_dismissed(before, after) {
         return None;
     }
-    let had_popover = before.elements.iter().any(is_popover_dismiss_region);
-    let still_has_popover = after.elements.iter().any(is_popover_dismiss_region);
-    (had_popover && !still_has_popover).then_some(
-        "This tap dismissed an iPadOS popover overlay (PopoverDismissRegion) and likely did not activate the target underneath; tap again to trigger it.",
-    )
+    let target_still_present = match intent {
+        TapIntent::Label(_, before_el) | TapIntent::Index(before_el) => {
+            find_same_element(&before.elements, &after.elements, before_el).is_some()
+        }
+        TapIntent::Point(_, Some(before_el)) => {
+            find_same_element(&before.elements, &after.elements, before_el).is_some()
+        }
+        TapIntent::Point(_, None) => false,
+    };
+    target_still_present.then_some(POPOVER_DISMISSED_NOTE)
+}
+
+const SYSTEM_URL_SCHEMES: [&str; 43] = [
+    "http",
+    "https",
+    "about",
+    "data",
+    "file",
+    "blob",
+    "tel",
+    "telprompt",
+    "mailto",
+    "sms",
+    "mms",
+    "facetime",
+    "facetime-audio",
+    "maps",
+    "geo",
+    "prefs",
+    "app-prefs",
+    "app-settings",
+    "settings",
+    "itms-apps",
+    "itms-appss",
+    "itms-services",
+    "shortcuts",
+    "calshow",
+    "mobilenotes",
+    "photos-redirect",
+    "shoebox",
+    "wallet",
+    "clock-alarm",
+    "clock-timer",
+    "weather",
+    "music",
+    "podcasts",
+    "books",
+    "ibooks",
+    "news",
+    "applenews",
+    "stocks",
+    "home",
+    "findmy",
+    "x-web-search",
+    "x-apple-reminderkit",
+    "imessage",
+];
+
+pub(super) fn custom_url_scheme(url: &str) -> Option<String> {
+    let (scheme, _) = url.trim().split_once(':')?;
+    let mut chars = scheme.chars();
+    let first = chars.next()?;
+    if !first.is_ascii_alphabetic()
+        || !chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+    {
+        return None;
+    }
+    let lower = scheme.to_ascii_lowercase();
+    (!SYSTEM_URL_SCHEMES.contains(&lower.as_str())).then_some(lower)
+}
+
+pub(super) fn unhandled_custom_url_scheme_error(
+    url: &str,
+    before: &Read,
+    after: &Read,
+    installed_handles: Option<bool>,
+) -> Option<String> {
+    let scheme = custom_url_scheme(url)?;
+    if installed_handles == Some(true) {
+        return None;
+    }
+    let on_springboard = |app: &str| app == HOME_SCREEN || app == SYSTEM;
+    if !on_springboard(&after.app) {
+        return None;
+    }
+    let alert_appeared =
+        after.app == SYSTEM && non_status_bar_changed(&before.elements, &after.elements);
+    if alert_appeared {
+        return None;
+    }
+    if installed_handles == Some(false) || on_springboard(&before.app) {
+        return Some(format!(
+            "no installed app handles scheme '{scheme}://'; install the app first with sim install"
+        ));
+    }
+    None
 }
 
 /// The element `name` labels or identifies. An exact label or identifier wins

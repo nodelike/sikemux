@@ -526,8 +526,62 @@ actor Simulators {
         try await booted(udid).application.kill(bundleID: bundleId)
     }
 
+    static let systemSchemes: Set<String> = [
+        "http", "https", "about", "data", "file", "blob",
+        "tel", "telprompt", "mailto", "sms", "mms",
+        "facetime", "facetime-audio", "maps", "geo",
+        "prefs", "app-prefs", "app-settings", "settings",
+        "itms-apps", "itms-appss", "itms-services",
+        "shortcuts", "calshow", "mobilenotes", "photos-redirect",
+        "shoebox", "wallet", "clock-alarm", "clock-timer",
+        "weather", "music", "podcasts", "books", "ibooks",
+        "news", "applenews", "stocks", "home", "findmy",
+        "x-web-search", "x-apple-reminderkit", "imessage",
+    ]
+
+    static func collectURLSchemes(from urlTypes: Any?, into schemes: inout Set<String>) {
+        guard let types = urlTypes as? [[String: Any]] else { return }
+        for type in types {
+            guard let list = type["CFBundleURLSchemes"] as? [String] else { continue }
+            for scheme in list where !scheme.isEmpty {
+                schemes.insert(scheme.lowercased())
+            }
+        }
+    }
+
+    static func unhandledSchemeMessage(for url: URL, installedSchemes: Set<String>?) -> String? {
+        guard let scheme = url.scheme?.lowercased(), !scheme.isEmpty,
+            !systemSchemes.contains(scheme),
+            let installedSchemes,
+            !installedSchemes.contains(scheme)
+        else { return nil }
+        return "no installed app handles scheme '\(scheme)://'; install the app first with sim install"
+    }
+
+    private static func installedURLSchemes(for simulator: Simulator) -> Set<String>? {
+        guard let installed = try? simulator.device.installedApps(), !installed.isEmpty else { return nil }
+        var schemes = Set<String>()
+        for entry in installed.values {
+            guard let info = entry as? [String: Any] else { continue }
+            collectURLSchemes(from: info["CFBundleURLTypes"], into: &schemes)
+            if let path = info["Path"] as? String {
+                let plistURL = URL(fileURLWithPath: path).appendingPathComponent("Info.plist")
+                if let plist = NSDictionary(contentsOf: plistURL) as? [String: Any] {
+                    collectURLSchemes(from: plist["CFBundleURLTypes"], into: &schemes)
+                }
+            }
+        }
+        return schemes
+    }
+
     func open(_ url: URL, on udid: String?) async throws {
-        try await booted(udid).lifecycle.open(url)
+        let simulator = try await booted(udid)
+        if let scheme = url.scheme?.lowercased(), !scheme.isEmpty, !Self.systemSchemes.contains(scheme),
+            let message = Self.unhandledSchemeMessage(for: url, installedSchemes: Self.installedURLSchemes(for: simulator))
+        {
+            throw Failure(reason: "unhandledScheme", message: message)
+        }
+        try await simulator.lifecycle.open(url)
     }
 
     private func set() throws -> SimulatorSet {

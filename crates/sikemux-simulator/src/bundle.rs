@@ -69,3 +69,62 @@ pub(crate) fn bundle_id(app: &Path) -> Option<String> {
     let id = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     (!id.is_empty()).then_some(id)
 }
+
+#[cfg(any(target_os = "macos", all(test, unix)))]
+pub(crate) fn url_types_handle_scheme(value: &serde_json::Value, scheme: &str) -> bool {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("CFBundleURLSchemes")?.as_array())
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .any(|declared| declared.eq_ignore_ascii_case(scheme))
+}
+
+/// Whether any user-installed app on the iOS simulator `udid` declares `scheme` in its
+/// Info.plist `CFBundleURLTypes`. Returns `None` when the simulator's data directory is
+/// unavailable (such as non-macOS hosts or fake test devices).
+#[cfg(target_os = "macos")]
+pub(crate) fn installed_handles_scheme(udid: &str, scheme: &str) -> Option<bool> {
+    let data_dir = super::load::devices_folder()?.join(udid).join("data");
+    if !data_dir.is_dir() {
+        return None;
+    }
+    let apps_dir = data_dir.join("Containers/Bundle/Application");
+    let Ok(containers) = std::fs::read_dir(&apps_dir) else {
+        return Some(false);
+    };
+    for container in containers.flatten() {
+        let Ok(entries) = std::fs::read_dir(container.path()) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("app") || !path.is_dir() {
+                continue;
+            }
+            let output = sikemux_process::user_environment::command("/usr/bin/plutil")
+                .args(["-extract", "CFBundleURLTypes", "json", "-o", "-"])
+                .arg(path.join("Info.plist"))
+                .stdin(sikemux_process::command::Stdio::null())
+                .stderr(sikemux_process::command::Stdio::null())
+                .output()
+                .ok()
+                .filter(|output| output.status.success());
+            if let Some(output) = output {
+                if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                    if url_types_handle_scheme(&value, scheme) {
+                        return Some(true);
+                    }
+                }
+            }
+        }
+    }
+    Some(false)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn installed_handles_scheme(_udid: &str, _scheme: &str) -> Option<bool> {
+    None
+}

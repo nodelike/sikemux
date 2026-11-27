@@ -623,12 +623,15 @@ what to tap. Network content can arrive after a call returns; read again.
 Calls run one at a time, about 50 seconds each.
 
 - `sim tap` by `index` or `label` rather than a point; a `label` that matches
-  two elements fails and lists them. On iPad, tapping outside a popover (such as
-  a number pad) dismisses `PopoverDismissRegion` first—tap again to trigger it.
+  two elements fails and lists them. On iPad, tapping a target underneath an
+  open popover (`PopoverDismissRegion`) dismisses the popover and retaps the
+  target once automatically.
 - `sim type` types into the focused field, US keyboard characters only. Pass
   `submit: true` (or a real newline, not literal `\n`) to press Return. While
   the keyboard shows, a swipe over it types a word: press Return or tap outside
   first.
+- `sim open_url` opens a URL on the device; custom URL schemes need a matching
+  app installed first with `sim install`.
 - A `sim swipe` starting within 10 points of an edge is a system gesture (home,
   back, Notification Center); start inside the content to scroll.
 - `sim touch2_path` points name both fingers (`x1`, `y1`, `x2`, `y2`).

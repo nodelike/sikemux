@@ -89,7 +89,7 @@ struct SikemuxSim {
             try await simulators.touch(try require(request.phase, "phase"), at: try require(request.x, request.y), on: udid)
         case "key":
             let code = try Keyboard.named(try require(request.key, "key"))
-            try await simulators.send(.composite([.keyboard(direction: .down, keyCode: code), .keyboard(direction: .up, keyCode: code)]), to: udid)
+            try await simulators.send(Keyboard.press(code), to: udid)
         case "screen":
             return try await simulators.screen(udid)
         case "mask":
@@ -105,14 +105,7 @@ struct SikemuxSim {
         case "touch2Path":
             try await simulators.send(try twoFingerPath(try await simulators.touchPoints(try require(request.points, "points"), on: udid)), to: udid)
         case "text":
-            var events: [SimulatorHIDEvent] = []
-            for key in try Keyboard.keys(for: try require(request.text, "text")) {
-                if key.shifted { events.append(.keyboard(direction: .down, keyCode: Keyboard.shift)) }
-                events.append(.keyboard(direction: .down, keyCode: key.code))
-                events.append(.keyboard(direction: .up, keyCode: key.code))
-                if key.shifted { events.append(.keyboard(direction: .up, keyCode: Keyboard.shift)) }
-                events.append(.delay(Keyboard.pause))
-            }
+            let events = try Keyboard.events(for: try require(request.text, "text"))
             try await simulators.send(.composite(events), to: udid)
         case "button":
             let pressed = try button(try require(request.button, "button"))
