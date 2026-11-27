@@ -121,6 +121,8 @@ pub enum Target {
         repo: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lands: Option<Lands>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        harmless: bool,
     },
     /// A tag pushed to the project's remote, which can start a release; empty when which tags
     /// can't be read.
@@ -453,8 +455,13 @@ pub(crate) fn target_of(
             if let Some(named) = call.as_ref().and_then(ApiCall::reruns) {
                 return Some(rerun(&repo, named, env, cwd));
             }
+            let harmless = call.as_ref().is_some_and(|call| call.harmless(cwd));
             let lands = call.and_then(|call| call.lands(cwd));
-            Some(Target::GitHub { repo, lands })
+            Some(Target::GitHub {
+                repo,
+                lands,
+                harmless,
+            })
         }
         "gh" if gh_args(args).first().is_some_and(|word| word == "release") => {
             let gh = gh_args(args);
@@ -464,6 +471,7 @@ pub(crate) fn target_of(
             Some(Target::GitHub {
                 repo,
                 lands: Some(Lands::Release { tag }),
+                harmless: false,
             })
         }
         "gh" => Some(package(GITHUB_RELEASES)),
@@ -1604,13 +1612,58 @@ pub struct ApiCall {
 }
 
 impl ApiCall {
-    /// The `owner/name` of the repository the endpoint changes, when it names one.
+    /// The `owner/name` of the repository the endpoint changes, or `repositories/<id>` /
+    /// `orgs/<org>` when it names one that way.
     pub fn repo(&self) -> Option<String> {
         let mut parts = self.path().split('/');
-        let ("repos", Some(owner), Some(name)) = (parts.next()?, parts.next(), parts.next()) else {
-            return None;
-        };
-        Some(format!("{owner}/{name}"))
+        match (parts.next()?, parts.next(), parts.next()) {
+            ("repos", Some(owner), Some(name)) => Some(format!("{owner}/{name}")),
+            ("repositories", Some(id), _) if !id.is_empty() => Some(format!("repositories/{id}")),
+            ("orgs", Some(org), _) if !org.is_empty() => Some(format!("orgs/{org}")),
+            _ => None,
+        }
+    }
+
+    /// Whether a write to the project's own repository is known harmless: issues, non-merge pull
+    /// request metadata and reviews, labels, milestones, release-notes generation or a draft
+    /// release. Anything else asks.
+    fn harmless(&self, cwd: &Path) -> bool {
+        if self.endpoint == "graphql" {
+            return false;
+        }
+        let method = self.method.as_str();
+        match (method, self.under_repo().as_slice()) {
+            ("POST", ["issues"])
+            | ("PATCH", ["issues", _])
+            | ("POST", ["issues", _, "comments"])
+            | ("PATCH" | "DELETE", ["issues", "comments", _])
+            | ("POST" | "PUT" | "DELETE", ["issues", _, "labels", ..])
+            | ("POST" | "DELETE", ["issues", _, "assignees", ..])
+            | ("PUT" | "DELETE", ["issues", _, "lock"])
+            | ("POST" | "DELETE", ["issues", _, "reactions", ..])
+            | ("POST" | "DELETE", ["issues", "comments", _, "reactions", ..])
+            | ("POST" | "PATCH" | "DELETE", ["issues", _, "sub_issues", ..])
+            | ("POST", ["pulls"])
+            | ("PATCH", ["pulls", _])
+            | ("POST", ["pulls", _, "comments", ..])
+            | ("PATCH" | "DELETE", ["pulls", "comments", _])
+            | ("POST" | "DELETE", ["pulls", "comments", _, "reactions", ..])
+            | ("POST", ["pulls", _, "reviews"])
+            | ("PUT", ["pulls", _, "reviews", _])
+            | ("POST", ["pulls", _, "reviews", _, "events"])
+            | ("PUT", ["pulls", _, "reviews", _, "dismissals"])
+            | ("POST" | "DELETE", ["pulls", _, "requested_reviewers"])
+            | ("POST", ["labels"])
+            | ("PATCH" | "DELETE", ["labels", _])
+            | ("POST", ["milestones"])
+            | ("PATCH" | "DELETE", ["milestones", _])
+            | ("PUT" | "DELETE", ["subscription"])
+            | ("POST", ["releases", "generate-notes"]) => true,
+            ("POST", ["releases"]) => {
+                matches!(self.field("draft", cwd), Ok(Some(ref v)) if v == "true")
+            }
+            _ => false,
+        }
     }
 
     fn path(&self) -> &str {

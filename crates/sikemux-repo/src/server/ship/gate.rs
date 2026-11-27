@@ -335,6 +335,7 @@ pub(super) fn github_write(what: &str, here: impl FnOnce() -> Option<String>) ->
         ("PUT", ["pages"]) => format!("Change GitHub Pages for {repo}"),
         ("DELETE", ["pages"]) => format!("Turn off GitHub Pages for {repo}"),
         ("POST", ["pages", "builds"]) => format!("Rebuild GitHub Pages for {repo}"),
+        ("POST", ["dispatches"]) => format!("Start workflows on {repo}"),
         (_, ["rulesets", ..]) => format!("Change who may push what to {repo}"),
         (_, ["branches", _, "protection", ..]) => format!("Change branch protection on {repo}"),
         (_, ["labels", ..]) => format!("Change the labels of {repo}"),

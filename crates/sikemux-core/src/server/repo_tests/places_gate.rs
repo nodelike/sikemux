@@ -1326,9 +1326,8 @@ async fn a_retry_that_started_after_an_end_may_have_run() {
     );
 }
 
-/// @Wataru widened a tag ruleset on nodelike/sikemux, the project's own repository, and the
-/// person got "Set rulesets/24037079 on nodelike/sikemux?" from a place an older gate had kept
-/// for every `gh api` write.
+/// Harmless metadata writes on the project's own repository pass, while unread or sensitive
+/// writes (such as rulesets or repository dispatches) and writes to other repositories ask.
 #[test]
 fn a_github_write_to_the_projects_own_repository_runs_and_others_ask_in_words() {
     let dir = repo();
@@ -1349,16 +1348,24 @@ fn a_github_write_to_the_projects_own_repository_runs_and_others_ask_in_words() 
         let looks = crate::ship::Looks::Every;
         crate::ship::of_command(line, &[], looks, &cwd, &|_| None).remove(0)
     };
-    let own = "gh api -X PUT repos/nodelike/sikemux/rulesets/24037079 --input - --jq .conditions";
-    assert!(matches!(run(&core, ship(own), &cwd), Ok(None)));
+    let comment = "gh api -X POST repos/nodelike/sikemux/issues/5/comments -f body=hi";
+    assert!(matches!(run(&core, ship(comment), &cwd), Ok(None)));
     let filled = "gh api -X POST repos/{owner}/{repo}/labels -f name=phone";
     assert!(matches!(run(&core, ship(filled), &cwd), Ok(None)));
     assert!(open_calls(&core).is_empty());
 
+    let ruleset =
+        "gh api -X PUT repos/nodelike/sikemux/rulesets/24037079 --input - --jq .conditions";
+    assert!(run(&core, ship(ruleset), &cwd).is_err());
+    let dispatch = "gh api -X POST repos/nodelike/sikemux/dispatches -f event_type=ship";
+    assert!(run(&core, ship(dispatch), &cwd).is_err());
+
     let theirs = "gh api -X PUT repos/acme/web/rulesets/24037079 --input -";
     assert!(run(&core, ship(theirs), &cwd).is_err());
-    let call = open_calls(&core).remove(0);
-    assert_eq!(call.question, "Change who may push what to acme/web?");
+    let call = open_calls(&core)
+        .into_iter()
+        .find(|call| call.question == "Change who may push what to acme/web?");
+    assert!(call.is_some());
 }
 
 /// @Bansai gave a gate's call a second paragraph, and its row in the For you list drew both, one

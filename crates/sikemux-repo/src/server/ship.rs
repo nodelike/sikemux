@@ -461,7 +461,12 @@ fn read(
     let mut ship = ship;
     let mut api_lands = None;
     let mut api_merging = None;
-    if let Some(Target::GitHub { repo, lands }) = ship.target.as_ref().map(Target::bare) {
+    if let Some(Target::GitHub {
+        repo,
+        lands,
+        harmless,
+    }) = ship.target.as_ref().map(Target::bare)
+    {
         let ours = [cwd, Path::new(&project)]
             .into_iter()
             .any(|root| push::is_remote_of(repo, root));
@@ -479,7 +484,9 @@ fn read(
                 api_lands = Some(lands);
                 ship.kind = ShipKind::Push;
             }
-            (_, None) if owned_here(repo, cwd, &project) => return Ok(Reading::Passes),
+            (_, None) if *harmless && owned_here(repo, cwd, &project) => {
+                return Ok(Reading::Passes);
+            }
             _ => {}
         }
     }
