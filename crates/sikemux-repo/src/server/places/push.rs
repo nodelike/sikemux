@@ -469,6 +469,8 @@ pub struct Merging {
     overrides: bool,
     /// Whether it deletes the pull request's branch.
     deletes: bool,
+    /// Whether GitHub merges it later, once its checks pass, rather than now.
+    pub later: bool,
 }
 
 /// The merge GitHub's API makes of `pull` in `repo`.
@@ -479,6 +481,7 @@ pub fn api_merging(pull: &str, repo: &str) -> Merging {
         read: true,
         overrides: true,
         deletes: false,
+        later: false,
     }
 }
 
@@ -489,6 +492,7 @@ pub fn merging(what: &str) -> Merging {
         read: false,
         overrides: false,
         deletes: false,
+        later: false,
     };
     let words: Vec<&str> = what.split_whitespace().collect();
     let args = match words.as_slice() {
@@ -501,7 +505,8 @@ pub fn merging(what: &str) -> Merging {
         match *arg {
             "-R" | "--repo" => found.repo = args.next().map(|repo| (*repo).to_owned()),
             "--match-head-commit" => _ = args.next(),
-            "-m" | "--merge" | "-s" | "--squash" | "-r" | "--rebase" | "--auto" => {}
+            "--auto" => found.later = true,
+            "-m" | "--merge" | "-s" | "--squash" | "-r" | "--rebase" => {}
             "-d" | "--delete-branch" => found.deletes = true,
             "--admin" => found.overrides = true,
             arg if arg.starts_with("--match-head-commit=") => {}

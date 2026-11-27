@@ -633,6 +633,13 @@ fn read(
     let name = core.names().name_or_id(agent_id);
     let (project, judged) =
         places::judge_anywhere(core, &project, &ship, &name, addresses, plain.as_deref());
+    let held = matches!(judged.goes, Goes::Tells | Goes::Asks);
+    if held && merging.as_ref().is_some_and(|merging| merging.later) {
+        return Err(
+            "Not run: a merge left for GitHub to finish once its checks pass merges whatever its branch holds by then, past what the person saw. Wait for the checks, then merge without --auto."
+                .to_owned(),
+        );
+    }
     Ok(Reading::Judged(Box::new(Reads {
         merging: merging.is_some(),
         cwd: cwd.to_owned(),
