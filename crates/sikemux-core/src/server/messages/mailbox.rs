@@ -598,14 +598,34 @@ impl Mailbox {
         })
     }
 
-    pub(super) fn promote_calm_waiting(&self, agent_id: &str, now: u64) {
+    pub(super) fn calm_waiting_senders(&self, agent_id: &str) -> Vec<String> {
+        let state = self.state.locked();
+        let Some(waiting) = state.waiting.get(agent_id) else {
+            return Vec::new();
+        };
+        waiting
+            .iter()
+            .filter_map(|queued| {
+                let origin = queued.origin.as_ref()?;
+                matches!(origin.calm, Some(CalmWait::UntilSiblingsIdle { .. }))
+                    .then(|| origin.from.clone())
+            })
+            .collect()
+    }
+
+    pub(super) fn promote_calm_waiting_for(&self, agent_id: &str, senders: &[String], now: u64) {
+        if senders.is_empty() {
+            return;
+        }
         self.change(|state| {
             let Some(waiting) = state.waiting.get_mut(agent_id) else {
                 return;
             };
             for queued in waiting.iter_mut() {
                 if let Some(origin) = queued.origin.as_mut() {
-                    if matches!(origin.calm, Some(CalmWait::UntilSiblingsIdle { .. })) {
+                    if matches!(origin.calm, Some(CalmWait::UntilSiblingsIdle { .. }))
+                        && senders.iter().any(|sender| sender == &origin.from)
+                    {
                         origin.calm = Some(CalmWait::At { at: now });
                     }
                 }

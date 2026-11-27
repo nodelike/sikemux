@@ -1129,3 +1129,152 @@ async fn stopping_an_agent_between_turns_drops_what_waits_for_it() {
         Some("agent-chief")
     );
 }
+
+#[tokio::test]
+async fn mid_turn_land_waits_until_worker_finishes_before_waking_lead() {
+    use crate::server::board::asked::{Asked, Holder};
+    use crate::server::board_state::BoardParts;
+    use crate::server::names::{Starting, Worker};
+    use crate::server::workspace::{add_project, AddProjectParams, AddProjectParamsExt};
+    use crate::server::workspace_state::WorkspaceParts;
+
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("shop");
+    std::fs::create_dir_all(&repo).unwrap();
+    let core = Core::new(Default::default(), Some(dir.path())).unwrap();
+    let project = add_project(&core, AddProjectParams::at(repo))
+        .await
+        .unwrap();
+    let folder = project.path.to_string_lossy().into_owned();
+    let register = |id: &str, lead: Option<&str>| {
+        let mut draft = json!({
+            "id": id,
+            "provider": "antigravity",
+            "project": project.id,
+            "cwd": project.path,
+            "title": id,
+            "permissionMode": "auto",
+            "asleep": false,
+        });
+        if let Some(lead) = lead {
+            draft
+                .as_object_mut()
+                .unwrap()
+                .insert("lead".into(), lead.into());
+        }
+        core.workspaces()
+            .put_agent_draft(draft.as_object().cloned().unwrap())
+            .unwrap();
+    };
+    register("chief", None);
+    register("kei", Some("chief"));
+    register("shun", Some("chief"));
+
+    let open = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect();
+    core.names().give(
+        Starting {
+            agent_id: "chief",
+            project: folder.clone(),
+            provider: Some("claude"),
+            resume_id: None,
+        },
+        open(&["chief"]),
+    );
+    for id in ["kei", "shun"] {
+        core.names()
+            .hire(
+                Worker {
+                    agent_id: id,
+                    lead: "chief",
+                    project: None,
+                    provider: "antigravity",
+                    session: None,
+                    reports: true,
+                    task: None,
+                },
+                open(&["chief"]),
+            )
+            .unwrap();
+    }
+    core.names().settle(open(&["chief", "kei", "shun"]));
+    (core.boards().state.locked().made(&folder)).ask(
+        "Fix calm wakes".to_owned(),
+        1,
+        Asked {
+            to: "chief".to_owned(),
+            owners: vec![Holder {
+                agent: "kei".to_owned(),
+                before: None,
+            }],
+            ..Asked::default()
+        },
+    );
+
+    let worker = |id: &str| Listed {
+        name: Some(id.to_owned()),
+        project: folder.clone(),
+        cli: "antigravity".to_owned(),
+        title: None,
+        status: sikemux_wire::protocol::AgentStatus::Idle,
+        parent: Some("chief".to_owned()),
+        active_at: None,
+        rank: 0,
+        reach: Reach::Chat,
+        agent_id: id.to_owned(),
+    };
+    let working = TurnState {
+        state: TurnPhase::Working,
+        since: 1,
+        on: None,
+        wait: None,
+        call: None,
+        done: None,
+        stopped: None,
+        failed: None,
+        seen: false,
+    };
+    let agents = [worker("kei"), worker("shun")];
+    let turns_kei_working = HashMap::from([("kei".to_owned(), working.clone())]);
+
+    assert_eq!(
+        calm_due_in(&core, &turns_kei_working, &agents, "kei", "chief", 100),
+        CalmWait::UntilSiblingsIdle {
+            capped_at: 100 + CALM_CEILING_MS
+        }
+    );
+
+    let mailbox = &core.harness().mailbox;
+    let now = epoch_ms();
+    mailbox.wait(
+        "chief",
+        Queued {
+            text: "- @Kei: Landed \"Commit 1\" on main.".to_owned(),
+            origin: Some(Origin {
+                from: "kei".to_owned(),
+                kind: MessageKind::Report,
+                awaited: false,
+                calm: Some(CalmWait::UntilSiblingsIdle {
+                    capped_at: now + CALM_CEILING_MS,
+                }),
+            }),
+            mark: None,
+            paths: Vec::new(),
+        },
+    );
+    let waiting = mailbox.calm_waiting_senders("chief");
+    super::reports::recheck_calm_for_lead_with(&core, &agents, "chief", waiting, |id| {
+        id == "kei" || id == "shun"
+    });
+    assert!(mailbox.has_calm_waiting_on_siblings("chief"));
+
+    let waiting = mailbox.calm_waiting_senders("chief");
+    super::reports::recheck_calm_for_lead_with(&core, &agents, "chief", waiting, |id| id == "shun");
+    assert!(!mailbox.has_calm_waiting_on_siblings("chief"));
+    assert!(mailbox.calm_until("chief").expect("due") <= epoch_ms());
+
+    let turns_shun_only = HashMap::from([("shun".to_owned(), working)]);
+    assert_eq!(
+        calm_due_in(&core, &turns_shun_only, &agents, "kei", "chief", 200),
+        CalmWait::At { at: 200 }
+    );
+}

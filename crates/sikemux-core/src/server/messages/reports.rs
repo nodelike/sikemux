@@ -212,9 +212,10 @@ async fn report_noted(
     }
 }
 
-/// A calm report is due at once when the person waits on the worker's work or no other worker
-/// of its lead is still at work, and otherwise waits until siblings go idle or the fallback
-/// ceiling passes.
+/// A calm report waits while the worker itself is still working or has another land in line;
+/// otherwise it is due at once when the person waits on the worker's work or no sibling of its
+/// lead is still at work, and otherwise waits until siblings go idle or the fallback ceiling
+/// passes.
 fn calm_due(core: &Core, agents: &[Listed], worker: &str, lead: &str, at: u64) -> CalmWait {
     calm_due_in(
         core,
@@ -258,6 +259,13 @@ pub(super) fn calm_due_in(
     lead: &str,
     at: u64,
 ) -> CalmWait {
+    if turns.get(worker).is_some_and(sibling_is_working)
+        || crate::server::edits::queue::in_line(core, worker).is_some()
+    {
+        return CalmWait::UntilSiblingsIdle {
+            capped_at: at.saturating_add(CALM_CEILING_MS),
+        };
+    }
     if crate::server::now::asks::person_waits_on(core, worker) {
         return CalmWait::At { at };
     }
@@ -273,21 +281,54 @@ pub(super) fn calm_due_in(
 /// idle. Returns a fallback wake deadline if no child is working but one still has its turn report
 /// on the way, so siblings finishing together still batch into one wake.
 pub(super) fn recheck_calm_for_lead(core: &Core, lead_id: &str) -> Option<u64> {
-    let mailbox = &core.harness().mailbox;
-    if !mailbox.has_calm_waiting_on_siblings(lead_id) {
+    let waiting = core.harness().mailbox.calm_waiting_senders(lead_id);
+    if waiting.is_empty() {
         return None;
     }
     let agents = roster::listed(core);
+    recheck_calm_for_lead_with(core, &agents, lead_id, waiting, |agent_id| {
+        crate::server::turn_state::now(core, agent_id)
+            .as_ref()
+            .is_some_and(sibling_is_working)
+    })
+}
+
+pub(super) fn recheck_calm_for_lead_with(
+    core: &Core,
+    agents: &[Listed],
+    lead_id: &str,
+    waiting: Vec<String>,
+    working: impl Fn(&str) -> bool,
+) -> Option<u64> {
+    let mailbox = &core.harness().mailbox;
+    if waiting.is_empty() {
+        return None;
+    }
     let children: Vec<&Listed> = agents
         .iter()
         .filter(|agent| agent.parent.as_deref() == Some(lead_id))
         .collect();
-    if children.iter().any(|agent| {
-        crate::server::turn_state::now(core, &agent.agent_id)
-            .as_ref()
-            .is_some_and(sibling_is_working)
-    }) {
-        return None;
+    if children.iter().any(|agent| working(&agent.agent_id)) {
+        let mut ready = Vec::new();
+        let mut earliest_reporting: Option<u64> = None;
+        for sender in waiting {
+            if !crate::server::now::asks::person_waits_on(core, &sender)
+                || working(&sender)
+                || crate::server::edits::queue::in_line(core, &sender).is_some()
+            {
+                continue;
+            }
+            if let Some(until) = mailbox.reporting_until(&sender) {
+                if until != u64::MAX {
+                    earliest_reporting =
+                        Some(earliest_reporting.map_or(until, |best| best.min(until)));
+                }
+                continue;
+            }
+            ready.push(sender);
+        }
+        mailbox.promote_calm_waiting_for(lead_id, &ready, epoch_ms());
+        return earliest_reporting;
     }
     let reporting: Vec<u64> = children
         .iter()
@@ -299,7 +340,13 @@ pub(super) fn recheck_calm_for_lead(core: &Core, lead_id: &str) -> Option<u64> {
             .filter(|until| *until != u64::MAX)
             .min();
     }
-    mailbox.promote_calm_waiting(lead_id, epoch_ms());
+    let ready: Vec<String> = waiting
+        .into_iter()
+        .filter(|sender| {
+            !working(sender) && crate::server::edits::queue::in_line(core, sender).is_none()
+        })
+        .collect();
+    mailbox.promote_calm_waiting_for(lead_id, &ready, epoch_ms());
     None
 }
 
