@@ -7,17 +7,17 @@ Connectors give your agents tools for the services you work with: GitHub, GitLab
 
 ## Settings → Connectors
 
-**Settings → Connectors** lists every connector with whether it's signed in and as whom. Connector status is checked only after first-run setup finishes. If you haven't signed in to GitHub separately or signed out, Sikemux checks your `gh` CLI sign-in or `GH_TOKEN` against `api.github.com` (or your GitHub Enterprise host).
+**Settings → Connectors** has a search and filters for **Code**, **Cloud**, **Issues & Chat**, **Observability** and **Data**. **Connected** lists the connectors you're signed in to, with whom as; **Available** lists the rest, each with **Connect**. Connector status is checked only after first-run setup finishes. If you haven't signed in to GitHub separately or signed out, Sikemux checks your `gh` CLI sign-in or `GH_TOKEN` against `api.github.com` (or your GitHub Enterprise host).
 
-- **Sign in** opens the connector's sign-in in a box over the window, which Escape closes: **Continue with** the service in your browser where it offers one, or the token form, with **Create a token** to make one on the service's site. After a sign-in in the browser, its page says it worked only once Sikemux is signed in, or why it didn't, with **Back to Sikemux**. Sikemux keeps the sign-in in the macOS Keychain, and in your account's vault when you're signed in.
-- **Sign out** forgets it.
-- The switch turns a connector off. Agents lose its tools, and it costs nothing until you turn it back on.
+- **Connect** opens the connector's sign-in in a box over the window, which Escape closes: **Continue with** the service in your browser where it offers one, or the token form, with **Create a token** to make one on the service's site. After a sign-in in the browser, its page says it worked only once Sikemux is signed in, or why it didn't, with **Back to Sikemux**. Sikemux keeps the sign-in in the macOS Keychain, and in your account's vault when you're signed in.
+- **Configure** opens a connected row's settings in place. **Agents can use** turns a connector off: you stay signed in, agents lose its tools, and it costs nothing until you turn it back on. The row then says **Off for agents**.
+- The row's **⋯** menu has **Re-check sign-in**, **Sign in again** and **Sign out**, which forgets it.
 
 Rundeck and SigNoz sign in with a token or a key, or switch the form to a password: a username and password for Rundeck, an email and password for SigNoz. Signing in to SigNoz with the `signoz` CLI's key leaves the key in the CLI. Rundeck's **Allow plain HTTP on a private network** lets it reach a server without HTTPS, and only while every address that server resolves to is private or loopback.
 
 An agent's SigNoz tools list each service's server errors and its 4xx client errors, count logs and traces per group, take times such as `11:00Z` for today, and say why a search of logs or traces found nothing.
 
-A few connectors keep settings that only you change, never an agent:
+A few connectors keep settings under **Configure** that only you change, never an agent:
 
 - **AWS** has no token form. Pick the profile from `~/.aws/config` to sign in with, and Sikemux opens its single sign-on in your default browser. **Profile agents start on** sets `AWS_PROFILE` for every agent, unless your own shell sets one.
 - **Rundeck** keeps **Production words**: a job whose project or top folder holds one of them counts as production, and an agent has to ask you before it runs or edits one. An agent edits parts of a job without sending the rest back, and an answer too long to show is saved whole to a file it can read. **Branch options** names the job options that say which branch a run deploys.
@@ -33,7 +33,7 @@ An agent that needs connectors you aren't signed in to puts a [sign-in card](/ag
 
 Once your computer is signed in to your Sikemux account, its connector sign-ins and saved database logins move into the account's vault. Each one is sealed with a key the accounts server is never sent, so the server keeps them for you but can't read them. Your computers trust the server's list of which computers are on your account, though: a server that lied about that list could be handed the key. The computer keeps its own copy in the Keychain, and Sikemux updates that copy whenever a sign-in changes.
 
-The first computer on your account makes the vault and shows **Account vault** at the top of **Settings → Connectors**, with a recovery key. It's shown once. Save it somewhere only you can reach: if every computer that holds the vault is lost, it's the only way back in. **I saved it** hides it. A computer that joins later gets the vault's key from one that already holds it. Until then it says it's waiting and offers a box for the recovery key.
+The first computer on your account makes the vault and shows a recovery key at the top of **Settings → Connectors**. It's shown once. Save it somewhere only you can reach: if every computer that holds the vault is lost, it's the only way back in. **I saved it** hides it. A computer that joins later gets the vault's key from one that already holds it. Until then the page says connector sync is waiting for this host, and **Open the vault** takes the recovery key. Once all is well, the vault is one quiet **Connector sync** line at the foot of the page; **Manage** opens it.
 
 When you sign a computer in, the sign-ins it already has move into the vault once. If two computers are signed in to the same account on the same service, the newer token is kept. Different accounts stay separate sign-ins.
 
@@ -43,9 +43,9 @@ Your account is the trust: a connector you sign in to on one computer is signed 
 
 Some sign-ins should never leave the computer they were made on, such as a work account on a Mac you also use for your own projects. Sikemux can't tell which those are, so you mark them.
 
-- **Keep here only**, on a connector signed in from the vault, takes its sign-in out of the vault, and it keeps working on this computer. Every other computer on your account loses its copy, so Sikemux asks first.
-- **Move into vault** stands in its place on a kept sign-in. It puts the sign-in back, and every computer on your account can use it again. Sikemux says it moved only once the vault has it.
-- **Keep new sign-ins on this host**, under **Account vault**, keeps each sign-in this computer sees for the first time out of the vault. It's off unless you turn it on, and turning it on or off later doesn't move the sign-ins you already have.
+- **Keep on this host only**, under a connector's **Configure** or its **⋯** menu, takes its sign-in out of the vault, and it keeps working on this computer. Every other computer on your account loses its copy, so Sikemux asks first. The row then says **Locked on this host**.
+- Turning it off again puts the sign-in back, and every computer on your account can use it again. Sikemux says it synced only once the vault has it.
+- **Keep new sign-ins on this host**, under **Connector sync**'s **Manage**, keeps each sign-in this computer sees for the first time out of the vault. It's off unless you turn it on, and turning it on or off later doesn't move the sign-ins you already have.
 
 The marks belong to the computer, so they stay when it signs in to another account or the vault is made again.
 

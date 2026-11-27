@@ -35,6 +35,10 @@ Each production place has a level, a word with a menu:
 
 Only your own tap changes a level, and only once the list is confirmed. A level you set says so under the place, with when and where, and **Undo** puts back the one before.
 
+Once you've confirmed the list with **Looks right**, an ask about a production change also offers **Change it, and always allow deploys there**. Agents then deploy to that place without asking, and you're told of each. It covers ordinary deploys only: a release, a tag, a forced push, a database write or any other change there still waits for your yes. A place you set this way shows its level on Places, even before the list is confirmed; set it back to **Mine** there to undo it. Setting the level on Places yourself covers every change.
+
+A change an agent makes to another project's production waits as that project's own Playbook says, not this one's.
+
 **Other places** are the ones that aren't production, such as staging, where agents deploy without asking.
 
 **Seen, not gated** lists what agents sent out that nothing could place, once each however often it ran, with how often and which agent sent it last. **Count as production** makes it a production place at **Mine**. Past 64 the list says how many more there were rather than dropping what you haven't looked at.

@@ -102,7 +102,7 @@ await emitPage(
   page(
     "CLI",
     "The sikemux command: run this host's core, open files and projects, call Sikemux's tools.",
-    `On a Mac, install the \`sikemux\` command from **Settings → Connectors → Command line**. On a server it comes with the core. \`sikemux help <command>\` explains each one.\n\n\`\`\`text\n${help}\`\`\``,
+    `On a Mac, install the \`sikemux\` command from **Settings → Developer → Command line**. On a server it comes with the core. \`sikemux help <command>\` explains each one.\n\n\`\`\`text\n${help}\`\`\``,
   ),
 );
 

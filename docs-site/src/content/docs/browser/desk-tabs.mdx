@@ -33,9 +33,23 @@ A pin stays on the page until it is answered. While the agent works on it, a das
 
 A pin says where and what to change. It tests nothing: the agent still has to drive the page to check its work.
 
+## Browser profiles
+
+A browser profile keeps its own cookies and sign-ins, so one site can be open as two accounts. Each tab opens in one, picked in this order: the profile the project pins on the [Playbook](/agents/playbook/)'s **General**, then its Space's profile, then the global default.
+
+The pill in a tab's address bar shows its profile; with only one profile it's just an icon. Click it to switch the tab, which reloads it as that profile, or to open a new tab in another from the button on that profile's row. **New profile…** opens a box asking for a name, with **Agent access** folded under it, and creates it in place: from the pill it also switches the tab. The same picker sets a Space's profile, from **Browser Profile** when you right-click the Space or in **Edit Spaces…**, and the Playbook's pin, where **Follow space** leaves it to the Space.
+
+**Settings → Browser profiles** sets the **Global default** and lists every profile. Click one to rename it, write a **Note for agents** saying what it's for, see what uses it under **Used by**, **Clear site data** or delete it. **Agent access** says when agents may use it:
+
+- **Standard**: agents pick it on their own.
+- **Ask outside project**: agents ask before using it outside its project.
+- **Manual only**: only you pick it; agents never do.
+
+Agents open tabs in the profile the project resolves to, and can name another on `browser_navigate` or `browser_drive` where its access allows.
+
 ## Tabs agents leave behind
 
-An agent goes back to its own tab on a site rather than opening another. When its turn ends, Sikemux closes the agent's tabs but the one in front and those showing a page or file from your Mac, such as artifacts; the one in front stays open until a later turn moves on from it, and closing the chat or teammate closes them all. Tabs you opened, clicked or typed in are yours: the agent can still use them, but they stay open until you close them or the agent takes one to another site. An agent holding six tabs of its own closes the one it used least recently before opening another. `⌘⌥T` opens the tab closed last on the desk in front again.
+An agent goes back to its own tab on a site rather than opening another. When its turn ends, Sikemux closes the agent's tabs but the one in front and those showing a page or file from your Mac, such as artifacts; the one in front stays open until a later turn moves on from it, and closing the chat or teammate closes them all. A finished teammate stays open while any of its tabs is still live on its desk. A teammate working in the background puts its desk beside yours without switching your tab or taking focus, so its tabs are there as soon as you open it. Tabs you opened, clicked or typed in are yours: the agent can still use them, but they stay open until you close them or the agent takes one to another site. An agent holding six tabs of its own closes the one it used least recently before opening another. `⌘⌥T` opens the tab closed last on the desk in front again.
 
 ## What tabs open
 
