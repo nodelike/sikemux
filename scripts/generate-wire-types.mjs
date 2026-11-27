@@ -115,7 +115,7 @@ const LIMITS = [
 const WAITS = [["crates/sikemux-client/src/join.rs", "APPROVAL_TIMEOUT"]];
 
 /** Addresses clients write into what they send, read from the core's own. */
-const URIS = ["AGENT_URI", "EARLIER_URI", "STASH_URI", "CHAT_DRAFT"];
+const URIS = ["AGENT_URI", "EARLIER_URI", "SKILL_URI", "STASH_URI", "CHAT_DRAFT"];
 
 const OUTPUTS = {
   ts: "shared/wire.generated.ts",

@@ -17,6 +17,7 @@ struct Typed: Hashable {
         case issues = "#"
         case pulls = "!"
         case files = "+"
+        case skills = "$"
     }
     var trigger: Trigger
     var start: Int
@@ -35,6 +36,7 @@ enum Mentions {
     static let folder = "folder:"
     static let earlier = "earlier:"
     static let tracked = "tracked:"
+    static let skill = "skill:"
     /// A picture the message carries, named where it goes in the words.
     static let image = "image:"
 
@@ -42,7 +44,7 @@ enum Mentions {
         "\(tracked)\(kind.rawValue):\(number):\(url)"
     }
 
-    private static let typedPattern = try! NSRegularExpression(pattern: "(^|\\s)([@+#!])(\\S*)$")
+    private static let typedPattern = try! NSRegularExpression(pattern: "(^|\\s)([@+#!$])(\\S*)$")
 
     /// The word at the end of `draft` that asks for something to name, unless it is a chip already.
     static func typed(_ draft: String, _ tokens: [TextToken]) -> Typed? {
@@ -144,6 +146,8 @@ enum Mentions {
                 add(ChatContext(uri: WireURIs.agentURI + id.dropFirst(agent.count), title: written, text: ""))
             } else if id.hasPrefix(earlier) {
                 add(ChatContext(uri: WireURIs.earlierURI + id.dropFirst(earlier.count), title: written, text: ""))
+            } else if id.hasPrefix(skill) {
+                add(ChatContext(uri: WireURIs.skillURI + id.dropFirst(skill.count), title: written, text: ""))
             }
         }
         return named

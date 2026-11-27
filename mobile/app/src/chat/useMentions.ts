@@ -2,7 +2,7 @@ import { EARLIER_URI } from '@shared/wire.generated';
 import { useContext, useEffect, useMemo, useState } from 'react';
 
 import { formatAge } from '@shared/lib/format';
-import type { ClosedAgent, PluginOutcome, ProjectEntry, ProjectInfo, SessionMatch, TurnState } from '@shared/wire.generated';
+import type { ClosedAgent, PluginOutcome, ProjectEntry, ProjectInfo, SessionMatch, Skill, TurnState } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem as problemOf } from '@/core/problem';
 import { connectionOf, useLiveWhile } from '@/devices/hub';
@@ -10,7 +10,7 @@ import { translate, useT } from '@/i18n';
 import type { IconName } from '@/ui/icons.generated';
 import type { ContextChip } from '@/stash/words';
 import { HostContext } from './hostFiles';
-import { AGENT, EARLIER, FILE, FOLDER, trackedId, type Trigger, type Typed } from './mentions';
+import { AGENT, EARLIER, FILE, FOLDER, SKILL, trackedId, type Trigger, type Typed } from './mentions';
 import type { ChatSession } from './session';
 
 const SHOWN = 8;
@@ -68,11 +68,19 @@ function trackedRows(items: Item[], trigger: Trigger, needle: string): Item[] {
     .slice(0, SHOWN);
 }
 
+/** The skills whose name or description holds what was typed, those whose name starts with it first. */
+function skillRows(skills: Skill[], wanted: string): Skill[] {
+  const holds = skills.filter((skill) => skill.name.toLowerCase().includes(wanted) || skill.description.toLowerCase().includes(wanted));
+  const starts = holds.filter((skill) => skill.name.toLowerCase().startsWith(wanted));
+  return [...starts, ...holds.filter((skill) => !starts.includes(skill))].slice(0, SHOWN);
+}
+
 const leaf = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 
 /**
  * What the menu over the composer offers for the word `typed` asks for: the host's other agents, closed and
- * earlier chats for `@`, the project's files and folders for `+`, its issues for `#` and pull requests for `!`.
+ * earlier chats for `@`, the project's files and folders for `+`, its issues for `#`, pull requests for `!` and the
+ * host's skills for `$`.
  */
 export function useMentions(session: ChatSession, typed: Typed | undefined): MentionMenuView | undefined {
   const core = useContext(HostContext);
@@ -130,6 +138,19 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
       current = false;
     };
   }, [trigger, needle, connection, cwd]);
+
+  const [skills, setSkills] = useState<Skill[] | { failed: string }>();
+  useEffect(() => {
+    if (trigger !== '$' || !connection || skills) return;
+    let current = true;
+    callHost(connection, 'skillsOverview', {}).then(
+      (overview) => current && setSkills(overview.skills),
+      (error: unknown) => current && setSkills({ failed: problemOf(error) }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [trigger, connection, skills]);
 
   const host = project?.codeHost?.label;
   const [tracked, setTracked] = useState<{ cwd: string; read: Tracked }>();
@@ -230,6 +251,18 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
       return { typed, rows, empty };
     }
 
+    if (typed.trigger === '$') {
+      if (skills && 'failed' in skills) return { typed, rows: [], empty: skills.failed };
+      const rows: MentionRow[] = skillRows(skills ?? [], wanted).map((skill) => ({
+        key: `${SKILL}${skill.name}`,
+        title: `$${skill.name}`,
+        detail: skill.description,
+        mark: { icon: 'IconBook' },
+        take: () => write(`$${skill.name}`, `${SKILL}${skill.name}`),
+      }));
+      return { typed, rows, empty: rows.length || !skills ? undefined : t('No skill matches') };
+    }
+
     if (!project) {
       const empty = typed.trigger === '!' ? t('Open a project to pick its pull requests') : t('Open a project to pick its issues');
       return { typed, rows: [], empty };
@@ -265,5 +298,5 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
           : t('No open issue matches')
         : undefined;
     return { typed, rows, empty };
-  }, [typed, snapshot, agents, project, cwd, closed, found, entries, tracked, session, connection, t]);
+  }, [typed, snapshot, agents, project, cwd, closed, found, entries, tracked, skills, session, connection, t]);
 }

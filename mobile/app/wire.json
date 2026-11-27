@@ -52,6 +52,7 @@
     "setRequireApproval",
     "setWorktreeDefault",
     "settleAgents",
+    "skillsOverview",
     "smartPick",
     "snoozeAgents",
     "snoozePresets",

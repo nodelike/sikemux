@@ -156,9 +156,9 @@ export function composerPlaceholder(
                 : say("Send to queue behind the running turn")
             : to
               ? to.commands && commands
-                  ? say("{words}, or type / for commands", { words: to.words })
+                  ? say("{words}, / for commands, $ for skills", { words: to.words })
                   : to.words
               : commands
-                ? say("Ask about this project, or type / for commands")
+                ? say("Ask about this project, / for commands, $ for skills")
                 : say("Ask about this project");
 }

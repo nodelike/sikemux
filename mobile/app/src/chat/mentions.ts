@@ -1,18 +1,18 @@
-import { AGENT_URI, EARLIER_URI } from '@shared/wire.generated';
+import { AGENT_URI, EARLIER_URI, SKILL_URI } from '@shared/wire.generated';
 import type { ContextChip } from '@/stash/words';
 
 /**
  * A chip the draft holds, over the text it wrote, as every app keeps it: `agent:<id>`, `file:<path>`,
- * `folder:<path>`, `earlier:<cli>/<session>` or `tracked:<kind>:<number>:<url>`.
+ * `folder:<path>`, `earlier:<cli>/<session>`, `skill:<name>` or `tracked:<kind>:<number>:<url>`.
  */
 export type DraftToken = { start: number; end: number; id: string; label?: string };
 
-export type Trigger = '@' | '+' | '#' | '!';
+export type Trigger = '@' | '+' | '#' | '!' | '$';
 
 /** A word that asks for something to name, and where it starts. */
 export type Typed = { trigger: Trigger; start: number; needle: string };
 
-const TYPED = /(^|\s)([@+#!])(\S*)$/;
+const TYPED = /(^|\s)([@+#!$])(\S*)$/;
 
 /** The word at the end of `draft` that asks for something to name, unless it is a chip already. */
 export function typedMention(draft: string, tokens: readonly DraftToken[]): Typed | undefined {
@@ -27,6 +27,7 @@ export const AGENT = 'agent:';
 export const FILE = 'file:';
 export const FOLDER = 'folder:';
 export const EARLIER = 'earlier:';
+export const SKILL = 'skill:';
 export const TRACKED = 'tracked:';
 
 export const trackedId = (kind: string, number: number, url: string) => `${TRACKED}${kind}:${number}:${url}`;
@@ -116,7 +117,7 @@ export function trackedOf(kept: unknown): Record<string, ContextChip> {
   );
 }
 
-/** What the chips in `text` send besides its words: the files they name, and the agents, chats and issues for the host to read. */
+/** What the chips in `text` send besides its words: the files they name, and the agents, chats, skills and issues for the host to read. */
 export function outgoing(text: string, tokens: readonly DraftToken[], tracked: Readonly<Record<string, ContextChip>>) {
   const paths: string[] = [];
   const context: ContextChip[] = [];
@@ -135,6 +136,7 @@ export function outgoing(text: string, tokens: readonly DraftToken[], tracked: R
       if (!paths.includes(path)) paths.push(path);
     } else if (token.id.startsWith(AGENT)) add({ uri: `${AGENT_URI}${token.id.slice(AGENT.length)}`, title: written, text: '' });
     else if (token.id.startsWith(EARLIER)) add({ uri: `${EARLIER_URI}${token.id.slice(EARLIER.length)}`, title: written, text: '' });
+    else if (token.id.startsWith(SKILL)) add({ uri: `${SKILL_URI}${token.id.slice(SKILL.length)}`, title: written, text: '' });
   }
   return { paths, context };
 }

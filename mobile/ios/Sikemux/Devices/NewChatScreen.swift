@@ -39,7 +39,7 @@ private struct NewChatContent: View {
         let since: Date
     }
 
-    private static let idle = String(localized: "Ask about this project, or type / for commands")
+    private static let idle = String(localized: "Ask about this project, / for commands, $ for skills")
 
     @Environment(\.palette) private var palette
     let core: String

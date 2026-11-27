@@ -52,6 +52,7 @@ final class MentionSearch {
     private var found: (query: String, list: [SessionMatch])?
     private var entries: (query: String, list: [ProjectEntry]?, failed: String?)?
     private var tracked: (cwd: String, listed: Listed)?
+    private var skills: (list: [Skill], failed: String?)?
     @ObservationIgnored private var asked: (trigger: Typed.Trigger, needle: String, cwd: String?)?
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
 
@@ -71,9 +72,21 @@ final class MentionSearch {
         let cwd = project?.path
         if let asked, asked.trigger == typed.trigger, asked.needle == typed.needle, asked.cwd == cwd { return }
         asked = (typed.trigger, typed.needle, cwd)
-        guard let cwd else { return }
-        switch typed.trigger {
-        case .agents:
+        switch (typed.trigger, cwd) {
+        case (.skills, _):
+            if skills == nil {
+                run("skills") {
+                    do {
+                        let overview = try await connection.call(PhoneCall.SkillsOverview.self, NoParams())
+                        self.skills = (overview.skills, nil)
+                    } catch {
+                        self.skills = ([], problem(error))
+                    }
+                }
+            }
+        case (_, nil):
+            return
+        case (.agents, let cwd?):
             if closed?.cwd != cwd {
                 run("closed") {
                     do {
@@ -101,7 +114,7 @@ final class MentionSearch {
                     if !Task.isCancelled { self.found = (query, []) }
                 }
             }
-        case .files:
+        case (.files, let cwd?):
             let needle = typed.needle
             run("entries") {
                 do {
@@ -113,7 +126,7 @@ final class MentionSearch {
                     if !Task.isCancelled { self.entries = (needle, nil, problem(error)) }
                 }
             }
-        case .issues, .pulls:
+        case (.issues, let cwd?), (.pulls, let cwd?):
             guard let host = project?.codeHost?.label, tracked?.cwd != cwd else { return }
             run("tracked") {
                 do {
@@ -162,6 +175,24 @@ final class MentionSearch {
         let cwd = project?.path
 
         switch typed.trigger {
+        case .skills:
+            guard let skills else { return ([], nil) }
+            if let failed = skills.failed { return ([], failed) }
+            let all = skills.list
+            let first = all.filter { $0.name.lowercased().hasPrefix(wanted) }
+            let rest = all.filter {
+                !$0.name.lowercased().hasPrefix(wanted)
+                    && ($0.name.lowercased().contains(wanted) || $0.description.lowercased().contains(wanted))
+            }
+            let rows: [MentionRow] = (first + rest).prefix(Self.shown).map { skill in
+                MentionRow(
+                    id: "\(Mentions.skill)\(skill.name)", title: "$\(skill.name)", detail: skill.description,
+                    mark: .icon(Icons.book),
+                    take: { write("$\(skill.name)", "\(Mentions.skill)\(skill.name)", nil, nil) }
+                )
+            }
+            return (rows, rows.isEmpty ? String(localized: "No skill matches") : nil)
+
         case .agents:
             let agents = view.workspace.agents ?? []
             let turns = Dictionary(view.inbox.agents.map { ($0.agentId, $0.turn) }, uniquingKeysWith: { a, _ in a })
@@ -302,7 +333,7 @@ final class MentionSearch {
     }
 }
 
-/// The menu above the composer while its last word starts with `@`, `+`, `#` or `!`, under the kinds of thing it
+/// The menu above the composer while its last word starts with `@`, `$`, `+`, `#` or `!`, under the kinds of thing it
 /// names; a tap on a kind asks for that instead, and a tap on a row writes it into the draft.
 struct MentionMenu: View {
     @Environment(\.palette) private var palette
@@ -312,7 +343,7 @@ struct MentionMenu: View {
     let onScope: (Typed.Trigger) -> Void
 
     private static let scopes: [(Typed.Trigger, String)] = [
-        (.agents, "Agents"), (.issues, "Issues"), (.pulls, "Pull requests"), (.files, "Files"),
+        (.agents, "Agents"), (.skills, "Skills"), (.issues, "Issues"), (.pulls, "Pull requests"), (.files, "Files"),
     ]
 
     var body: some View {

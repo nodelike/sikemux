@@ -50,11 +50,11 @@ struct ChatBottom: View {
         }
         if let to = to(rows) {
             return to.commands && !rows.commands.isEmpty
-                ? String(localized: "\(to.words), or type / for commands") : to.words
+                ? String(localized: "\(to.words), / for commands, $ for skills") : to.words
         }
         return rows.commands.isEmpty
             ? String(localized: "Ask about this project")
-            : String(localized: "Ask about this project, or type / for commands")
+            : String(localized: "Ask about this project, / for commands, $ for skills")
     }
 
     /// Who an idle chat's words go to, as the Mac says it: the chief in its own chat, a worker by name while the

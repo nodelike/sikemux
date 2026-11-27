@@ -12,6 +12,7 @@ import type { MentionMark, MentionMenuView } from './useMentions';
 
 const SCOPES: [Trigger, string][] = [
   ['@', 'Agents'],
+  ['$', 'Skills'],
   ['#', 'Issues'],
   ['!', 'Pull requests'],
   ['+', 'Files'],
