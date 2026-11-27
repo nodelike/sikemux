@@ -62,9 +62,29 @@ pub(super) fn parse_gh_aliases(text: &str) -> Vec<(String, String)> {
     {
         return parse_inline_map(inline);
     }
+    parse_yaml_map(&lines, start + 1, true)
+}
+
+fn parse_imported_gh_aliases(text: &str) -> Vec<(String, String)> {
+    let nested = parse_gh_aliases(text);
+    if !nested.is_empty() {
+        return nested;
+    }
+    let trimmed = text.trim();
+    if let Some(inline) = trimmed
+        .strip_prefix('{')
+        .and_then(|rest| rest.strip_suffix('}'))
+    {
+        return parse_inline_map(inline);
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    parse_yaml_map(&lines, 0, false)
+}
+
+fn parse_yaml_map(lines: &[&str], start: usize, require_indent: bool) -> Vec<(String, String)> {
     let mut aliases = Vec::new();
     let mut entry_indent: Option<usize> = None;
-    let mut at = start + 1;
+    let mut at = start;
     while let Some(&line) = lines.get(at) {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -72,10 +92,13 @@ pub(super) fn parse_gh_aliases(text: &str) -> Vec<(String, String)> {
             continue;
         }
         let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
-        if indent == 0 {
+        if require_indent && indent == 0 {
             break;
         }
         let base = *entry_indent.get_or_insert(indent);
+        if indent < base {
+            break;
+        }
         if indent != base {
             at += 1;
             continue;
@@ -258,7 +281,7 @@ fn upsert(aliases: &mut Vec<(String, String)>, key: String, value: String) {
     }
 }
 
-pub(super) fn record_gh_alias(words: &[String], aliases: &mut Vec<(String, String)>) {
+pub(super) fn record_gh_alias(words: &[String], cwd: &Path, aliases: &mut Vec<(String, String)>) {
     let Some((program, args)) = words.split_first() else {
         return;
     };
@@ -289,6 +312,18 @@ pub(super) fn record_gh_alias(words: &[String], aliases: &mut Vec<(String, Strin
         [first, sub, rest @ ..] if first == "alias" && sub == "delete" => {
             if let Some(name) = rest.iter().find(|word| !word.starts_with('-')) {
                 aliases.retain(|(key, _)| key != name);
+            }
+        }
+        [first, sub, rest @ ..] if first == "alias" && sub == "import" => {
+            if let Some(file) = rest
+                .iter()
+                .find(|word| !word.starts_with('-') && word.as_str() != "-")
+            {
+                if let Ok(text) = std::fs::read_to_string(cwd.join(file)) {
+                    for (key, value) in parse_imported_gh_aliases(&text) {
+                        upsert(aliases, key, value);
+                    }
+                }
             }
         }
         _ => {}
@@ -322,12 +357,83 @@ pub(super) fn record_git_alias(words: &[String], aliases: &mut Vec<(String, Stri
         }
         positional.push(word.as_str());
     }
-    if let [key, value] = positional.as_slice() {
-        if let Some((prefix, name)) = key.split_once('.') {
-            if prefix.eq_ignore_ascii_case("alias") && !name.is_empty() {
-                upsert(aliases, name.to_ascii_lowercase(), (*value).to_owned());
+    match positional.as_slice() {
+        ["unset", key] => {
+            if let Some((prefix, name)) = key.split_once('.') {
+                if prefix.eq_ignore_ascii_case("alias") && !name.is_empty() {
+                    aliases.retain(|(kept, _)| !kept.eq_ignore_ascii_case(name));
+                }
             }
         }
+        [key, value] | ["set", key, value] => {
+            if let Some((prefix, name)) = key.split_once('.') {
+                if prefix.eq_ignore_ascii_case("alias") && !name.is_empty() {
+                    upsert(aliases, name.to_ascii_lowercase(), (*value).to_owned());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+const GH_COMMANDS: &[&str] = &[
+    "alias",
+    "api",
+    "attestation",
+    "auth",
+    "browse",
+    "cache",
+    "codespace",
+    "completion",
+    "config",
+    "copilot",
+    "extension",
+    "gist",
+    "gpg-key",
+    "issue",
+    "label",
+    "org",
+    "pr",
+    "preview",
+    "project",
+    "release",
+    "repo",
+    "ruleset",
+    "run",
+    "search",
+    "secret",
+    "ssh-key",
+    "status",
+    "variable",
+    "workflow",
+];
+
+fn shadows_gh_builtin(parts: &[String]) -> bool {
+    match parts {
+        [single] => GH_COMMANDS.contains(&single.as_str()),
+        [first, second] => matches!(
+            (first.as_str(), second.as_str()),
+            (
+                "pr",
+                "merge" | "create" | "edit" | "close" | "reopen" | "review" | "ready"
+            ) | ("workflow", "run" | "enable" | "disable")
+                | ("run", "rerun" | "cancel" | "delete")
+                | (
+                    "release",
+                    "create"
+                        | "edit"
+                        | "upload"
+                        | "delete"
+                        | "delete-asset"
+                        | "list"
+                        | "view"
+                        | "download"
+                        | "verify"
+                        | "verify-asset"
+                )
+                | ("alias", "set" | "delete" | "import" | "list")
+        ),
+        _ => false,
     }
 }
 
@@ -359,7 +465,11 @@ pub(super) fn expand_gh(args: &[String], aliases: &[(String, String)]) -> Option
         .take_while(|word| !word.starts_with('-'))
         .count();
     let (matched_len, expansion) = (1..=command_len).rev().find_map(|len| {
-        let candidate = rest.get(..len)?.join(" ");
+        let slice = rest.get(..len)?;
+        if shadows_gh_builtin(slice) {
+            return None;
+        }
+        let candidate = slice.join(" ");
         aliases
             .iter()
             .rev()
@@ -380,6 +490,7 @@ pub(super) fn expand_gh(args: &[String], aliases: &[(String, String)]) -> Option
 pub(super) fn expand_git(
     args: &[String],
     line_aliases: &[(String, String)],
+    env: &dyn Fn(&str) -> Option<String>,
     lookup: &dyn Fn(&[String], &str) -> Option<String>,
 ) -> Option<Expanded> {
     if super::git_global_help(args) {
@@ -394,7 +505,8 @@ pub(super) fn expand_git(
         return None;
     }
     let global = args.get(..args.len() - sub.len()).unwrap_or_default();
-    let stands_for = inline_git_alias(global, command)
+    let stands_for = inline_git_alias(global, command, env)
+        .or_else(|| env_git_alias(env, command))
         .or_else(|| {
             line_aliases
                 .iter()
@@ -436,10 +548,37 @@ pub(super) fn git_run_dir(args: &[String], cwd: &Path) -> PathBuf {
     dir
 }
 
-fn inline_git_alias(global: &[String], name: &str) -> Option<String> {
+fn inline_git_alias(
+    global: &[String],
+    name: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Option<String> {
     let mut found = None;
     let mut at = 0;
     while let Some(word) = global.get(at) {
+        if let Some(pair) = word.strip_prefix("--config-env=") {
+            at += 1;
+            if let Some((key, var)) = pair.split_once('=') {
+                if alias_key_matches(key, name) {
+                    if let Some(value) = env(var) {
+                        found = Some(value);
+                    }
+                }
+            }
+            continue;
+        }
+        if word == "--config-env" {
+            at += 1;
+            if let Some((key, var)) = global.get(at).and_then(|pair| pair.split_once('=')) {
+                if alias_key_matches(key, name) {
+                    if let Some(value) = env(var) {
+                        found = Some(value);
+                    }
+                }
+            }
+            at += 1;
+            continue;
+        }
         let pair = if word == "-c" {
             at += 1;
             global.get(at).map(String::as_str)
@@ -448,38 +587,58 @@ fn inline_git_alias(global: &[String], name: &str) -> Option<String> {
         };
         at += 1;
         if let Some((key, value)) = pair.and_then(|pair| pair.split_once('=')) {
-            if let Some((prefix, alias)) = key.split_once('.') {
-                if prefix.eq_ignore_ascii_case("alias") && alias.eq_ignore_ascii_case(name) {
-                    found = Some(value.to_owned());
-                }
+            if alias_key_matches(key, name) {
+                found = Some(value.to_owned());
             }
         }
     }
     found
 }
 
+fn env_git_alias(env: &dyn Fn(&str) -> Option<String>, name: &str) -> Option<String> {
+    let count: usize = env("GIT_CONFIG_COUNT")?.trim().parse().ok()?;
+    let mut found = None;
+    for i in 0..count.min(128) {
+        let Some(key) = env(&format!("GIT_CONFIG_KEY_{i}")) else {
+            continue;
+        };
+        if alias_key_matches(&key, name) {
+            if let Some(value) = env(&format!("GIT_CONFIG_VALUE_{i}")) {
+                found = Some(value);
+            }
+        }
+    }
+    found
+}
+
+fn alias_key_matches(key: &str, name: &str) -> bool {
+    key.split_once('.').is_some_and(|(prefix, alias)| {
+        prefix.eq_ignore_ascii_case("alias") && alias.eq_ignore_ascii_case(name)
+    })
+}
+
 fn strip_inline_alias(global: &[String], name: &str) -> Vec<String> {
     let matches_alias = |pair: &str| {
-        pair.split_once('=').is_some_and(|(key, _)| {
-            key.split_once('.').is_some_and(|(prefix, alias)| {
-                prefix.eq_ignore_ascii_case("alias") && alias.eq_ignore_ascii_case(name)
-            })
-        })
+        pair.split_once('=')
+            .is_some_and(|(key, _)| alias_key_matches(key, name))
     };
     let mut out = Vec::with_capacity(global.len());
     let mut at = 0;
     while let Some(word) = global.get(at) {
-        if word == "-c" {
+        if let Some(pair) = word
+            .strip_prefix("--config-env=")
+            .or_else(|| word.strip_prefix("-c").filter(|rest| !rest.is_empty()))
+        {
+            if matches_alias(pair) {
+                at += 1;
+                continue;
+            }
+        } else if matches!(word.as_str(), "--config-env" | "-c") {
             if let Some(pair) = global.get(at + 1) {
                 if matches_alias(pair) {
                     at += 2;
                     continue;
                 }
-            }
-        } else if let Some(pair) = word.strip_prefix("-c").filter(|rest| !rest.is_empty()) {
-            if matches_alias(pair) {
-                at += 1;
-                continue;
             }
         }
         out.push(word.clone());

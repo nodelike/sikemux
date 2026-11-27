@@ -3074,6 +3074,7 @@ fn of_command_at(
     }
     let mut folder = Folder::new(cwd);
     let mut selected: Vec<String> = Vec::new();
+    let mut selected_vars: Vec<(String, String)> = Vec::new();
     let mut shim_bypassed = false;
     let mut ships = Vec::new();
     let mut line_gh_aliases: Vec<(String, String)> = Vec::new();
@@ -3094,14 +3095,21 @@ fn of_command_at(
             shim_bypassed = true;
         }
         if selects(&all) {
+            for word in &all {
+                if !word.starts_with('-') {
+                    if let Some((k, v)) = word.split_once('=') {
+                        if !k.is_empty() {
+                            selected_vars.push((k.to_owned(), v.to_owned()));
+                        }
+                    }
+                }
+            }
             selected.push(all.join(" "));
             continue;
         }
         let set_on_line = |name: &str| {
-            (selected.iter().rev())
-                .flat_map(|said| said.split_whitespace())
-                .find_map(|word| word.strip_prefix(name)?.strip_prefix('='))
-                .map(str::to_owned)
+            (selected_vars.iter().rev())
+                .find_map(|(k, v)| (k == name).then(|| v.clone()))
                 .or_else(|| env(name))
         };
         if folder.moves(&all, &set_on_line) {
@@ -3142,7 +3150,8 @@ fn of_command_at(
                 ));
                 break;
             }
-            alias::record_gh_alias(candidate, &mut line_gh_aliases);
+            let run_cwd = here.as_deref().unwrap_or(cwd);
+            alias::record_gh_alias(candidate, run_cwd, &mut line_gh_aliases);
             alias::record_git_alias(candidate, &mut line_git_aliases);
             let Some((program, raw_args)) = candidate.split_first() else {
                 continue;
@@ -3151,12 +3160,14 @@ fn of_command_at(
                 let said = (set_before.iter())
                     .filter_map(|word| word.strip_prefix(name)?.strip_prefix('='))
                     .next_back();
-                said.map(str::to_owned).or_else(|| env(name))
+                said.map(str::to_owned).or_else(|| set_on_line(name))
             };
-            let run_cwd = here.as_deref().unwrap_or(cwd);
             let mut expanded_words: Option<Vec<String>> = None;
             let mut expanded_shell: Option<(String, PathBuf)> = None;
-            if depth < MAX_ALIAS_DEPTH && base_name(program) == "gh" {
+            if depth < MAX_ALIAS_DEPTH
+                && base_name(program) == "gh"
+                && of_program("gh", raw_args, run_cwd, &|_| None).is_none()
+            {
                 let mut aliases = alias::gh_aliases_from_config(&set);
                 aliases.extend(line_gh_aliases.iter().cloned());
                 match alias::expand_gh(raw_args, &aliases) {
@@ -3171,18 +3182,39 @@ fn of_command_at(
                     }
                     None => {}
                 }
-            } else if depth < MAX_ALIAS_DEPTH && base_name(program) == "git" {
+            } else if depth < MAX_ALIAS_DEPTH
+                && base_name(program) == "git"
+                && of_program("git", raw_args, run_cwd, &|_| None).is_none()
+            {
                 let git_lookup = |global: &[String], name: &str| {
                     let dir = alias::git_run_dir(global, run_cwd);
                     if !dir.is_dir() {
                         return None;
                     }
-                    let mut cmd: Vec<&str> = global.iter().map(String::as_str).collect();
+                    let mut cmd = crate::git::git_command(&dir);
+                    for (k, v) in &selected_vars {
+                        cmd.env(k, v);
+                    }
+                    for word in set_before {
+                        if !word.starts_with('-') {
+                            if let Some((k, v)) = word.split_once('=') {
+                                if !k.is_empty() {
+                                    cmd.env(k, v);
+                                }
+                            }
+                        }
+                    }
                     let key = format!("alias.{name}");
-                    cmd.extend(["config", "--get", key.as_str()]);
-                    crate::git::Git::quick(&dir).trimmed(&cmd).ok()
+                    cmd.args(global).args(["config", "--get", key.as_str()]);
+                    let out = cmd.output().ok()?;
+                    if !out.status.success() {
+                        return None;
+                    }
+                    let text = String::from_utf8(out.stdout).ok()?;
+                    let trimmed = text.trim();
+                    (!trimmed.is_empty()).then(|| trimmed.to_owned())
                 };
-                match alias::expand_git(raw_args, &line_git_aliases, &git_lookup) {
+                match alias::expand_git(raw_args, &line_git_aliases, &set, &git_lookup) {
                     Some(alias::Expanded::Shell(script)) => {
                         let dir = alias::git_run_dir(raw_args, run_cwd);
                         expanded_shell = Some((script, dir));
@@ -3491,7 +3523,8 @@ fn of_invocations_at(
     cwd: &Path,
     depth: u8,
 ) -> Vec<Ship> {
-    if depth < MAX_ALIAS_DEPTH && program_name(program) == "gh" {
+    let direct = of_program(program, args, cwd, &|_| None);
+    if direct.is_none() && depth < MAX_ALIAS_DEPTH && program_name(program) == "gh" {
         let aliases = alias::gh_aliases_from_config(env);
         match alias::expand_gh(args, &aliases) {
             Some(alias::Expanded::Shell(script)) => {
@@ -3503,7 +3536,7 @@ fn of_invocations_at(
             None => {}
         }
     }
-    let Some(kind) = of_program(program, args, cwd, &|_| None) else {
+    let Some(kind) = direct else {
         return Vec::new();
     };
     let target = target_of(program, args, env, cwd);
@@ -3539,8 +3572,9 @@ fn of_git_invocation_at(
     lookup: &dyn Fn(&[String], &str) -> Option<String>,
     depth: u8,
 ) -> Vec<Ship> {
-    if depth < MAX_ALIAS_DEPTH {
-        match alias::expand_git(args, &[], lookup) {
+    let direct = of_program("git", args, cwd, &|_| None);
+    if direct.is_none() && depth < MAX_ALIAS_DEPTH {
+        match alias::expand_git(args, &[], env, lookup) {
             Some(alias::Expanded::Shell(script)) => {
                 let dir = alias::git_run_dir(args, cwd);
                 return of_command_at(&script, &[], Looks::Every, &dir, env, depth + 1);
@@ -3551,7 +3585,7 @@ fn of_git_invocation_at(
             None => {}
         }
     }
-    let Some(kind) = of_program("git", args, cwd, &|_| None) else {
+    let Some(kind) = direct else {
         return Vec::new();
     };
     vec![Ship {
@@ -3687,6 +3721,7 @@ const GIT_COMMANDS: &[&str] = &[
     "diff-index",
     "diff-tree",
     "fetch",
+    "filter-branch",
     "for-each-ref",
     "format-patch",
     "fsck",
@@ -3694,29 +3729,36 @@ const GIT_COMMANDS: &[&str] = &[
     "grep",
     "hash-object",
     "help",
+    "http-push",
     "init",
     "log",
     "ls-files",
     "ls-remote",
     "ls-tree",
+    "maintenance",
     "merge",
     "merge-base",
     "mv",
     "name-rev",
     "notes",
+    "prune",
     "pull",
     "push",
     "range-diff",
     "read-tree",
     "rebase",
+    "receive-pack",
     "reflog",
     "remote",
+    "repack",
+    "replace",
     "reset",
     "restore",
     "rev-list",
     "rev-parse",
     "revert",
     "rm",
+    "send-pack",
     "shortlog",
     "show",
     "show-ref",
@@ -3724,11 +3766,13 @@ const GIT_COMMANDS: &[&str] = &[
     "stash",
     "status",
     "submodule",
+    "subtree",
     "switch",
     "symbolic-ref",
     "tag",
     "update-index",
     "update-ref",
+    "upload-pack",
     "var",
     "version",
     "worktree",
