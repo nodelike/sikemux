@@ -394,6 +394,9 @@ pub(super) async fn run(
                     .await?;
                 (reply, None)
             };
+            if let Some(bundle) = reply.get("bundleId").and_then(Value::as_str) {
+                manager.forget_launch(agent_id, bundle);
+            }
             if !is_android(&device.udid) {
                 let (udid, app, bundle_id) = (
                     device.udid.clone(),

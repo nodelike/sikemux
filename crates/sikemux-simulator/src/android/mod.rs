@@ -27,6 +27,8 @@ const DEVICE_JAR: &str = "/data/local/tmp/sikemux-device.jar";
 const VIRTUAL: &str = "avd:";
 const PLUGGED: &str = "adb:";
 const BOOT_POLL: Duration = Duration::from_secs(1);
+const PACKAGE_SETTLE_TRIES: usize = 8;
+const PACKAGE_SETTLE_STEP: Duration = Duration::from_millis(150);
 const SWIPE_STEP: f64 = 1.0 / 60.0;
 
 /// Whether `udid` names an Android device rather than an iOS simulator.
@@ -433,6 +435,7 @@ impl Android {
                 let serial = self.serial(&udid).await?;
                 self.forget(&serial);
                 if serial.starts_with("emulator-") {
+                    self.flush_emulator_disk(&serial).await;
                     self.adb(&["-s", &serial, "emu", "kill"], Duration::from_secs(30))
                         .await?;
                 }
@@ -676,39 +679,117 @@ impl Android {
         orientation_name(rotation).to_owned()
     }
 
+    async fn run_install(&self, args: &[&str]) -> SimResult<String> {
+        let output = self.adb(args, Duration::from_secs(180)).await?;
+        if output.contains("Failure") {
+            return Err(output.trim().to_owned());
+        }
+        Ok(output)
+    }
+
+    async fn package_installed(&self, serial: &str, package: &str) -> bool {
+        self.shell(serial, &format!("pm path {}", quoted(package)))
+            .await
+            .is_ok_and(|out| out.contains("package:"))
+    }
+
+    async fn wait_for_package(&self, serial: &str, package: &str) -> bool {
+        if self.package_installed(serial, package).await {
+            return true;
+        }
+        for _ in 0..PACKAGE_SETTLE_TRIES {
+            tokio::time::sleep(PACKAGE_SETTLE_STEP).await;
+            if self.package_installed(serial, package).await {
+                return true;
+            }
+        }
+        false
+    }
+
+    async fn flush_emulator_disk(&self, serial: &str) {
+        if serial.starts_with("emulator-") {
+            let _ = self
+                .adb(&["-s", serial, "shell", "sync"], Duration::from_secs(5))
+                .await;
+        }
+    }
+
+    async fn finish_install(
+        &self,
+        serial: &str,
+        path: &str,
+        answer: String,
+        package: Option<String>,
+        allow_clean_reinstall: bool,
+    ) -> SimResult<Value> {
+        let Some(package) = package else {
+            self.flush_emulator_disk(serial).await;
+            return Ok(json!({ "installed": answer.trim(), "bundleId": Value::Null }));
+        };
+        self.pids
+            .locked()
+            .remove(&(serial.to_owned(), package.clone()));
+        if self.wait_for_package(serial, &package).await {
+            self.flush_emulator_disk(serial).await;
+            return Ok(json!({ "installed": answer.trim(), "bundleId": package }));
+        }
+        if !allow_clean_reinstall {
+            return Err(format!(
+                "adb install reported success, but {package} is still not installed on the device"
+            ));
+        }
+        let _ = self
+            .adb(
+                &["-s", serial, "uninstall", &package],
+                Duration::from_secs(60),
+            )
+            .await;
+        let fresh = self
+            .run_install(&["-s", serial, "install", "--no-streaming", "-t", "-g", path])
+            .await?;
+        if !self.wait_for_package(serial, &package).await {
+            return Err(format!(
+                "adb install reported success, but {package} is still not installed on the device after clean reinstall"
+            ));
+        }
+        self.flush_emulator_disk(serial).await;
+        Ok(json!({
+            "installed": fresh.trim(),
+            "bundleId": package,
+            "reinstalled": true,
+            "note": format!(
+                "Overwrite install reported success, but {package} was missing from PackageManager; uninstalled any leftover state and reinstalled cleanly."
+            ),
+        }))
+    }
+
     async fn install(&self, serial: &str, path: &str) -> SimResult<Value> {
         if !path.ends_with(".apk") {
             return Err("give an .apk, such as the one ./gradlew assembleDebug builds into app/build/outputs/apk/debug; an .aab is for the Play Store and cannot be installed directly".into());
         }
         let overwrite = self
-            .adb(
-                &["-s", serial, "install", "-r", "-t", "-g", path],
-                Duration::from_secs(180),
-            )
+            .run_install(&["-s", serial, "install", "-r", "-t", "-g", path])
             .await;
         match overwrite {
             Ok(answer) => {
                 let package = apk_package(self.sdk().as_deref(), path).await;
-                Ok(json!({ "installed": answer.trim(), "bundleId": package }))
+                self.finish_install(serial, path, answer, package, true)
+                    .await
             }
             Err(error) if is_insufficient_storage(&error) => {
                 let _ = self.shell(serial, "pm trim-caches 1G").await;
                 if let Ok(answer) = self
-                    .adb(
-                        &["-s", serial, "install", "-r", "-t", "-g", path],
-                        Duration::from_secs(180),
-                    )
+                    .run_install(&["-s", serial, "install", "-r", "-t", "-g", path])
                     .await
                 {
                     let package = apk_package(self.sdk().as_deref(), path).await;
-                    return Ok(json!({ "installed": answer.trim(), "bundleId": package }));
+                    return self
+                        .finish_install(serial, path, answer, package, true)
+                        .await;
                 }
                 let package = apk_package(self.sdk().as_deref(), path).await;
                 let installed = match package.as_deref() {
-                    Some(package) => self
-                        .shell(serial, &format!("pm path {}", quoted(package)))
-                        .await
-                        .is_ok_and(|out| out.contains("package:")),
+                    Some(package) => self.package_installed(serial, package).await,
                     None => false,
                 };
                 if let Some(package) = package.filter(|_| installed) {
@@ -721,12 +802,15 @@ impl Android {
                         .locked()
                         .remove(&(serial.to_owned(), package.clone()));
                     let answer = self
-                        .adb(
-                            &["-s", serial, "install", "-t", "-g", path],
-                            Duration::from_secs(180),
-                        )
+                        .run_install(&["-s", serial, "install", "-t", "-g", path])
                         .await
                         .map_err(|fresh| insufficient_storage_error(&fresh))?;
+                    if !self.wait_for_package(serial, &package).await {
+                        return Err(format!(
+                            "adb install reported success, but {package} is still not installed on the device"
+                        ));
+                    }
+                    self.flush_emulator_disk(serial).await;
                     return Ok(json!({
                         "installed": answer.trim(),
                         "bundleId": package,
@@ -742,22 +826,52 @@ impl Android {
         }
     }
 
+    async fn resolve_launcher_activity(
+        &self,
+        serial: &str,
+        package: &str,
+    ) -> SimResult<Option<String>> {
+        let resolved = self
+            .shell(
+                serial,
+                &format!(
+                    "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER {}",
+                    quoted(package)
+                ),
+            )
+            .await?;
+        Ok(resolved
+            .lines()
+            .last()
+            .map(str::trim)
+            .filter(|line| line.contains('/'))
+            .map(str::to_owned))
+    }
+
     async fn launch(
         &self,
         serial: &str,
         package: &str,
         arguments: Option<&Value>,
     ) -> SimResult<Value> {
-        let resolved = self
-            .shell(serial, &format!("cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER {}", quoted(package)))
-            .await?;
-        let activity = resolved
-            .lines()
-            .last()
-            .map(str::trim)
-            .filter(|line| line.contains('/'))
-            .ok_or_else(|| format!("{package} is not installed, or has no screen to open; sim install its .apk first"))?
-            .to_owned();
+        let mut activity = self.resolve_launcher_activity(serial, package).await?;
+        if activity.is_none() {
+            if !self.package_installed(serial, package).await {
+                return Err(format!(
+                    "{package} is not installed; sim install its .apk first"
+                ));
+            }
+            for _ in 0..PACKAGE_SETTLE_TRIES {
+                tokio::time::sleep(PACKAGE_SETTLE_STEP).await;
+                activity = self.resolve_launcher_activity(serial, package).await?;
+                if activity.is_some() {
+                    break;
+                }
+            }
+        }
+        let activity = activity.ok_or_else(|| {
+            format!("{package} is installed, but has no launcher activity to open")
+        })?;
         let previous = self.pids_of(serial, package).await;
         self.pids
             .locked()
@@ -1636,6 +1750,227 @@ esac
                 .contains("uninstall com.example.stale"),
             "{}",
             std::fs::read_to_string(&log).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn install_verifies_package_presence_and_reinstalls_when_overwrite_drops_package() {
+        let log_dir = tempfile::tempdir().unwrap();
+        let log = log_dir.path().join("adb.log");
+        let mode = log_dir.path().join("mode");
+        let checks = log_dir.path().join("checks");
+        let script = format!(
+            r#"#!/bin/sh
+printf '%s\n' "$*" >> '{log}'
+if [ "$1" = "-s" ]; then shift 2; fi
+case "$1" in
+  get-state) echo "device" ;;
+  shell)
+    shift
+    case "$*" in
+      *"pm path"*)
+        m=$(cat '{mode}')
+        case "$m" in
+          settle)
+            c=$(cat '{checks}')
+            c=$((c + 1))
+            printf '%s' "$c" > '{checks}'
+            if [ "$c" -ge 3 ]; then
+              echo "package:/data/app/com.swishx.academy/base.apk"
+            else
+              exit 1
+            fi
+            ;;
+          present) echo "package:/data/app/com.swishx.academy/base.apk" ;;
+          *) exit 1 ;;
+        esac
+        ;;
+      sync) ;;
+    esac
+    ;;
+  uninstall)
+    echo "Success"
+    ;;
+  install)
+    m=$(cat '{mode}')
+    if [ "$m" = "failure-exit-zero" ]; then
+      echo "Performing Streamed Install"
+      echo "Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE]"
+      exit 0
+    fi
+    case "$*" in
+      *"--no-streaming"*)
+        if [ "$m" = "drop-then-recover" ]; then
+          printf 'present' > '{mode}'
+        fi
+        ;;
+    esac
+    echo "Performing Streamed Install"
+    echo "Success"
+    ;;
+esac
+"#,
+            log = log.display(),
+            mode = mode.display(),
+            checks = checks.display(),
+        );
+        let (_sdk, android) = fake_sdk(&script);
+
+        // Case A: transient PackageManager lag after overwrite install settles without reinstalling.
+        std::fs::write(&mode, "settle").unwrap();
+        std::fs::write(&checks, "0").unwrap();
+        let settled = android
+            .request(
+                "install",
+                fields(json!({ "udid": "adb:pixel", "path": "/tmp/app-release.apk" })),
+                Duration::from_secs(10),
+            )
+            .await
+            .expect("should settle once pm path appears");
+        assert_eq!(settled["bundleId"], json!("com.swishx.academy"));
+        assert!(settled.get("reinstalled").is_none(), "{settled}");
+        assert!(!std::fs::read_to_string(&log).unwrap().contains("uninstall"));
+
+        // Case B: overwrite install prints Success yet package is missing -> uninstalls leftover state and reinstalls cleanly.
+        std::fs::write(&log, "").unwrap();
+        std::fs::write(&mode, "drop-then-recover").unwrap();
+        let recovered = android
+            .request(
+                "install",
+                fields(json!({ "udid": "adb:pixel", "path": "/tmp/app-release.apk" })),
+                Duration::from_secs(10),
+            )
+            .await
+            .expect("should recover via clean reinstall");
+        assert_eq!(recovered["bundleId"], json!("com.swishx.academy"));
+        assert_eq!(recovered["reinstalled"], json!(true));
+        assert!(
+            recovered["note"]
+                .as_str()
+                .is_some_and(|n| n.contains("missing from PackageManager")),
+            "{recovered}"
+        );
+        let ran = std::fs::read_to_string(&log).unwrap();
+        assert!(ran.contains("uninstall com.swishx.academy"), "{ran}");
+        assert!(ran.contains("install --no-streaming -t -g"), "{ran}");
+
+        // Case C: even after clean reinstall, package stays missing -> errors instead of lying with Success.
+        std::fs::write(&log, "").unwrap();
+        std::fs::write(&mode, "always-missing").unwrap();
+        let failed = android
+            .request(
+                "install",
+                fields(json!({ "udid": "adb:pixel", "path": "/tmp/app-release.apk" })),
+                Duration::from_secs(10),
+            )
+            .await
+            .unwrap_err();
+        assert!(failed.contains("still not installed"), "{failed}");
+
+        // Case D: adb install exiting 0 with Failure output is rejected as an error.
+        std::fs::write(&mode, "failure-exit-zero").unwrap();
+        let bad = android
+            .request(
+                "install",
+                fields(json!({ "udid": "adb:pixel", "path": "/tmp/app-release.apk" })),
+                Duration::from_secs(10),
+            )
+            .await
+            .unwrap_err();
+        assert!(bad.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE"), "{bad}");
+    }
+
+    #[tokio::test]
+    async fn launch_waits_for_post_install_activity_resolution_and_distinguishes_missing_package() {
+        let log_dir = tempfile::tempdir().unwrap();
+        let mode = log_dir.path().join("mode");
+        let tries = log_dir.path().join("tries");
+        let script = format!(
+            r#"#!/bin/sh
+if [ "$1" = "-s" ]; then shift 2; fi
+case "$1" in
+  get-state) echo "device" ;;
+  shell)
+    shift
+    case "$*" in
+      *"resolve-activity"*"LAUNCHER"*)
+        m=$(cat '{mode}')
+        if [ "$m" = "delayed" ]; then
+          t=$(cat '{tries}')
+          t=$((t + 1))
+          printf '%s' "$t" > '{tries}'
+          if [ "$t" -ge 3 ]; then
+            echo "com.swishx.academy/.MainActivity"
+          else
+            echo "No activity found"
+          fi
+        else
+          echo "No activity found"
+        fi
+        ;;
+      *"pm path"*)
+        m=$(cat '{mode}')
+        if [ "$m" = "not-installed" ]; then
+          exit 1
+        else
+          echo "package:/data/app/com.swishx.academy/base.apk"
+        fi
+        ;;
+      *"pidof"*) echo "3030" ;;
+      *"am start"*) echo "Starting: Intent" ;;
+    esac
+    ;;
+esac
+"#,
+            mode = mode.display(),
+            tries = tries.display(),
+        );
+        let (_sdk, android) = fake_sdk(&script);
+
+        // Case A: installed package whose launcher activity finishes indexing after a brief delay.
+        std::fs::write(&mode, "delayed").unwrap();
+        std::fs::write(&tries, "0").unwrap();
+        let launched = android
+            .request(
+                "launch",
+                fields(json!({ "udid": "adb:pixel", "bundleId": "com.swishx.academy" })),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("launch should retry when package is installed");
+        assert_eq!(launched["pid"], json!(3030));
+
+        // Case B: missing package fails fast with not-installed message.
+        std::fs::write(&mode, "not-installed").unwrap();
+        let started = Instant::now();
+        let missing = android
+            .request(
+                "launch",
+                fields(json!({ "udid": "adb:pixel", "bundleId": "com.swishx.academy" })),
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap_err();
+        assert!(missing.contains("is not installed"), "{missing}");
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "missing package should fail fast: {:?}",
+            started.elapsed()
+        );
+
+        // Case C: installed package with no launcher activity reports that clearly.
+        std::fs::write(&mode, "no-launcher").unwrap();
+        let no_launcher = android
+            .request(
+                "launch",
+                fields(json!({ "udid": "adb:pixel", "bundleId": "com.swishx.academy" })),
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            no_launcher.contains("has no launcher activity"),
+            "{no_launcher}"
         );
     }
 }
