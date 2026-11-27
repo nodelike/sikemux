@@ -37,6 +37,7 @@ const LOW_DATA_MB: u64 = 500;
 const LOW_DATA_KB: u64 = LOW_DATA_MB * 1024;
 const MAX_REPORTED_PACKAGES: usize = 5;
 const STORAGE_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
+const PIDOF_TIMEOUT: Duration = Duration::from_secs(3);
 const PACKAGE_SIZES_TIMEOUT: Duration = Duration::from_secs(10);
 const PACKAGE_SIZES_CMD: &str = r#"pm list packages -3 -f | while IFS= read -r line; do p=${line#package:}; [ "$p" = "$line" ] && continue; pkg=${p##*=}; apk=${p%=*}; dir=${apk%/*}; set -- $(du -sk "$dir" 2>/dev/null); kb=$1; if [ -z "$kb" ]; then set -- $(du -sk "$apk" 2>/dev/null); kb=$1; fi; printf '%s %s\n' "${kb:-0}" "$pkg"; done"#;
 const SWIPE_STEP: f64 = 1.0 / 60.0;
@@ -682,10 +683,9 @@ impl Android {
                 Ok(json!({}))
             }
             "logs" => {
-                let serial = self.serial(&udid).await?;
-                let tail = self.logcat(&serial)?;
+                let (serial, tail) = self.live_logcat(&udid).await?;
                 let pids = match text("process") {
-                    Some(package) => Some(self.pids_of(&serial, package).await),
+                    Some(package) => Some(self.pids_for_logs(&serial, package).await),
                     None => None,
                 };
                 let limit = fields.get("limit").and_then(Value::as_u64).unwrap_or(200) as usize;
@@ -1000,9 +1000,61 @@ impl Android {
             .collect()
     }
 
+    async fn pids_for_logs(&self, serial: &str, package: &str) -> Vec<i64> {
+        let command = format!("pidof {}", quoted(package));
+        match self
+            .adb(&["-s", serial, "shell", &command], PIDOF_TIMEOUT)
+            .await
+        {
+            Ok(output) => {
+                let pids: Vec<i64> = output
+                    .split_whitespace()
+                    .filter_map(|pid| pid.parse().ok())
+                    .collect();
+                if let Some(&pid) = pids.first() {
+                    self.pids
+                        .locked()
+                        .insert((serial.to_owned(), package.to_owned()), pid);
+                }
+                pids
+            }
+            Err(error) if error.contains("in time") => self
+                .pids
+                .locked()
+                .get(&(serial.to_owned(), package.to_owned()))
+                .copied()
+                .into_iter()
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    async fn live_logcat(&self, udid: &str) -> SimResult<(String, Arc<Logcat>)> {
+        if let Some(serial) = self.target(udid).serial {
+            if let Some(tail) = self
+                .logs
+                .locked()
+                .get(&serial)
+                .filter(|tail| tail.is_alive())
+                .cloned()
+            {
+                return Ok((serial, tail));
+            }
+        }
+        let serial = self.serial(udid).await?;
+        let tail = self.logcat(&serial)?;
+        Ok((serial, tail))
+    }
+
     fn logcat(&self, serial: &str) -> SimResult<Arc<Logcat>> {
-        if let Some(tail) = self.logs.locked().get(serial) {
-            return Ok(Arc::clone(tail));
+        if let Some(tail) = self
+            .logs
+            .locked()
+            .get(serial)
+            .filter(|tail| tail.is_alive())
+            .cloned()
+        {
+            return Ok(tail);
         }
         let tail = Logcat::follow(&self.adb_path()?, serial)?;
         self.logs
@@ -2505,5 +2557,89 @@ esac
             .unwrap_err();
         assert!(unauth.contains("USB debugging"), "{unauth}");
         assert_eq!(std::fs::read_to_string(&tries).unwrap(), "1");
+    }
+
+    #[tokio::test]
+    async fn logs_reuse_live_stream_without_get_state_and_survive_non_utf8_and_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let get_state_calls = dir.path().join("get_state_calls");
+        let logcat_runs = dir.path().join("logcat_runs");
+        std::fs::write(&get_state_calls, "0").unwrap();
+        std::fs::write(&logcat_runs, "0").unwrap();
+        let script = format!(
+            r#"#!/bin/sh
+if [ "$1" = "-s" ]; then shift 2; fi
+case "$1" in
+  get-state)
+    c=$(cat '{get_state_calls}')
+    printf '%s' "$((c + 1))" > '{get_state_calls}'
+    echo "device"
+    ;;
+  shell)
+    shift
+    case "$*" in
+      *"pidof"*) echo "6484" ;;
+    esac
+    ;;
+  logcat)
+    r=$(cat '{logcat_runs}')
+    r=$((r + 1))
+    printf '%s' "$r" > '{logcat_runs}'
+    if [ "$r" -eq 1 ]; then
+      printf '11-28 01:28:00.001  6484  6484 I Academy: boot \377 ok\n'
+      printf '11-28 01:28:00.002  1000  1001 D System: noise\n'
+      printf '11-28 01:28:00.003  6484  6484 I Academy: ready\n'
+      sleep 5
+    else
+      printf '11-28 01:29:00.001  6484  6484 I Academy: restarted\n'
+      sleep 5
+    fi
+    ;;
+esac
+"#,
+            get_state_calls = get_state_calls.display(),
+            logcat_runs = logcat_runs.display(),
+        );
+        let (_sdk, android) = fake_sdk(&script);
+
+        let first = android
+            .request(
+                "logs",
+                fields(json!({ "udid": "adb:pixel", "limit": 1 })),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("initial logs start");
+        let _ = first;
+        assert_eq!(std::fs::read_to_string(&get_state_calls).unwrap(), "1");
+
+        let mut app_logs = Value::Null;
+        for _ in 0..40 {
+            app_logs = android
+                .request(
+                    "logs",
+                    fields(json!({ "udid": "adb:pixel", "process": "com.swishx.academy", "limit": 50 })),
+                    Duration::from_secs(5),
+                )
+                .await
+                .expect("process logs");
+            if app_logs["lines"].as_array().is_some_and(|l| l.len() == 2) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert_eq!(
+            app_logs["lines"].as_array().map(Vec::len),
+            Some(2),
+            "{app_logs}"
+        );
+        assert_eq!(app_logs["dropped"], json!(0));
+        assert!(app_logs["lines"][0].as_str().unwrap().contains("boot"));
+        assert!(app_logs["lines"][1].as_str().unwrap().contains("ready"));
+        assert_eq!(
+            std::fs::read_to_string(&get_state_calls).unwrap(),
+            "1",
+            "live logcat should not re-run adb get-state on subsequent calls"
+        );
     }
 }
