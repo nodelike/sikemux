@@ -211,14 +211,15 @@
       "name": "bitbucket_edit_pull",
       "row": {"verb": "edit", "kind": "edit", "icon": "pull-request", "target": ["{name}#{number}", "PR #{number}"]},
       "method": "editPull",
-      "description": "Change a pull request's title, markdown body or base. Only the fields given change.",
+      "description": "Change a pull request's title, markdown body, base or draft state. Only the fields given change.",
       "properties": {
         "owner": { "type": "string" },
         "name": { "type": "string" },
         "number": { "type": "integer", "description": "The pull request's id." },
         "title": { "type": "string" },
         "body": { "type": "string" },
-        "base": { "type": "string" }
+        "base": { "type": "string" },
+        "draft": { "type": "boolean" }
       },
       "required": ["number"]
     },

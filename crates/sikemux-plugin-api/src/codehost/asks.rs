@@ -411,6 +411,8 @@ pub struct PullEdit {
     pub body: Option<String>,
     #[serde(default)]
     pub base: Option<String>,
+    #[serde(default)]
+    pub draft: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

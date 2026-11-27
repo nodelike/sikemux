@@ -919,6 +919,9 @@ pub async fn edit(data_dir: &Path, input: PullEdit) -> BitbucketResult<Pull> {
     if let Some(base) = input.base {
         body.insert("destination".into(), json!({ "branch": { "name": base } }));
     }
+    if let Some(draft) = input.draft {
+        body.insert("draft".into(), draft.into());
+    }
     let body = Value::Object(body);
     let path = pull_path(&input.pull.repo, input.pull.number, "")?;
     let row: PullRow = client::API
