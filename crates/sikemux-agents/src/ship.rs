@@ -14,6 +14,7 @@ use crate::git_guard::{
     base_name, command_words, env_folder, git_args, pieces, shell_script, Piece, Unwrapped,
 };
 
+mod alias;
 mod ssh;
 
 /// An action leaving this machine: what it does, and the exact command or
@@ -2647,10 +2648,28 @@ pub fn of_command(
     cwd: &Path,
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<Ship> {
+    of_command_at(line, extra, looks, cwd, env, 0)
+}
+
+const MAX_ALIAS_DEPTH: u8 = 4;
+
+fn of_command_at(
+    line: &str,
+    extra: &[String],
+    looks: Looks,
+    cwd: &Path,
+    env: &dyn Fn(&str) -> Option<String>,
+    depth: u8,
+) -> Vec<Ship> {
+    if depth > MAX_ALIAS_DEPTH {
+        return Vec::new();
+    }
     let mut folder = Folder::new(cwd);
     let mut selected: Vec<String> = Vec::new();
     let mut shim_bypassed = false;
     let mut ships = Vec::new();
+    let mut line_gh_aliases: Vec<(String, String)> = Vec::new();
+    let mut line_git_aliases: Vec<(String, String)> = Vec::new();
     for piece in pieces(line) {
         let all = match piece {
             Piece::Open => {
@@ -2705,24 +2724,19 @@ pub fn of_command(
             if let Some(script) = shell_script(candidate) {
                 let at = here.clone().unwrap_or_else(|| cwd.to_owned());
                 let inner_looks = if bypassed { Looks::Every } else { looks };
-                ships.extend(of_command(script, extra, inner_looks, &at, env));
+                ships.extend(of_command_at(
+                    script,
+                    extra,
+                    inner_looks,
+                    &at,
+                    env,
+                    depth + 1,
+                ));
                 break;
             }
-            let Some((program, args)) = candidate.split_first() else {
-                continue;
-            };
-            let shimmed = !program.contains('/')
-                && (program == "git" || PROGRAMS.contains(&program.as_str()));
-            let known = match looks == Looks::PastTheShim && !bypassed && shimmed {
-                true => None,
-                false => of_program(program, args, here.as_deref().unwrap_or(cwd), &|_| None),
-            };
-            let Some(kind) = known.or_else(|| {
-                extra
-                    .iter()
-                    .any(|listed| leads(listed, candidate))
-                    .then_some(ShipKind::Deploy)
-            }) else {
+            alias::record_gh_alias(candidate, &mut line_gh_aliases);
+            alias::record_git_alias(candidate, &mut line_git_aliases);
+            let Some((program, raw_args)) = candidate.split_first() else {
                 continue;
             };
             let set = |name: &str| {
@@ -2730,6 +2744,78 @@ pub fn of_command(
                     .filter_map(|word| word.strip_prefix(name)?.strip_prefix('='))
                     .next_back();
                 said.map(str::to_owned).or_else(|| env(name))
+            };
+            let run_cwd = here.as_deref().unwrap_or(cwd);
+            let mut expanded_words: Option<Vec<String>> = None;
+            let mut expanded_shell: Option<(String, PathBuf)> = None;
+            if depth < MAX_ALIAS_DEPTH && base_name(program) == "gh" {
+                let mut aliases = alias::gh_aliases_from_config(&set);
+                aliases.extend(line_gh_aliases.iter().cloned());
+                match alias::expand_gh(raw_args, &aliases) {
+                    Some(alias::Expanded::Shell(script)) => {
+                        expanded_shell = Some((script, run_cwd.to_path_buf()));
+                    }
+                    Some(alias::Expanded::Args(expanded)) => {
+                        let mut full = Vec::with_capacity(1 + expanded.len());
+                        full.push(program.clone());
+                        full.extend(expanded);
+                        expanded_words = Some(full);
+                    }
+                    None => {}
+                }
+            } else if depth < MAX_ALIAS_DEPTH && base_name(program) == "git" {
+                let git_lookup = |global: &[String], name: &str| {
+                    let dir = alias::git_run_dir(global, run_cwd);
+                    if !dir.is_dir() {
+                        return None;
+                    }
+                    let mut cmd: Vec<&str> = global.iter().map(String::as_str).collect();
+                    let key = format!("alias.{name}");
+                    cmd.extend(["config", "--get", key.as_str()]);
+                    crate::git::Git::quick(&dir).trimmed(&cmd).ok()
+                };
+                match alias::expand_git(raw_args, &line_git_aliases, &git_lookup) {
+                    Some(alias::Expanded::Shell(script)) => {
+                        let dir = alias::git_run_dir(raw_args, run_cwd);
+                        expanded_shell = Some((script, dir));
+                    }
+                    Some(alias::Expanded::Args(expanded)) => {
+                        let mut full = Vec::with_capacity(1 + expanded.len());
+                        full.push(program.clone());
+                        full.extend(expanded);
+                        expanded_words = Some(full);
+                    }
+                    None => {}
+                }
+            }
+            if let Some((script, at)) = expanded_shell {
+                ships.extend(of_command_at(
+                    &script,
+                    extra,
+                    Looks::Every,
+                    &at,
+                    &set,
+                    depth + 1,
+                ));
+                break;
+            }
+            let effective = expanded_words.as_deref().unwrap_or(candidate);
+            let Some((program, args)) = effective.split_first() else {
+                continue;
+            };
+            let shimmed = !program.contains('/')
+                && (program == "git" || PROGRAMS.contains(&program.as_str()));
+            let known = match looks == Looks::PastTheShim && !bypassed && shimmed {
+                true => None,
+                false => of_program(program, args, run_cwd, &|_| None),
+            };
+            let Some(kind) = known.or_else(|| {
+                extra
+                    .iter()
+                    .any(|listed| leads(listed, effective))
+                    .then_some(ShipKind::Deploy)
+            }) else {
+                continue;
             };
             let at = here.clone().filter(|_| selected.is_empty());
             let names_its_host = matches!(base_name(program), "curl" | "wget")
@@ -2749,7 +2835,7 @@ pub fn of_command(
                 .chain(args.iter().cloned())
                 .collect();
             let command = match moved.len() == args.len() {
-                true => candidate.join(" "),
+                true => effective.join(" "),
                 false => format!("{program} {}", moved.join(" ")),
             };
             let configured = configured(program, &moved, &set);
@@ -2981,23 +3067,104 @@ fn selects(words: &[String]) -> bool {
 /// What `program` run with `args` from `cwd` under `env` does that leaves this machine, as the
 /// stand-in on agents' PATH sees it run, whether typed or started by a script, a make target or
 /// a package script.
+pub(crate) fn of_invocations(
+    program: &str,
+    args: &[String],
+    env: &dyn Fn(&str) -> Option<String>,
+    cwd: &Path,
+) -> Vec<Ship> {
+    of_invocations_at(program, args, env, cwd, 0)
+}
+
+fn of_invocations_at(
+    program: &str,
+    args: &[String],
+    env: &dyn Fn(&str) -> Option<String>,
+    cwd: &Path,
+    depth: u8,
+) -> Vec<Ship> {
+    if depth < MAX_ALIAS_DEPTH && program_name(program) == "gh" {
+        let aliases = alias::gh_aliases_from_config(env);
+        match alias::expand_gh(args, &aliases) {
+            Some(alias::Expanded::Shell(script)) => {
+                return of_command_at(&script, &[], Looks::Every, cwd, env, depth + 1);
+            }
+            Some(alias::Expanded::Args(expanded)) => {
+                return of_invocations_at(program, &expanded, env, cwd, depth + 1);
+            }
+            None => {}
+        }
+    }
+    let Some(kind) = of_program(program, args, cwd, &|_| None) else {
+        return Vec::new();
+    };
+    let target = target_of(program, args, env, cwd);
+    leaves_machine(program, args, target.as_ref())
+        .then(|| Ship {
+            kind,
+            target,
+            what: (configured(program, args, env).into_iter())
+                .chain(std::iter::once(program.to_owned()))
+                .chain(args.iter().cloned())
+                .collect::<Vec<_>>()
+                .join(" "),
+        })
+        .into_iter()
+        .collect()
+}
+
+/// What `git` run with `args` from `cwd` under `env` does that leaves this machine, expanding
+/// git aliases (including `-c alias.*` and `!` shell aliases) to what git really runs.
+pub(crate) fn of_git_invocation(
+    args: &[String],
+    env: &dyn Fn(&str) -> Option<String>,
+    cwd: &Path,
+    lookup: &dyn Fn(&[String], &str) -> Option<String>,
+) -> Vec<Ship> {
+    of_git_invocation_at(args, env, cwd, lookup, 0)
+}
+
+fn of_git_invocation_at(
+    args: &[String],
+    env: &dyn Fn(&str) -> Option<String>,
+    cwd: &Path,
+    lookup: &dyn Fn(&[String], &str) -> Option<String>,
+    depth: u8,
+) -> Vec<Ship> {
+    if depth < MAX_ALIAS_DEPTH {
+        match alias::expand_git(args, &[], lookup) {
+            Some(alias::Expanded::Shell(script)) => {
+                let dir = alias::git_run_dir(args, cwd);
+                return of_command_at(&script, &[], Looks::Every, &dir, env, depth + 1);
+            }
+            Some(alias::Expanded::Args(expanded)) => {
+                return of_git_invocation_at(&expanded, env, cwd, lookup, depth + 1);
+            }
+            None => {}
+        }
+    }
+    let Some(kind) = of_program("git", args, cwd, &|_| None) else {
+        return Vec::new();
+    };
+    vec![Ship {
+        kind,
+        what: (configured("git", args, env).into_iter())
+            .chain(std::iter::once("git".to_owned()))
+            .chain(args.iter().cloned())
+            .collect::<Vec<_>>()
+            .join(" "),
+        target: None,
+    }]
+}
+
+#[cfg(test)]
 pub(crate) fn of_invocation(
     program: &str,
     args: &[String],
     env: &dyn Fn(&str) -> Option<String>,
     cwd: &Path,
 ) -> Option<Ship> {
-    let kind = of_program(program, args, cwd, &|_| None)?;
-    let target = target_of(program, args, env, cwd);
-    leaves_machine(program, args, target.as_ref()).then(|| Ship {
-        kind,
-        target,
-        what: (configured(program, args, env).into_iter())
-            .chain(std::iter::once(program.to_owned()))
-            .chain(args.iter().cloned())
-            .collect::<Vec<_>>()
-            .join(" "),
-    })
+    of_invocations(program, args, env, cwd).into_iter().next()
 }
 
 /// What a push or merge is given that its words, split at spaces, don't say, as the words that

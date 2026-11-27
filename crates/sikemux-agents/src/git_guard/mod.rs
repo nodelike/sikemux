@@ -607,7 +607,8 @@ pub(crate) fn git_args(args: &[String]) -> &[String] {
     let mut at = 0;
     while let Some(arg) = args.get(at) {
         match arg.as_str() {
-            "-C" | "-c" | "--git-dir" | "--work-tree" | "--namespace" => at += 2,
+            "-C" | "-c" | "--git-dir" | "--work-tree" | "--namespace" | "--config-env"
+            | "--exec-path" | "--super-prefix" => at += 2,
             arg if arg.starts_with('-') => at += 1,
             _ => break,
         }

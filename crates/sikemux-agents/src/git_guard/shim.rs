@@ -524,16 +524,16 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
         .iter()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
-    let mut watched = None;
+    let mut watched = Vec::new();
     let cwd = std::env::current_dir().unwrap_or_default();
     let env = |name: &str| std::env::var(name).ok();
-    if let Some(ship) = crate::ship::of_invocation(program, &words, &env, &cwd) {
+    for ship in crate::ship::of_invocations(program, &words, &env, &cwd) {
         match asked(&ship, &cwd, true) {
             Asked::Held(said) => {
                 eprintln!("{said}");
                 return 1;
             }
-            Asked::Goes { went } => watched = went,
+            Asked::Goes { went } => watched.extend(went),
         }
     }
     let rustup = (program == "cargo")
@@ -560,18 +560,20 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
     };
     if let (Some(gh), ["pr", "merge", rest @ ..]) = (&as_agents, words_of(&words).as_slice()) {
         let code = gh_merge(command(&real), gh, rest, &cwd);
-        if let Some(went) = watched {
+        for went in watched {
             tell_ran(&went, &cwd, Some(code));
         }
         return code;
     }
-    if let Some(went) = watched {
+    if !watched.is_empty() {
         let status = command(&real).args(&args).status();
         let code = status
             .as_ref()
             .ok()
             .and_then(std::process::ExitStatus::code);
-        tell_ran(&went, &cwd, code);
+        for went in watched {
+            tell_ran(&went, &cwd, code);
+        }
         return code.unwrap_or(1);
     }
     if let Some(heavy) = super::heavy::of_program(program, &words, &cwd) {
@@ -876,23 +878,9 @@ fn run(args: Vec<OsString>) -> i32 {
         eprintln!("{refusal}");
         return 1;
     }
-    let alias = |name: &str| alias_of(&git, name);
-    if let Some(kind) = crate::ship::of_program(
-        "git",
-        &words,
-        &std::env::current_dir().unwrap_or_default(),
-        &alias,
-    ) {
-        let ship = crate::ship::Ship {
-            kind,
-            what: (crate::ship::configured("git", &words, &not_ours).into_iter())
-                .chain(std::iter::once("git".to_owned()))
-                .chain(words.iter().cloned())
-                .collect::<Vec<_>>()
-                .join(" "),
-            target: None,
-        };
-        let cwd = std::env::current_dir().unwrap_or_default();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let alias = |global: &[String], name: &str| alias_of(&git, global, name);
+    for ship in crate::ship::of_git_invocation(&words, &not_ours, &cwd, &alias) {
         if let Asked::Held(said) = asked(&ship, &cwd, false) {
             eprintln!("{said}");
             return 1;
@@ -983,9 +971,10 @@ fn in_project(dir: &Path) -> Option<bool> {
 
 const GUARD_WAIT: Duration = Duration::from_secs(10);
 
-/// What the git alias `name` stands for, as git in this folder reads it.
-fn alias_of(git: &Path, name: &str) -> Option<String> {
+/// What the git alias `name` stands for, as git in this folder reads it under `global`.
+fn alias_of(git: &Path, global: &[String], name: &str) -> Option<String> {
     let output = sikemux_process::user_environment::command(git)
+        .args(global)
         .args(["config", "--get", &format!("alias.{name}")])
         .stdin(sikemux_process::command::Stdio::null())
         .stderr(sikemux_process::command::Stdio::null())
