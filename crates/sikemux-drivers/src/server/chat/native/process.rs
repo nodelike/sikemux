@@ -42,11 +42,30 @@ enum Input {
     Release(oneshot::Sender<Option<AgentInput>>),
 }
 
+#[cfg(test)]
+pub struct TestInput(mpsc::UnboundedReceiver<Input>);
+
+#[cfg(test)]
+impl TestInput {
+    pub async fn recv(&mut self) -> Option<Value> {
+        match self.0.recv().await? {
+            Input::Line(line) => serde_json::from_str(&line).ok(),
+            Input::Release(_) => None,
+        }
+    }
+}
+
 /// Writes one message per line to the agent. Clones share the same pipe.
 #[derive(Clone)]
 pub struct Writer(mpsc::UnboundedSender<Input>);
 
 impl Writer {
+    #[cfg(test)]
+    pub fn test_pipe() -> (Self, TestInput) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        (Self(tx), TestInput(rx))
+    }
+
     pub fn send(&self, message: &Value) -> Result<(), String> {
         let line = serde_json::to_string(message).map_err(|error| error.to_string())?;
         self.0

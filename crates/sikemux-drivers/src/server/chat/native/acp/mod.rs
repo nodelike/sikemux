@@ -57,6 +57,25 @@ const UNPROMPTED_QUIET: Duration = Duration::from_secs(3);
 /// The error code an agent turns a prompt, or a new session, down with when it needs a sign-in.
 const AUTH_REQUIRED: i64 = -32000;
 
+const CANCEL_RETRY_DELAYS: [Duration; 10] = [
+    Duration::from_millis(50),
+    Duration::from_millis(100),
+    Duration::from_millis(200),
+    Duration::from_millis(300),
+    Duration::from_millis(500),
+    Duration::from_millis(750),
+    Duration::from_millis(1_000),
+    Duration::from_millis(1_000),
+    Duration::from_millis(1_500),
+    Duration::from_millis(1_500),
+];
+
+fn is_cancelling_prompt_error(error: &Value) -> bool {
+    describe(error)
+        .to_ascii_lowercase()
+        .contains("the running prompt is being cancelled")
+}
+
 /// Shows a saved session of an agent that keeps one Sikemux can read, as the agent would
 /// replay it on loading it.
 pub fn replay_saved(launch: &ChatLaunch, session: &str, sink: &Telling) -> Result<(), String> {
@@ -279,12 +298,15 @@ struct Turns {
     last_used: u64,
     #[serde(skip)]
     compact_done: Arc<tokio::sync::Notify>,
+    #[serde(skip)]
+    prompt_settled: Arc<tokio::sync::Notify>,
 }
 
 impl Turns {
     /// Whether `turn` runs on after one of its prompts was answered, because a
     /// later prompt carries it on.
     fn carried_on(&mut self, turn: u64) -> bool {
+        self.prompt_settled.notify_waiters();
         if turn != self.prompted {
             return false;
         }
@@ -319,6 +341,87 @@ impl Driver {
         wait: Option<Duration>,
     ) -> Result<Value, String> {
         call(&self.rpc, method, message, wait).await
+    }
+
+    fn send_prompt(&self, turn: u64, request: Value) -> Result<(), String> {
+        if !self.antigravity {
+            return self.rpc.send_for(
+                AGENT_METHOD_NAMES.session_prompt,
+                request,
+                Purpose::Prompt(turn),
+            );
+        }
+        let sent = self
+            .rpc
+            .start_for(
+                AGENT_METHOD_NAMES.session_prompt,
+                request.clone(),
+                Some(Purpose::Prompt(turn)),
+            )
+            .map_err(|error| describe(&error))?;
+        let driver = self.clone();
+        tokio::spawn(async move {
+            driver.drive_prompt(turn, request, sent).await;
+        });
+        Ok(())
+    }
+
+    async fn drive_prompt(&self, turn: u64, request: Value, mut sent: Sent) {
+        let mut attempt = 0;
+        loop {
+            let answer = sent.answer(None).await;
+            let Err(ref error) = answer else {
+                self.answered(turn, answer);
+                return;
+            };
+            if !is_cancelling_prompt_error(error) {
+                self.answered(turn, answer);
+                return;
+            }
+            let Some(&delay) = CANCEL_RETRY_DELAYS.get(attempt) else {
+                self.answered(turn, answer);
+                return;
+            };
+            attempt += 1;
+            let settled = {
+                let turns = self.turns.locked();
+                if turns.gone || turns.prompted != turn {
+                    return;
+                }
+                if turns.cancelled == turn {
+                    drop(turns);
+                    self.answered(turn, Ok(json!({ "stopReason": "cancelled" })));
+                    return;
+                }
+                turns.prompt_settled.clone().notified_owned()
+            };
+            tokio::select! {
+                () = tokio::time::sleep(delay) => {}
+                () = settled => {}
+            }
+            {
+                let turns = self.turns.locked();
+                if turns.gone || turns.prompted != turn {
+                    return;
+                }
+                if turns.cancelled == turn {
+                    drop(turns);
+                    self.answered(turn, Ok(json!({ "stopReason": "cancelled" })));
+                    return;
+                }
+            }
+            match self.rpc.start_for(
+                AGENT_METHOD_NAMES.session_prompt,
+                request.clone(),
+                Some(Purpose::Prompt(turn)),
+            ) {
+                Ok(next) => sent = next,
+                Err(error) => {
+                    self.answered(turn, Err(error));
+                    return;
+                }
+            }
+        }
     }
 
     fn answered(&self, turn: u64, answer: Result<Value, Value>) {
@@ -626,6 +729,7 @@ impl Reads for Driver {
         let was_compacting = {
             let mut turns = self.turns.locked();
             turns.gone = true;
+            turns.prompt_settled.notify_waiters();
             let was = std::mem::take(&mut turns.compacting);
             if was {
                 turns.compact_done.notify_waiters();
@@ -1101,17 +1205,16 @@ impl Acp {
             self.kept.embedded_context,
         )?;
         let blocks = with_pictures(blocks, self.kept.images);
-        let request = PromptRequest::new(self.kept.session_id.clone(), blocks);
+        let request = params(PromptRequest::new(self.kept.session_id.clone(), blocks))?;
         let turn = {
             let mut turns = self.driver.turns.locked();
             turns.unanswered += 1;
             turns.prompted
         };
-        self.driver.rpc.send_for(
-            AGENT_METHOD_NAMES.session_prompt,
-            params(request)?,
-            Purpose::Prompt(turn),
-        )?;
+        if let Err(error) = self.driver.send_prompt(turn, request) {
+            self.driver.turns.locked().carried_on(turn);
+            return Err(error);
+        }
         Ok(Steered::Injected)
     }
 
@@ -1210,7 +1313,7 @@ impl Backend for Acp {
             self.kept.embedded_context,
         )?;
         let blocks = with_pictures(blocks, self.kept.images);
-        let request = PromptRequest::new(self.kept.session_id.clone(), blocks);
+        let request = params(PromptRequest::new(self.kept.session_id.clone(), blocks))?;
         let log = if self.driver.antigravity {
             let session = self.kept.session_id.clone();
             let lookup = session.clone();
@@ -1230,11 +1333,7 @@ impl Backend for Acp {
             turns.manual_compact_turn = manual_compact.then_some(turn);
             turns.log = log;
         }
-        self.driver.rpc.send_for(
-            AGENT_METHOD_NAMES.session_prompt,
-            params(request)?,
-            Purpose::Prompt(turn),
-        )
+        self.driver.send_prompt(turn, request)
     }
 
     async fn compact(&mut self) -> Result<(), String> {
@@ -1303,6 +1402,7 @@ impl Backend for Acp {
         if self.driver.sink.running() {
             let mut turns = self.driver.turns.locked();
             turns.cancelled = turns.prompted;
+            turns.prompt_settled.notify_waiters();
         }
         if std::mem::take(&mut self.driver.turns.locked().unprompted) {
             self.driver.sink.work_ended(StopReason::Cancelled);
@@ -1488,5 +1588,263 @@ mod tests {
         let cut = antigravity_compact_focus(&huge);
         assert!(cut.ends_with(" [cut]"));
         assert!(cut.chars().count() <= ANTIGRAVITY_COMPACT_FOCUS_CHARS + 6);
+    }
+
+    struct StubSink {
+        ended: Mutex<Vec<(u64, TurnEnd)>>,
+        done: tokio::sync::Notify,
+    }
+
+    impl StubSink {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                ended: Mutex::new(Vec::new()),
+                done: tokio::sync::Notify::new(),
+            })
+        }
+
+        async fn next_end(&self) -> (u64, TurnEnd) {
+            loop {
+                let notified = self.done.notified();
+                if let Some(end) = {
+                    let mut ended = self.ended.locked();
+                    (!ended.is_empty()).then(|| ended.remove(0))
+                } {
+                    return end;
+                }
+                notified.await;
+            }
+        }
+    }
+
+    impl super::super::session::Told for StubSink {
+        fn update(&self, _session_id: &str, _update: Value) {}
+        fn keep_app(
+            &self,
+            _id: &str,
+            _record: &crate::server::mcp_apps::Record,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn reloading(&self) -> bool {
+            false
+        }
+        fn hush(&self) {}
+        fn loaded(&self) {}
+        fn reach(&self, _session: &str) -> Option<super::super::super::feed::Reach> {
+            None
+        }
+        fn leave_room(&self) {}
+        fn tell_earlier(&self, _earlier: super::super::super::feed::Earlier) {}
+        fn reached(&self, _session: &str, _reach: super::super::super::feed::Reach) {}
+        fn rotates(&self) -> bool {
+            false
+        }
+        fn compaction_over(&self) {}
+        fn keep_list(&self) -> String {
+            String::new()
+        }
+        fn after_compaction(&self) -> Option<String> {
+            None
+        }
+        fn called(&self, _context: u64) {}
+        fn compacted(&self, _context: u64) {}
+        fn session_used(
+            &self,
+            _calls: Vec<crate::server::activity_log::ModelCall>,
+            _compactions: Vec<crate::server::activity_log::Compaction>,
+        ) {
+        }
+    }
+
+    impl super::super::session::SinkPort for StubSink {
+        fn has_answered(&self) -> bool {
+            false
+        }
+        fn account_moved(&self) -> bool {
+            false
+        }
+        fn running(&self) -> bool {
+            true
+        }
+        fn cli_version(&self, _version: &str) {}
+        fn plan_limits(&self, _live: Vec<crate::agent_accounts::usage::UsageWindow>) {}
+        fn work_started(&self) {}
+        fn work_ended(&self, _stop_reason: StopReason) {}
+        fn end_turn(&self, turn: u64, end: TurnEnd) {
+            self.ended.locked().push((turn, end));
+            self.done.notify_one();
+        }
+        fn letter_unread(&self, _text: String) {}
+        fn question(&self, _input: &Value) -> String {
+            String::new()
+        }
+        fn ask_dialog(
+            &self,
+            _dialog: String,
+            _header: &str,
+            _text: &str,
+            _choices: Vec<sikemux_view::questions::QuestionChoice>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn withdraw_dialogs(&self, _only: Option<&str>) {}
+        fn withdraw_permission(&self, _tool_call_id: &str) {}
+        fn prompted(&self, _text: &str, _paths: &[String], _person: bool) {}
+        fn error_text(&self, _message: String) {}
+        fn needs_sign_in(&self) {}
+        fn broke(&self, _reason: String) {}
+        fn approves(&self) -> bool {
+            true
+        }
+        fn ship_held(&self, _command: String, _cwd: PathBuf) -> super::super::session::ShipHeld {
+            Box::pin(async { None })
+        }
+        fn hold(&self, _request: Value, _kept: Value, _respond: Respond) {}
+        fn telling(&self) -> &Telling {
+            self
+        }
+    }
+
+    fn test_driver() -> (Driver, Arc<StubSink>, super::process::TestInput) {
+        let (writer, rx) = Writer::test_pipe();
+        let sink = StubSink::new();
+        let driver = Driver {
+            rpc: Rpc::new(writer, true),
+            sink: Sink::new(sink.clone()),
+            turns: Arc::default(),
+            servers: Arc::from([]),
+            compact: COMPACT,
+            free_models: false,
+            antigravity: true,
+            subagents: Default::default(),
+            gateway_calls: Arc::default(),
+        };
+        (driver, sink, rx)
+    }
+
+    #[tokio::test]
+    async fn antigravity_retries_prompt_during_cancel_race_until_accepted() {
+        let (mut driver, sink, mut rx) = test_driver();
+        {
+            let mut turns = driver.turns.locked();
+            turns.prompted = 1;
+            turns.unanswered = 1;
+        }
+        driver
+            .send_prompt(1, json!({ "sessionId": "ses-1", "prompt": [] }))
+            .expect("initial prompt sent");
+
+        let first = rx.recv().await.expect("first session/prompt");
+        assert_eq!(first["method"], AGENT_METHOD_NAMES.session_prompt);
+        driver.message(json!({
+            "jsonrpc": "2.0",
+            "id": first["id"],
+            "error": {
+                "code": -32000,
+                "message": "Can't add this prompt to session ses-1: the running prompt is being cancelled; wait for it to finish, then send this prompt again"
+            }
+        }));
+
+        let retried = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .expect("retry arrives")
+            .expect("retried session/prompt");
+        assert_eq!(retried["method"], AGENT_METHOD_NAMES.session_prompt);
+        assert_ne!(retried["id"], first["id"]);
+        assert!(sink.ended.locked().is_empty());
+
+        driver.message(json!({
+            "jsonrpc": "2.0",
+            "id": retried["id"],
+            "result": { "stopReason": "end_turn" }
+        }));
+
+        let (turn, end) = tokio::time::timeout(Duration::from_secs(1), sink.next_end())
+            .await
+            .expect("turn ends");
+        assert_eq!(turn, 1);
+        assert!(matches!(end, TurnEnd::Completed(_)));
+    }
+
+    #[tokio::test]
+    async fn antigravity_steer_retries_cancel_race_and_keeps_turn_open() {
+        let (mut driver, sink, mut rx) = test_driver();
+        {
+            let mut turns = driver.turns.locked();
+            turns.prompted = 2;
+            turns.unanswered = 2;
+        }
+        driver
+            .send_prompt(2, json!({ "sessionId": "ses-1", "prompt": ["first"] }))
+            .expect("first prompt");
+        driver
+            .send_prompt(2, json!({ "sessionId": "ses-1", "prompt": ["steer"] }))
+            .expect("steer prompt");
+
+        let first = rx.recv().await.expect("first");
+        let steer = rx.recv().await.expect("steer");
+
+        driver.message(json!({
+            "jsonrpc": "2.0",
+            "id": steer["id"],
+            "error": {
+                "code": -32000,
+                "message": "Can't add this prompt to session ses-1: the running prompt is being cancelled; wait for it to finish, then send this prompt again"
+            }
+        }));
+        driver.message(json!({
+            "jsonrpc": "2.0",
+            "id": first["id"],
+            "result": { "stopReason": "cancelled" }
+        }));
+
+        let retried = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .expect("retried steer")
+            .expect("retried steer payload");
+        assert_eq!(retried["params"]["prompt"], json!(["steer"]));
+        assert!(sink.ended.locked().is_empty());
+
+        driver.message(json!({
+            "jsonrpc": "2.0",
+            "id": retried["id"],
+            "result": { "stopReason": "end_turn" }
+        }));
+
+        let (turn, end) = tokio::time::timeout(Duration::from_secs(1), sink.next_end())
+            .await
+            .expect("turn completes after retried steer");
+        assert_eq!(turn, 2);
+        assert!(matches!(end, TurnEnd::Completed(_)));
+    }
+
+    #[tokio::test]
+    async fn antigravity_non_cancel_error_still_refuses_immediately() {
+        let (mut driver, sink, mut rx) = test_driver();
+        {
+            let mut turns = driver.turns.locked();
+            turns.prompted = 3;
+            turns.unanswered = 1;
+        }
+        driver
+            .send_prompt(3, json!({ "sessionId": "ses-1", "prompt": [] }))
+            .expect("prompt");
+
+        let first = rx.recv().await.expect("first");
+        driver.message(json!({
+            "jsonrpc": "2.0",
+            "id": first["id"],
+            "error": {
+                "code": -32603,
+                "message": "Invalid session"
+            }
+        }));
+
+        let (turn, end) = tokio::time::timeout(Duration::from_secs(1), sink.next_end())
+            .await
+            .expect("refusal arrives");
+        assert_eq!(turn, 3);
+        assert!(matches!(end, TurnEnd::Refused(said) if said.contains("Invalid session")));
     }
 }
