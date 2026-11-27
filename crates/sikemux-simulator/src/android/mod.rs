@@ -50,7 +50,7 @@ struct Display {
 #[derive(Default)]
 pub struct Android {
     data_dir: Option<PathBuf>,
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     sdk_override: Option<PathBuf>,
     sessions: Mutex<HashMap<String, SimManager>>,
     displays: Mutex<HashMap<String, Display>>,
@@ -76,7 +76,7 @@ impl Android {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn with_sdk(sdk_root: PathBuf) -> Self {
         Self {
             sdk_override: Some(sdk_root),
@@ -85,7 +85,7 @@ impl Android {
     }
 
     pub fn sdk(&self) -> Option<PathBuf> {
-        #[cfg(test)]
+        #[cfg(all(test, unix))]
         if let Some(root) = &self.sdk_override {
             return Some(root.clone());
         }
