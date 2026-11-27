@@ -122,8 +122,17 @@ pub struct Desks {
     pictures: width::Pictures,
     /// What the pages were last told of their pins.
     pins_shown: pins::PinsShown,
+    opening_artifacts: HashMap<String, OpeningArtifact>,
+    opening_seq: u64,
     strips_revision: u64,
     _theming: Subscription,
+}
+
+#[derive(Clone)]
+pub(crate) struct OpeningArtifact {
+    pub(crate) seq: u64,
+    pub(crate) id: String,
+    pub(crate) title: Option<String>,
 }
 
 /// How a strip of tabs is scrolled, with the tab it last brought into view and how wide it
@@ -447,6 +456,8 @@ impl Desks {
             snips: HashMap::new(),
             pictures: width::Pictures::default(),
             pins_shown: pins::PinsShown::default(),
+            opening_artifacts: HashMap::new(),
+            opening_seq: 0,
             strips_revision: 0,
             _theming: theming,
         }
@@ -515,7 +526,53 @@ impl Desks {
         self.placed_runs.retain(|_, owner| owner != agent);
         self.pins_shown.forget(agent);
         self.page_files.forget(agent);
+        self.opening_artifacts.remove(agent);
         self.strips_revision = self.strips_revision.wrapping_add(1);
+    }
+
+    pub(crate) fn begin_opening_artifact(
+        &mut self,
+        agent: &str,
+        id: &str,
+        title: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> u64 {
+        self.opening_seq = self.opening_seq.wrapping_add(1);
+        let seq = self.opening_seq;
+        self.opening_artifacts.insert(
+            agent.to_owned(),
+            OpeningArtifact {
+                seq,
+                id: id.to_owned(),
+                title,
+            },
+        );
+        cx.notify();
+        seq
+    }
+
+    pub(crate) fn is_opening_artifact(&self, agent: &str, seq: u64) -> bool {
+        self.opening_artifacts
+            .get(agent)
+            .is_some_and(|opening| opening.seq == seq)
+    }
+
+    pub(crate) fn finish_opening_artifact(
+        &mut self,
+        agent: &str,
+        seq: u64,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_opening_artifact(agent, seq) {
+            self.opening_artifacts.remove(agent);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn cancel_opening_artifact(&mut self, agent: &str, cx: &mut Context<Self>) {
+        if self.opening_artifacts.remove(agent).is_some() {
+            cx.notify();
+        }
     }
 
     fn show_kind(&mut self, agent: &str, kind: DeskKind, cx: &mut Context<Self>) {
@@ -917,6 +974,9 @@ impl PageFiles {
             if let Some(path) = page.path.as_deref().filter(|path| path.is_file()) {
                 return engine.themed_page_url(path, media, page.written_in.as_deref());
             }
+            if page.html.is_empty() {
+                return Err("that page is gone".into());
+            }
         }
         let folder = self
             .folder
@@ -1228,7 +1288,7 @@ impl Workbench {
 
     /// Reads every agent's tabs again, bringing out the desk of an agent that opened one and
     /// shutting the desk of one whose last tab closed.
-    fn read_strips(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn read_strips(&mut self, cx: &mut Context<Self>) {
         let Some(engine) = self.desks.read(cx).engine.clone() else {
             return;
         };
@@ -1316,6 +1376,7 @@ impl Workbench {
             .get(agent)
             .is_none_or(Vec::is_empty)
             && !self.desks.read(cx).holds_simulator(agent)
+            && !self.desks.read(cx).opening_artifacts.contains_key(agent)
             && (self.desks.read(cx).strips.get(agent)).is_none_or(|strip| strip.tabs.is_empty());
         if !empty {
             return;
@@ -1341,7 +1402,7 @@ impl Workbench {
     }
 
     /// The project tab holding the agent, its strip and its view there, wherever it is.
-    fn agent_place(&self, agent: &str) -> Option<(Strip, String, String)> {
+    pub(crate) fn agent_place(&self, agent: &str) -> Option<(Strip, String, String)> {
         agent_place_in(self.home_of(agent)?.1, agent)
     }
 
@@ -1371,7 +1432,7 @@ impl Workbench {
         (self.home_of(agent)).is_some_and(|(_, view)| desk_place_in(view, agent).is_some())
     }
 
-    fn ensure_desk_open(&self, agent: &str, cx: &mut Context<Self>) {
+    pub(crate) fn ensure_desk_open(&self, agent: &str, cx: &mut Context<Self>) {
         if let Some((_, view)) = self.home_of(agent) {
             if let Some((_, _, desk)) = desk_place_in(view, agent) {
                 if self.panes.shutting(&desk) {
@@ -2222,7 +2283,7 @@ impl Workbench {
     }
 
     /// Brings the agent and its desk's pages to the front, with the page wanted in the keys.
-    fn bring_pages_forward(&mut self, agent: &str, cx: &mut Context<Self>) {
+    pub(crate) fn bring_pages_forward(&mut self, agent: &str, cx: &mut Context<Self>) {
         self.open_agent(agent, cx);
         self.desks.update(cx, |desks, cx| {
             desks.turn_to_pages(agent, cx);
@@ -2276,8 +2337,10 @@ impl Workbench {
         let Some(engine) = self.desks.read(cx).engine.clone() else {
             return false;
         };
-        self.desks
-            .update(cx, |desks, cx| desks.turn_to_pages(agent, cx));
+        self.desks.update(cx, |desks, cx| {
+            desks.cancel_opening_artifact(agent, cx);
+            desks.turn_to_pages(agent, cx);
+        });
         self.ensure_desk_open(agent, cx);
         let (agent, url) = (agent.to_owned(), url.to_owned());
         let profile = self.default_tab_profile_for_agent(&agent);
@@ -2303,6 +2366,7 @@ impl Workbench {
         let agent = agent.to_owned();
         let profile = self.default_tab_profile_for_agent(&agent);
         self.desks.update(cx, |desks, cx| {
+            desks.cancel_opening_artifact(&agent, cx);
             desks.address_wanted = Some(agent.clone());
             cx.notify();
         });
@@ -2623,6 +2687,28 @@ fn idle_blank(tab: &sikemux_browser::BrowserTab) -> bool {
     tab.url == sikemux_browser::BLANK_URL && !tab.loading
 }
 
+fn loading_artifact(tab: &sikemux_browser::BrowserTab) -> bool {
+    tab.loading && tab.local_file.as_deref().and_then(page_id_of).is_some()
+}
+
+fn artifact_loading(focus: Option<&FocusHandle>, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    div()
+        .when_some(focus, |el, focus| el.track_focus(focus))
+        .size_full()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(SPACE_2)
+        .child(ui::working(18., t.text_tertiary))
+        .child(
+            ui::text(t!("Loading artifact…"), TEXT_XS, FontWeight::NORMAL)
+                .text_color(t.text_tertiary),
+        )
+        .into_any_element()
+}
+
 fn view_of(pane: &Pane, kind: PaneKind, target: &str) -> Option<String> {
     crate::panes::views(pane)
         .find(|view| view.kind == kind && view.target == target)
@@ -2794,9 +2880,10 @@ fn head(
         )
         .children(ui::spot(|| format!("desk-page-{agent}-{}", page.title)))
         .clicks(cx.listener(move |bench, _, _, cx| {
-            bench
-                .desks
-                .update(cx, |desks, cx| desks.turn_to_pages(&switch_agent, cx));
+            bench.desks.update(cx, |desks, cx| {
+                desks.cancel_opening_artifact(&switch_agent, cx);
+                desks.turn_to_pages(&switch_agent, cx);
+            });
             bench.with_engine(cx, |engine| engine.switch_tab(&switch_agent, &switch_tab));
         }))
         .context_menu(ui::menu(tab_menu(
@@ -3170,6 +3257,7 @@ fn pages_desk(
     let desks = bench.desks.read(cx);
     let strip = desks.strips.get(agent).cloned();
     let front_item = desks.front_item(agent).cloned();
+    let opening = desks.opening_artifacts.get(agent).cloned();
     let strip = strip.as_deref();
     let front = strip.and_then(|strip| {
         strip
@@ -3195,33 +3283,57 @@ fn pages_desk(
     }
     let no_pages = strip.is_none_or(|strip| strip.tabs.is_empty());
     if let crate::hosts::Place::Account(host) = bench.place() {
-        if no_pages {
+        if no_pages && opening.is_none() {
             return elsewhere(bench, &host, cx);
         }
     }
-    let artifact = front.and_then(|tab| {
-        let id = page_id_of(tab.local_file.as_deref()?)?;
-        let listed = bench.pages.page(id).map(|page| page.title.clone());
-        Some((id.to_owned(), listed.unwrap_or_else(|| tab.title.clone())))
-    });
+    let artifact = opening
+        .as_ref()
+        .map(|pending| {
+            let listed = bench.pages.page(&pending.id).map(|page| page.title.clone());
+            let title = listed
+                .or_else(|| pending.title.clone())
+                .filter(|title| !title.is_empty())
+                .unwrap_or_else(|| t!("Artifact").to_owned());
+            (pending.id.clone(), title)
+        })
+        .or_else(|| {
+            front.and_then(|tab| {
+                let id = page_id_of(tab.local_file.as_deref()?)?;
+                let listed = bench.pages.page(id).map(|page| page.title.clone());
+                let title = listed.unwrap_or_else(|| tab.title.clone());
+                let title = if title.is_empty() {
+                    t!("Artifact").to_owned()
+                } else {
+                    title
+                };
+                Some((id.to_owned(), title))
+            })
+        });
     let title = artifact.as_ref().map(|(_, title)| title.clone());
     let keeping = artifact.and_then(|(id, title)| keep_and_share(bench, agent, id, title, cx));
-    let shown = bench.page_on_desk(agent, cx);
+    let shown = opening
+        .as_ref()
+        .map(|pending| pending.id.clone())
+        .or_else(|| bench.page_on_desk(agent, cx));
     let foot = shown.as_ref().map(|_| page_foot(bench, agent, cx));
     let asked = (shown.as_deref()).and_then(|page| bench.asked_about(page, agent, cx));
     let page = bench.desks.read(cx).pages.get(agent);
+    let shown_front = front.filter(|_| opening.is_none());
     let bar = second_row(cx)
         .map(|bar| match title {
             Some(title) => bar
                 .child(artifact_title(title, cx))
                 .children(asked.map(|call| back_to_ask(call.id, agent, cx)))
                 .children(keeping.into_iter().flatten()),
-            None => navigation(bar, bench, agent, front, window, cx),
+            None => navigation(bar, bench, agent, shown_front, window, cx),
         })
-        .children(front.map(|tab| width::chip(bench, agent, &tab.id, cx)))
-        .children(blind_fill_pill(bench, agent, front, cx))
-        .child(snip_toggle(bench, agent, cx))
-        .children(front.and_then(external_address).map(|address| {
+        .children(shown_front.map(|tab| width::chip(bench, agent, &tab.id, cx)))
+        .children(blind_fill_pill(bench, agent, shown_front, cx))
+        .when(opening.is_none(), |bar| {
+            bar.child(snip_toggle(bench, agent, cx))
+        })
+        .children(shown_front.and_then(external_address).map(|address| {
             IconButton::new(
                 "desk-open-external",
                 Icon::ExternalLink,
@@ -3230,6 +3342,7 @@ fn pages_desk(
             .glyph(13.)
             .on_click(move |_, _, cx| cx.open_url(&address))
         }));
+    let show_bar = !no_pages || opening.is_some();
     let body = div()
         .flex_1()
         .min_h_0()
@@ -3237,37 +3350,47 @@ fn pages_desk(
         .mb(px(1.))
         .relative()
         .key_context("BrowserPage")
-        .children(page.filter(|_| !no_pages).map(|page| {
-            match front {
-                Some(tab) if idle_blank(tab) => div()
-                    .track_focus(&page.focus)
-                    .size_full()
-                    .into_any_element(),
-                _ => {
-                    let live = native_view(
-                        SharedString::from(format!("desk-page-{agent}")),
-                        &page.surface,
-                    )
-                    .track_focus(&page.focus)
-                    .size_full()
-                    .into_any_element();
-                    match front.filter(|tab| width::shows_all(bench, agent, tab, cx)) {
-                        Some(tab) => width::all(bench, agent, tab, live, cx),
-                        None => live,
+        .when(opening.is_some(), |body| {
+            body.child(artifact_loading(page.map(|page| &page.focus), cx))
+        })
+        .when(opening.is_none(), |body| {
+            body.children(page.filter(|_| !no_pages).map(|page| {
+                match front {
+                    Some(tab) if idle_blank(tab) => div()
+                        .track_focus(&page.focus)
+                        .size_full()
+                        .into_any_element(),
+                    _ => {
+                        let live = match front {
+                            Some(tab) if loading_artifact(tab) => {
+                                artifact_loading(Some(&page.focus), cx)
+                            }
+                            _ => native_view(
+                                SharedString::from(format!("desk-page-{agent}")),
+                                &page.surface,
+                            )
+                            .track_focus(&page.focus)
+                            .size_full()
+                            .into_any_element(),
+                        };
+                        match front.filter(|tab| width::shows_all(bench, agent, tab, cx)) {
+                            Some(tab) => width::all(bench, agent, tab, live, cx),
+                            None => live,
+                        }
                     }
                 }
-            }
-        }))
-        .when(no_pages, |body| body.child(on_this_desk(bench, agent, cx)))
+            }))
+            .when(no_pages, |body| body.child(on_this_desk(bench, agent, cx)))
+        })
         .children(foot)
         .children(address::overlay(bench, agent, cx));
-    let dialog_bar = dialog::banner(bench, agent, front, cx);
+    let dialog_bar = dialog::banner(bench, agent, shown_front, cx);
     div()
         .flex_1()
         .min_h_0()
         .flex()
         .flex_col()
-        .when(!no_pages, |content| content.child(bar))
+        .when(show_bar, |content| content.child(bar))
         .children(dialog_bar)
         .child(body)
         .into_any_element()

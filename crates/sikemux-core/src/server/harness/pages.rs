@@ -725,11 +725,18 @@ pub(crate) async fn read_page(core: &Core, params: PageParams) -> CoreResult<Pag
         use base64::Engine as _;
         let path = crate::pages::page_file(&dir, &params.id)
             .ok_or_else(|| CoreError::from("that page is gone"))?;
-        let html = crate::pages::read_file_html(&path)
-            .map_err(|_| CoreError::from("that page is gone"))?;
-        let picture = std::fs::read(picture_path(&dir, &params.id))
-            .ok()
-            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes));
+        let html = if params.skip_html {
+            String::new()
+        } else {
+            crate::pages::read_file_html(&path).map_err(|_| CoreError::from("that page is gone"))?
+        };
+        let picture = if params.skip_picture {
+            None
+        } else {
+            std::fs::read(picture_path(&dir, &params.id))
+                .ok()
+                .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes))
+        };
         let media =
             Some(crate::pages::media_folder(&dir, &params.id)).filter(|media| media.is_dir());
         Ok(PageHtml {

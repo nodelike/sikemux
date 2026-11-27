@@ -252,5 +252,8 @@ impl TabEvents for TabListener {
             .entry(self.tab_id.clone())
             .or_default()
             .stall = stall;
+        if stall == Some(TabStall::Crashed) {
+            self.note(|page| page.loading = false);
+        }
     }
 }

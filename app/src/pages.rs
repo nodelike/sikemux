@@ -85,18 +85,62 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) {
         let local = matches!(at.place(), crate::hosts::Place::This);
-        let asked = at.request_typed::<call::ReadPage>(PageParams {
-            id: id.to_owned(),
-            agent: agent.map(str::to_owned),
-        });
+        let mut params = PageParams::new(id).without_picture();
+        params.agent = agent.map(str::to_owned);
+        if local {
+            params = params.without_html();
+        }
+        let asked = at.request_typed::<call::ReadPage>(params);
+        let title = self.pages.page(id).map(|page| page.title.clone());
+        let pending = agent
+            .filter(|agent| self.agent_place(agent).is_some())
+            .map(|agent| {
+                let seq = self.desks.update(cx, |desks, cx| {
+                    desks.begin_opening_artifact(agent, id, title.clone(), cx)
+                });
+                self.bring_pages_forward(agent, cx);
+                self.ensure_desk_open(agent, cx);
+                (agent.to_owned(), seq)
+            });
         let id = id.to_owned();
         cx.spawn(async move |bench, cx| {
+            let mut active = pending;
             let opened = match asked.await {
                 Ok(page) => {
                     let opening = bench.update(cx, |bench, cx| {
+                        if let Some((prev_agent, seq)) = active.as_ref() {
+                            if !bench.desks.read(cx).is_opening_artifact(prev_agent, *seq) {
+                                active = None;
+                                return None;
+                            }
+                        }
                         bench.saw_page(&id, cx);
-                        let agent = page.desk.clone();
-                        let agent = agent.or_else(|| Some(bench.nearest_agent(cx)?.2))?;
+                        let agent = page
+                            .desk
+                            .clone()
+                            .or_else(|| Some(bench.nearest_agent(cx)?.2));
+                        let Some(agent) = agent else {
+                            if let Some((prev_agent, seq)) = active.take() {
+                                bench.desks.update(cx, |desks, cx| {
+                                    desks.finish_opening_artifact(&prev_agent, seq, cx);
+                                });
+                            }
+                            return None;
+                        };
+                        let same_agent = active
+                            .as_ref()
+                            .is_some_and(|(prev_agent, _)| prev_agent == &agent);
+                        if !same_agent {
+                            if let Some((prev_agent, seq)) = active.take() {
+                                bench.desks.update(cx, |desks, cx| {
+                                    desks.finish_opening_artifact(&prev_agent, seq, cx);
+                                });
+                            }
+                            let seq = bench.desks.update(cx, |desks, cx| {
+                                desks.begin_opening_artifact(&agent, &id, title.clone(), cx)
+                            });
+                            active = Some((agent.clone(), seq));
+                        }
                         let files = bench.desks.read(cx).page_files.clone();
                         Some(bench.bring_page_forward(&agent, cx, move |_| async move {
                             files.kept_url(&id, &page, local)
@@ -109,10 +153,18 @@ impl Workbench {
                 }
                 Err(error) => Err(error.to_string()),
             };
-            if let Err(error) = opened {
-                let note = t!("The artifact did not open: {error}", error = error);
-                let _ = bench.update(cx, |bench, cx| bench.notify(toast::error(note), cx));
-            }
+            let _ = bench.update(cx, |bench, cx| {
+                bench.read_strips(cx);
+                if let Some((agent, seq)) = active.take() {
+                    bench.desks.update(cx, |desks, cx| {
+                        desks.finish_opening_artifact(&agent, seq, cx);
+                    });
+                }
+                if let Err(error) = opened {
+                    let note = t!("The artifact did not open: {error}", error = error);
+                    bench.notify(toast::error(note), cx);
+                }
+            });
         })
         .detach();
     }

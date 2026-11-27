@@ -262,7 +262,7 @@ fn fetch(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) {
     else {
         return;
     };
-    let answer = target.request_typed::<call::ReadPage>(PageParams::new(&page.id));
+    let answer = target.request_typed::<call::ReadPage>(PageParams::new(&page.id).without_html());
     let (id, reader) = (page.id.clone(), looks.reader.clone());
     window
         .spawn(cx, async move |cx| {

@@ -7,6 +7,10 @@ pub struct PageParams {
     /// showed it when none is named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub skip_html: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub skip_picture: bool,
 }
 
 impl PageParams {
@@ -14,12 +18,25 @@ impl PageParams {
         Self {
             id: id.to_owned(),
             agent: None,
+            skip_html: false,
+            skip_picture: false,
         }
+    }
+
+    pub fn without_html(mut self) -> Self {
+        self.skip_html = true;
+        self
+    }
+
+    pub fn without_picture(mut self) -> Self {
+        self.skip_picture = true;
+        self
     }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct PageHtml {
+    #[serde(default)]
     pub html: String,
     /// Where the core keeps the page on its computer, so a local app can serve it directly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
