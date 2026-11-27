@@ -2486,6 +2486,290 @@ pub fn vercel_takes_away(args: &[impl AsRef<str>]) -> bool {
     })
 }
 
+/// Whether `ship` is an ordinary deploy rather than a destructive, arbitrary-host, rerun,
+/// unread-workflow or non-deploy management action carrying `ShipKind::Deploy`.
+pub fn ordinary_deploy(ship: &Ship) -> bool {
+    if ship.kind != ShipKind::Deploy {
+        return false;
+    }
+    let target = ship.target.as_ref().map(Target::bare);
+    match target {
+        Some(
+            Target::Rerun { .. }
+            | Target::Workflow { rerun: Some(_), .. }
+            | Target::Workflow { unread: true, .. }
+            | Target::Tag { .. }
+            | Target::Package { .. }
+            | Target::Database { .. }
+            | Target::CloudflareZone { .. }
+            | Target::Site { .. }
+            | Target::GitHub { .. },
+        ) => return false,
+        Some(Target::Stage { tool, .. }) if tool == SSH => return false,
+        _ => {}
+    }
+    if matches!(
+        ship.what.split_whitespace().next(),
+        Some("rundeck_import" | "rundeck_edit")
+    ) {
+        return false;
+    }
+    ordinary_deploy_line(&ship.what, target, 0)
+}
+
+fn ordinary_deploy_line(line: &str, target: Option<&Target>, depth: u8) -> bool {
+    if depth > MAX_ALIAS_DEPTH {
+        return false;
+    }
+    for piece in pieces(line) {
+        let Piece::Words(all) = piece else {
+            continue;
+        };
+        match command_words(&all) {
+            Unwrapped::None => {}
+            Unwrapped::Command { words, .. } => {
+                if !ordinary_deploy_command(&words, target, depth) {
+                    return false;
+                }
+            }
+            Unwrapped::UnknownWrapperFlag { rest, .. } => {
+                for (at, word) in rest.iter().enumerate() {
+                    if !word.starts_with('-')
+                        && rest
+                            .get(at..)
+                            .is_some_and(|tail| !ordinary_deploy_command(tail, target, depth))
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+    true
+}
+
+fn positional_args<'a>(args: &'a [String], valued: &[&str]) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        if word == "--" {
+            out.extend(words.map(String::as_str));
+            break;
+        }
+        if valued.contains(&word.as_str()) {
+            words.next();
+            continue;
+        }
+        if word.starts_with('-') {
+            continue;
+        }
+        out.push(word.as_str());
+    }
+    out
+}
+
+fn ordinary_deploy_command(words: &[String], target: Option<&Target>, depth: u8) -> bool {
+    if let Some(script) = shell_script(words) {
+        return ordinary_deploy_line(&script, target, depth + 1);
+    }
+    let Some((raw_program, mut args)) = words.split_first() else {
+        return true;
+    };
+    let mut program = program_name(raw_program);
+    for _ in 0..MAX_ALIAS_DEPTH {
+        let Some((inner, inner_args)) = wrapped(program, args) else {
+            break;
+        };
+        program = inner;
+        args = inner_args;
+    }
+    match program {
+        p if ssh::PROGRAMS.contains(&p) => false,
+        "dokku" => false,
+        "gh" => {
+            let gh = gh_args(args);
+            if gh.starts_with(&["run".to_owned(), "rerun".to_owned()]) {
+                return false;
+            }
+            if gh.starts_with(&["workflow".to_owned(), "run".to_owned()]) {
+                return matches!(
+                    target,
+                    Some(Target::Workflow {
+                        rerun: None,
+                        unread: false,
+                        ..
+                    })
+                );
+            }
+            true
+        }
+        "vercel" => {
+            if vercel_takes_away(args) {
+                return false;
+            }
+            let pos = positional_args(
+                args,
+                &[
+                    "--scope",
+                    "-S",
+                    "--team",
+                    "-T",
+                    "--token",
+                    "-t",
+                    "--cwd",
+                    "--local-config",
+                    "-A",
+                    "--global-config",
+                    "-Q",
+                    "--target",
+                    "--regions",
+                    "--build-env",
+                    "-b",
+                    "--env",
+                    "-e",
+                    "--meta",
+                    "-m",
+                    "--name",
+                    "-n",
+                    "--archive",
+                ],
+            );
+            let first = pos.first().copied();
+            if matches!(
+                first,
+                Some(
+                    "rm" | "remove"
+                        | "env"
+                        | "project"
+                        | "projects"
+                        | "domains"
+                        | "dns"
+                        | "certs"
+                        | "blob"
+                        | "secret"
+                        | "secrets"
+                )
+            ) {
+                return false;
+            }
+            if first == Some("alias")
+                && pos
+                    .get(1..)
+                    .is_some_and(|rest| rest.iter().any(|word| matches!(*word, "rm" | "remove")))
+            {
+                return false;
+            }
+            !args
+                .windows(2)
+                .any(|pair| matches!(pair, [a, b] if a == "alias" && matches!(b.as_str(), "rm" | "remove")))
+        }
+        "terraform" => {
+            if has_flag(args, &["-destroy", "--destroy"]) {
+                return false;
+            }
+            let pos = positional_args(args, &["-chdir"]);
+            pos.first() != Some(&"destroy")
+        }
+        "pulumi" => {
+            let pos = positional_args(
+                args,
+                &[
+                    "-C",
+                    "--cwd",
+                    "-s",
+                    "--stack",
+                    "--config-file",
+                    "--color",
+                    "--profiling",
+                    "--tracing",
+                ],
+            );
+            pos.first() != Some(&"destroy")
+        }
+        "cdk" => {
+            let pos = positional_args(
+                args,
+                &[
+                    "--app",
+                    "-a",
+                    "--context",
+                    "-c",
+                    "--plugin",
+                    "--profile",
+                    "--output",
+                    "-o",
+                    "--role-arn",
+                    "-r",
+                    "--proxy",
+                    "--ca-bundle-path",
+                ],
+            );
+            pos.first() != Some(&"destroy")
+        }
+        "kubectl" => {
+            let verb = args.iter().find_map(|arg| {
+                CLUSTER_VERBS
+                    .iter()
+                    .find(|(verb, _)| verb == arg)
+                    .map(|(verb, _)| *verb)
+            });
+            !matches!(verb, Some("delete" | "drain"))
+        }
+        "helm" => {
+            let verb = args.iter().find_map(|arg| {
+                CLUSTER_VERBS
+                    .iter()
+                    .find(|(verb, _)| verb == arg)
+                    .map(|(verb, _)| *verb)
+            });
+            !matches!(verb, Some("uninstall" | "delete"))
+        }
+        "aws" => {
+            let pos = positional_args(
+                args,
+                &[
+                    "--profile",
+                    "--region",
+                    "--endpoint-url",
+                    "--output",
+                    "--color",
+                    "--ca-bundle",
+                    "--cli-read-timeout",
+                    "--cli-connect-timeout",
+                ],
+            );
+            if matches!(
+                pos.as_slice(),
+                ["cloudformation", "delete-stack", ..] | ["s3", "rm" | "rb", ..]
+            ) {
+                return false;
+            }
+            !args.windows(2).any(|pair| {
+                matches!(
+                    pair,
+                    [a, b]
+                        if matches!(
+                            (a.as_str(), b.as_str()),
+                            ("cloudformation", "delete-stack") | ("s3", "rm" | "rb")
+                        )
+                )
+            })
+        }
+        "sst" => {
+            let pos = positional_args(args, &["--stage", "--config", "--mode"]);
+            pos.first() != Some(&"remove")
+        }
+        "sam" => {
+            let pos = positional_args(
+                args,
+                &["--config-env", "--config-file", "--profile", "--region"],
+            );
+            pos.first() != Some(&"delete")
+        }
+        _ => true,
+    }
+}
+
 /// Switches of the deploy and publish programs known to take no value, after which a
 /// `--dry-run` is the program's own flag.
 const SWITCHES: [&str; 33] = [

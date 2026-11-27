@@ -1405,3 +1405,503 @@ fn a_gates_call_explained_in_a_second_paragraph_keeps_a_one_line_row() {
     let explained = open_calls(&core).remove(0).question;
     assert!(explained.ends_with(reason), "{explained}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn always_allow_deploys_only_covers_ordinary_deploys() {
+    let dir = repo();
+    let (cwd, project) = work_of(&dir);
+    let offered = |call: &PersonCall| (call.options.iter()).any(|o| o.id == ship::ALWAYS);
+
+    let vercel = vercel_place();
+    let kube = new_place(
+        "prod on Kubernetes",
+        true,
+        vec![Recognise::KubeContext {
+            name: "prod".into(),
+        }],
+        None,
+    );
+    let tf = new_place(
+        "prod on Terraform",
+        true,
+        vec![Recognise::TerraformWorkspace {
+            name: "prod".into(),
+        }],
+        None,
+    );
+    let aws = new_place(
+        "prod on AWS",
+        true,
+        vec![Recognise::AwsProfile {
+            name: "prod".into(),
+        }],
+        None,
+    );
+    let pulumi = judge::stage_place("Pulumi", "prod", None);
+    let cdk = judge::stage_place("CDK", "prod", None);
+    let sst = judge::stage_place("SST", "prod", None);
+    let sam = judge::stage_place("SAM", "prod", None);
+    let dokku = judge::stage_place("Dokku", "prod", None);
+    let mut ssh_place = judge::stage_place(crate::ship::SSH, "citadel", None);
+    ssh_place.shown.production = true;
+    ssh_place.shown.level = Level::Mine;
+    let workflow = new_place(
+        "deploy.yml",
+        true,
+        vec![Recognise::Command {
+            words: "gh workflow run deploy.yml".into(),
+        }],
+        None,
+    );
+    let rundeck = new_place(
+        "prod jobs on Rundeck",
+        true,
+        vec![Recognise::RundeckJob {
+            path: "prod/*".into(),
+        }],
+        None,
+    );
+
+    let all_places = vec![
+        vercel.clone(),
+        kube.clone(),
+        tf.clone(),
+        aws.clone(),
+        pulumi.clone(),
+        cdk.clone(),
+        sst.clone(),
+        sam.clone(),
+        dokku.clone(),
+        ssh_place.clone(),
+        workflow.clone(),
+        rundeck.clone(),
+    ];
+
+    let ship_with = |what: &str, target: Target| Ship {
+        kind: ShipKind::Deploy,
+        what: what.to_owned(),
+        target: Some(target),
+    };
+
+    let non_deploy_cases: Vec<(Place, Ship)> = vec![
+        (
+            vercel.clone(),
+            ship_with(
+                "vercel env add SECRET production",
+                Target::Vercel { production: true },
+            ),
+        ),
+        (
+            vercel.clone(),
+            ship_with(
+                "vercel env rm SECRET production",
+                Target::Vercel { production: true },
+            ),
+        ),
+        (
+            vercel.clone(),
+            ship_with(
+                "vercel project rm acme",
+                Target::Vercel { production: true },
+            ),
+        ),
+        (
+            vercel.clone(),
+            ship_with(
+                "vercel domains rm acme.dev",
+                Target::Vercel { production: true },
+            ),
+        ),
+        (
+            vercel.clone(),
+            ship_with("vercel dns rm rec_123", Target::Vercel { production: true }),
+        ),
+        (
+            vercel.clone(),
+            ship_with(
+                "vercel certs rm cert_123",
+                Target::Vercel { production: true },
+            ),
+        ),
+        (
+            vercel.clone(),
+            ship_with(
+                "vercel blob del https://example.com/a",
+                Target::Vercel { production: true },
+            ),
+        ),
+        (
+            vercel.clone(),
+            ship_with("vercel rm dpl_123", Target::Vercel { production: true }),
+        ),
+        (
+            vercel.clone(),
+            ship_with(
+                "vercel --scope acme rm dpl_123",
+                Target::Vercel { production: true },
+            ),
+        ),
+        (
+            vercel.clone(),
+            ship_with(
+                "vercel alias rm acme.dev",
+                Target::Vercel { production: true },
+            ),
+        ),
+        (
+            tf.clone(),
+            ship_with(
+                "terraform destroy",
+                Target::TerraformWorkspace {
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            tf.clone(),
+            ship_with(
+                "terraform apply -destroy",
+                Target::TerraformWorkspace {
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            pulumi.clone(),
+            ship_with(
+                "pulumi destroy -s prod",
+                Target::Stage {
+                    tool: "Pulumi".into(),
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            cdk.clone(),
+            ship_with(
+                "cdk destroy prod",
+                Target::Stage {
+                    tool: "CDK".into(),
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            kube.clone(),
+            ship_with(
+                "kubectl --context prod delete deployment web",
+                Target::KubeContext {
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            kube.clone(),
+            ship_with(
+                "helm --kube-context prod uninstall web",
+                Target::KubeContext {
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            kube.clone(),
+            ship_with(
+                "helm --kube-context prod delete web",
+                Target::KubeContext {
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            aws.clone(),
+            ship_with(
+                "aws --profile prod cloudformation delete-stack --stack-name web",
+                Target::AwsProfile {
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            aws.clone(),
+            ship_with(
+                "aws --profile prod s3 rm s3://prod-bucket/app.js",
+                Target::AwsProfile {
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            aws.clone(),
+            ship_with(
+                "aws --profile prod s3 rb s3://prod-bucket",
+                Target::AwsProfile {
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            sst.clone(),
+            ship_with(
+                "sst remove --stage prod",
+                Target::Stage {
+                    tool: "SST".into(),
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            sam.clone(),
+            ship_with(
+                "sam delete --config-env prod",
+                Target::Stage {
+                    tool: "SAM".into(),
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            dokku.clone(),
+            ship_with(
+                "dokku apps:destroy prod",
+                Target::Stage {
+                    tool: "Dokku".into(),
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            ssh_place.clone(),
+            ship_with(
+                "ssh citadel 'rm -rf /srv/app'",
+                Target::Stage {
+                    tool: crate::ship::SSH.into(),
+                    name: "citadel".into(),
+                },
+            ),
+        ),
+        (
+            workflow.clone(),
+            ship_with(
+                "gh run rerun 12345",
+                Target::Workflow {
+                    file: "deploy.yml".into(),
+                    environments: vec!["production".into()],
+                    inputs: Vec::new(),
+                    rerun: Some("run 12345".into()),
+                    unread: false,
+                },
+            ),
+        ),
+        (
+            workflow.clone(),
+            ship_with(
+                "gh run rerun 12345",
+                Target::Rerun {
+                    repo: "acme/web".into(),
+                    of: "run 12345".into(),
+                },
+            ),
+        ),
+        (
+            workflow.clone(),
+            ship_with(
+                "gh workflow run deploy.yml",
+                Target::Workflow {
+                    file: "deploy.yml".into(),
+                    environments: Vec::new(),
+                    inputs: Vec::new(),
+                    rerun: None,
+                    unread: true,
+                },
+            ),
+        ),
+        (
+            rundeck.clone(),
+            ship_with(
+                "rundeck_edit {\"job\":\"prod/deploy\"}",
+                Target::RundeckJob {
+                    path: "prod/deploy".into(),
+                    production: true,
+                },
+            ),
+        ),
+        (
+            rundeck.clone(),
+            ship_with(
+                "rundeck_import {\"job\":\"prod/deploy\"}",
+                Target::RundeckJob {
+                    path: "prod/deploy".into(),
+                    production: true,
+                },
+            ),
+        ),
+    ];
+
+    for (place, ship) in &non_deploy_cases {
+        assert!(
+            !judge::ordinary(place, ship, false),
+            "expected ordinary == false for {}",
+            ship.what
+        );
+    }
+
+    let deploy_cases: Vec<(Place, Ship)> = vec![
+        (vercel.clone(), deploy("vercel --prod")),
+        (
+            tf.clone(),
+            ship_with(
+                "terraform apply",
+                Target::TerraformWorkspace {
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            kube.clone(),
+            ship_with(
+                "kubectl --context prod apply -f k8s",
+                Target::KubeContext {
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            aws.clone(),
+            ship_with(
+                "aws --profile prod ecs update-service --service web",
+                Target::AwsProfile {
+                    name: "prod".into(),
+                },
+            ),
+        ),
+        (
+            workflow.clone(),
+            ship_with(
+                "gh workflow run deploy.yml",
+                Target::Workflow {
+                    file: "deploy.yml".into(),
+                    environments: vec!["production".into()],
+                    inputs: Vec::new(),
+                    rerun: None,
+                    unread: false,
+                },
+            ),
+        ),
+        (
+            rundeck.clone(),
+            ship_with(
+                "rundeck_run {\"job\":\"prod/deploy\"}",
+                Target::RundeckJob {
+                    path: "prod/deploy".into(),
+                    production: true,
+                },
+            ),
+        ),
+    ];
+
+    for (place, ship) in &deploy_cases {
+        assert!(
+            judge::ordinary(place, ship, false),
+            "expected ordinary == true for {}",
+            ship.what
+        );
+    }
+
+    let core = core_at(None, &project, all_places.clone());
+    for (_, ship) in &non_deploy_cases {
+        assert!(run(&core, ship.clone(), &cwd).is_err(), "{}", ship.what);
+        let call = open_calls(&core)
+            .into_iter()
+            .find(|call| call.action.as_deref() == Some(ship.what.as_str()))
+            .unwrap_or_else(|| panic!("no open call for {}", ship.what));
+        assert!(
+            !offered(&call),
+            "non-deploy offered always allow: {}",
+            ship.what
+        );
+        assert_eq!(ship::take_back(&core, "agent", &call.id), Some(Ok(())));
+    }
+
+    let core = core_at(None, &project, all_places);
+    for (place, ship) in &deploy_cases {
+        assert!(run(&core, ship.clone(), &cwd).is_err(), "{}", ship.what);
+        let call = open_calls(&core)
+            .into_iter()
+            .find(|call| {
+                call.place.as_ref().map(|p| p.id.as_str()) == Some(place.shown.id.as_str())
+            })
+            .unwrap_or_else(|| panic!("no open call for {}", ship.what));
+        assert!(
+            offered(&call),
+            "deploy did not offer always allow: {}",
+            ship.what
+        );
+        answer(&core, &call.id, ship::ALWAYS).await;
+    }
+
+    for (_, ship) in &deploy_cases {
+        assert!(
+            run(&core, ship.clone(), &cwd).is_ok(),
+            "allowed deploy did not pass: {}",
+            ship.what
+        );
+    }
+
+    // Even in the same turn (while the ALWAYS yes is still active) and after the turn ends,
+    // every non-deploy action must still ask and never offer always allow.
+    for (_, ship) in &non_deploy_cases {
+        let ran = run(&core, ship.clone(), &cwd);
+        assert!(
+            ran.is_err(),
+            "non-deploy passed after always allow: {}",
+            ship.what
+        );
+        let call = open_calls(&core)
+            .into_iter()
+            .find(|call| call.action.as_deref() == Some(ship.what.as_str()))
+            .unwrap_or_else(|| panic!("no open call after always allow for {}", ship.what));
+        assert!(
+            !offered(&call),
+            "non-deploy offered always allow after allow: {}",
+            ship.what
+        );
+        assert_eq!(ship::take_back(&core, "agent", &call.id), Some(Ok(())));
+    }
+
+    core.ship().turn_started("agent");
+    core.ship().turn_ended("agent");
+    for (_, ship) in &deploy_cases {
+        assert!(
+            run(&core, ship.clone(), &cwd).is_ok(),
+            "allowed deploy did not pass in next turn: {}",
+            ship.what
+        );
+    }
+
+    std::fs::write(cwd.join("vercel.json"), "{}").unwrap();
+    for ship in [
+        Ship {
+            kind: ShipKind::Push,
+            what: "git push --force origin HEAD:main".into(),
+            target: None,
+        },
+        Ship {
+            kind: ShipKind::Merge,
+            what: "gh pr merge 5 --admin".into(),
+            target: None,
+        },
+    ] {
+        assert!(run(&core, ship.clone(), &cwd).is_err(), "{}", ship.what);
+        let call = open_calls(&core)
+            .into_iter()
+            .find(|call| call.action.as_deref() == Some(ship.what.as_str()))
+            .unwrap_or_else(|| panic!("no open call for {}", ship.what));
+        assert!(
+            !offered(&call),
+            "forced push or admin merge offered always allow: {}",
+            ship.what
+        );
+        assert_eq!(ship::take_back(&core, "agent", &call.id), Some(Ok(())));
+    }
+}

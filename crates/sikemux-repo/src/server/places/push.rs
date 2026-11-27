@@ -576,6 +576,11 @@ pub struct MergeReach {
 }
 
 impl Merging {
+    /// Whether the merge overrides branch protection or has flags Sikemux could not read.
+    pub fn rewrites(&self) -> bool {
+        self.overrides || !self.read
+    }
+
     /// Whether the pull request is of the repository checked out at `root`.
     pub fn is_into(&self, root: &Path) -> bool {
         (self.repo.as_ref()).is_none_or(|repo| is_remote_of(repo, root))
