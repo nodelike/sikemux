@@ -49,7 +49,7 @@
   "tools": [
     {
       "name": "bitbucket_pulls",
-      "row": {"verb": "list", "kind": "read", "icon": "pull-request", "target": ["{name} pull requests"], "detail": ["{state}"]},
+      "row": {"verb": "list", "kind": "read", "icon": "pull-request", "target": ["{name} pull requests", "pull requests"], "detail": ["{state}", "{head}", "{author}"]},
       "method": "pulls",
       "description": "Pull requests, newest update first, with state, branches and reviewers but no descriptions; bitbucket pull reads one.",
       "properties": {
@@ -65,7 +65,7 @@
     },
     {
       "name": "bitbucket_pull",
-      "row": {"verb": "read", "kind": "read", "icon": "pull-request", "target": ["{name}#{number}"]},
+      "row": {"verb": "read", "kind": "read", "icon": "pull-request", "target": ["{name}#{number}", "PR #{number}"]},
       "method": "pull",
       "description": "One pull request with its reviewers, headSha, builds, and whether it can merge; mergeState says why not.",
       "properties": {
@@ -77,7 +77,7 @@
     },
     {
       "name": "bitbucket_pull_files",
-      "row": {"verb": "diff", "kind": "read", "icon": "pull-request", "target": ["{name}#{number}"], "detail": ["{paths}"]},
+      "row": {"verb": "diff", "kind": "read", "icon": "pull-request", "target": ["{name}#{number}", "PR #{number}"], "detail": ["{paths}"]},
       "method": "pullFiles",
       "description": "The files a pull request changes, with status, line counts and any old path. Name paths for their diffs; a long diff comes in parts, with a note on the rest.",
       "properties": {
@@ -92,7 +92,7 @@
     },
     {
       "name": "bitbucket_comments",
-      "row": {"verb": "read", "kind": "read", "icon": "pull-request", "target": ["comments on {name}#{number}"]},
+      "row": {"verb": "read", "kind": "read", "icon": "pull-request", "target": ["comments on {name}#{number}", "comments on #{number}"], "detail": ["{of}"]},
       "method": "comments",
       "description": "What people wrote on a pull request or an issue, oldest first. Issues are numbered apart from pull requests, so say which.",
       "properties": {
@@ -105,7 +105,7 @@
     },
     {
       "name": "bitbucket_issues",
-      "row": {"verb": "list", "kind": "read", "icon": "issue", "target": ["{name} issues"], "detail": ["{state}"]},
+      "row": {"verb": "list", "kind": "read", "icon": "issue", "target": ["{name} issues", "issues"], "detail": ["{state}"]},
       "method": "issues",
       "description": "Issues in the repository's Bitbucket tracker, recently updated first, 30 a page. A repository whose issues live in Jira has none here.",
       "properties": {
@@ -118,7 +118,7 @@
     },
     {
       "name": "bitbucket_pipelines",
-      "row": {"verb": "list", "kind": "read", "icon": "workflow", "target": ["{name} pipelines"], "detail": ["{branch}", "{status}"]},
+      "row": {"verb": "list", "kind": "read", "icon": "workflow", "target": ["{name} pipelines", "pipelines"], "detail": ["{branch}", "{status}"]},
       "method": "runs",
       "description": "Recent Pipelines runs, newest first, with status and conclusion.",
       "properties": {
@@ -164,7 +164,7 @@
     },
     {
       "name": "bitbucket_comment",
-      "row": {"verb": "comment", "kind": "edit", "icon": "message", "target": ["on {name}#{number}"]},
+      "row": {"verb": "comment", "kind": "edit", "icon": "message", "target": ["on {name}#{number}", "on #{number}"], "detail": ["{of}"]},
       "method": "addComment",
       "description": "Comment on a pull request or an issue, in markdown. Issues are numbered apart from pull requests, so say which.",
       "properties": {
@@ -178,7 +178,7 @@
     },
     {
       "name": "bitbucket_review",
-      "row": {"verb": "review", "kind": "edit", "icon": "pull-request", "target": ["{name}#{number}"], "detail": ["{event}"]},
+      "row": {"verb": "review", "kind": "edit", "icon": "pull-request", "target": ["{name}#{number}", "PR #{number}"], "detail": ["{event}"]},
       "method": "reviewPull",
       "description": "Approve a pull request or request changes on it. A body is added as a comment after the verdict; COMMENT posts only the body.",
       "properties": {
@@ -209,7 +209,7 @@
     },
     {
       "name": "bitbucket_edit_pull",
-      "row": {"verb": "edit", "kind": "edit", "icon": "pull-request", "target": ["{name}#{number}"]},
+      "row": {"verb": "edit", "kind": "edit", "icon": "pull-request", "target": ["{name}#{number}", "PR #{number}"]},
       "method": "editPull",
       "description": "Change a pull request's title, markdown body or base. Only the fields given change.",
       "properties": {
@@ -224,7 +224,7 @@
     },
     {
       "name": "bitbucket_merge",
-      "row": {"verb": "merge", "kind": "edit", "icon": "pull-request", "target": ["{name}#{number}"], "detail": ["{method}"]},
+      "row": {"verb": "merge", "kind": "edit", "icon": "pull-request", "target": ["{name}#{number}", "PR #{number}"], "detail": ["{method}"]},
       "method": "mergePull",
       "description": "Merge a pull request. sha is the headSha from bitbucket pull; the merge is refused if the branch has moved since.",
       "properties": {
@@ -239,7 +239,7 @@
     },
     {
       "name": "bitbucket_decline",
-      "row": {"verb": "decline", "kind": "delete", "icon": "close", "target": ["{name}#{number}"]},
+      "row": {"verb": "decline", "kind": "delete", "icon": "close", "target": ["{name}#{number}", "PR #{number}"]},
       "method": "setPullState",
       "description": "Decline a pull request. Bitbucket cannot reopen a declined pull request, so do it only when asked.",
       "properties": {
@@ -265,7 +265,7 @@
     },
     {
       "name": "bitbucket_issue_state",
-      "row": {"verb": "move", "kind": "move", "icon": "status", "target": ["{name} issue {number} to {state}"]},
+      "row": {"verb": "move", "kind": "move", "icon": "status", "target": ["{name} issue #{number} to {state}", "issue #{number} to {state}"]},
       "method": "setIssueState",
       "description": "Close an issue, which marks it resolved, or reopen it.",
       "properties": {

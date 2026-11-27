@@ -374,7 +374,7 @@
     },
     {
       "name": "signoz_fields",
-      "row": {"verb": "fields", "kind": "search", "icon": "search", "target": ["{name}", "“{search}”", "{signal}"]},
+      "row": {"verb": "fields", "kind": "search", "icon": "search", "target": ["{name}", "“{search}”", "{signal}", "all fields"]},
       "method": "agentFields",
       "description": "Attribute names to filter on, matching search. Pass name for the values one attribute takes.",
       "properties": {

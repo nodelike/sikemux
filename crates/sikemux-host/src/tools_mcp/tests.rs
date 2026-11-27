@@ -1406,6 +1406,98 @@ fn every_manifest_tool_is_reached_through_gateway_call_and_folds_under_its_own_n
 }
 
 #[test]
+fn bitbucket_gateway_calls_unwrap_and_fold_with_targets() {
+    use sikemux_drivers::server::chat::native::antigravity::{as_common_call, GatewayCalls};
+    use sikemux_fold::{ChatEventKind, Fold};
+    use sikemux_view::chat::ChatPart;
+    use sikemux_wire::protocol::PermissionMode;
+
+    let servers = vec!["sikemux-tools".to_owned()];
+    let cases = [
+        (
+            json!({ "action": "pulls" }),
+            "list",
+            "pull requests",
+            None::<&str>,
+        ),
+        (
+            json!({ "action": "pipelines", "branch": "main" }),
+            "list",
+            "pipelines",
+            Some("main"),
+        ),
+        (
+            json!({ "action": "pull_files", "number": 123 }),
+            "diff",
+            "PR #123",
+            None,
+        ),
+        (
+            json!({ "action": "pulls", "name": "api", "state": "open" }),
+            "list",
+            "api pull requests",
+            Some("open"),
+        ),
+    ];
+
+    for (index, (inner_args, expected_verb, expected_target, expected_detail)) in
+        cases.into_iter().enumerate()
+    {
+        let tracker = GatewayCalls::default();
+        let call_id = format!("bb-gw-{index}");
+        let mut wrapped = json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": call_id,
+            "name": "mcp_sikemux-tools_call",
+            "title": "Run mcp_sikemux-tools_call",
+            "kind": "other",
+            "status": "in_progress",
+            "args": { "name": "bitbucket", "arguments": inner_args, "toolSummary": "Bitbucket" },
+            "rawInput": { "name": "bitbucket", "arguments": inner_args, "toolSummary": "Bitbucket" },
+        });
+        as_common_call(&mut wrapped, &servers, Some(&tracker));
+        let mut done = json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": call_id,
+            "name": "mcp_sikemux-tools_call",
+            "title": "Run mcp_sikemux-tools_call",
+            "status": "completed",
+        });
+        as_common_call(&mut done, &servers, Some(&tracker));
+
+        let mut fold = Fold::new(PermissionMode::WorkspaceWrite);
+        fold.apply(
+            1,
+            ChatEventKind::SessionUpdate,
+            &json!({ "sessionId": "s", "update": wrapped }),
+            1,
+        );
+        fold.apply(
+            2,
+            ChatEventKind::SessionUpdate,
+            &json!({ "sessionId": "s", "update": done }),
+            2,
+        );
+
+        let tool = fold
+            .view(false)
+            .rows
+            .into_iter()
+            .flat_map(|msg| msg.parts)
+            .find_map(|part| match part {
+                ChatPart::Tool { tool, .. } => Some(tool),
+                _ => None,
+            })
+            .expect("folded bitbucket call");
+        assert_eq!(tool.title, "mcp__sikemux-tools__bitbucket");
+        assert_eq!(tool.row.plugin.as_deref(), Some("sikemux.bitbucket"));
+        assert_eq!(tool.row.verb.as_deref(), Some(expected_verb));
+        assert_eq!(tool.row.target, expected_target);
+        assert_eq!(tool.row.detail.as_deref(), expected_detail);
+    }
+}
+
+#[test]
 fn tab_turns_run_distinct_tabs_in_parallel_and_serialize_same_tab() {
     use std::sync::Barrier;
 

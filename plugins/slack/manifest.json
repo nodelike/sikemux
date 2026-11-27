@@ -20,7 +20,7 @@
   "tools": [
     {
       "name": "slack_thread",
-      "row": {"verb": "read", "kind": "read", "icon": "message", "target": ["{link}", "{channel} {ts}"]},
+      "row": {"verb": "read", "kind": "read", "icon": "message", "target": ["{link}", "{channel} {ts}", "thread"]},
       "method": "thread",
       "description": "A Slack thread, oldest first, with names and mentions resolved. Pass the message link the person shared, from any message in the thread.",
       "properties": {
@@ -44,7 +44,7 @@
     },
     {
       "name": "slack_post",
-      "row": {"verb": "post", "kind": "edit", "icon": "message", "target": ["reply to {link}", "{channel}"]},
+      "row": {"verb": "post", "kind": "edit", "icon": "message", "target": ["reply to {link}", "{channel}", "message"]},
       "method": "post",
       "description": "Post as the person: a reply in the thread of a message link, or a message in a channel. Plain text with Slack markup. Say only what they asked for.",
       "properties": {

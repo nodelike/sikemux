@@ -363,6 +363,18 @@ for (const { where, plugin, tools } of described) {
         }
       }
     }
+    if (plugin) {
+      const required = new Set(tool.required ?? []);
+      const alwaysFills = row.target.some((template) =>
+        [...template.matchAll(/\{(\w+)\}/gu)].every(([, arg]) =>
+          required.has(arg),
+        ),
+      );
+      if (!alwaysFills)
+        fail(
+          "row target needs a fallback whose placeholders are all required, so calls never draw as a bare verb",
+        );
+    }
     const itemless = arraysWithoutItems(tool.properties ?? {}, "");
     if (itemless.length > 0)
       fail(

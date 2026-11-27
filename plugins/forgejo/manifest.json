@@ -49,7 +49,7 @@
   "tools": [
     {
       "name": "forgejo_pulls",
-      "row": {"verb": "list", "kind": "read", "icon": "pull-request", "target": ["{name} pull requests"], "detail": ["{state}"]},
+      "row": {"verb": "list", "kind": "read", "icon": "pull-request", "target": ["{name} pull requests", "pull requests"], "detail": ["{state}"]},
       "method": "pulls",
       "description": "Pull requests, most recently updated first, with state, branches, reviewers and whether each can merge. owner, name and host come from the git remote.",
       "properties": {
@@ -62,7 +62,7 @@
     },
     {
       "name": "forgejo_pull_files",
-      "row": {"verb": "diff", "kind": "read", "icon": "pull-request", "target": ["{name}#{number}"], "detail": ["{paths}"]},
+      "row": {"verb": "diff", "kind": "read", "icon": "pull-request", "target": ["{name}#{number}", "PR #{number}"], "detail": ["{paths}"]},
       "method": "pullFiles",
       "description": "The files a pull request changes, with status and line counts. Name paths for their diffs; a long diff comes in parts, with a note on the rest.",
       "properties": {
@@ -78,7 +78,7 @@
     },
     {
       "name": "forgejo_comments",
-      "row": {"verb": "read", "kind": "read", "icon": "pull-request", "target": ["comments on {name}#{number}"]},
+      "row": {"verb": "read", "kind": "read", "icon": "pull-request", "target": ["comments on {name}#{number}", "comments on #{number}"]},
       "method": "comments",
       "description": "What people wrote on a pull request or an issue, oldest first. Pull requests and issues share one count.",
       "properties": {
@@ -91,7 +91,7 @@
     },
     {
       "name": "forgejo_issues",
-      "row": {"verb": "list", "kind": "read", "icon": "issue", "target": ["{name} issues"], "detail": ["{state}"]},
+      "row": {"verb": "list", "kind": "read", "icon": "issue", "target": ["{name} issues", "issues"], "detail": ["{state}"]},
       "method": "issues",
       "description": "A repository's issues on Forgejo or Gitea, 30 to a page, with labels and assignees.",
       "properties": {
@@ -106,7 +106,7 @@
     },
     {
       "name": "forgejo_runs",
-      "row": {"verb": "list", "kind": "read", "icon": "workflow", "target": ["{name} runs"], "detail": ["{branch}", "{status}"]},
+      "row": {"verb": "list", "kind": "read", "icon": "workflow", "target": ["{name} runs", "runs"], "detail": ["{branch}", "{status}"]},
       "method": "runs",
       "description": "Recent Actions runs, newest first, with status, conclusion, branch and the pull request each ran for. A server too old for Actions in its API says so.",
       "properties": {

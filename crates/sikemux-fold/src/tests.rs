@@ -3082,6 +3082,135 @@ fn a_plugins_tool_wears_its_plugin() {
 }
 
 #[test]
+fn bitbucket_and_sibling_plugin_tools_keep_targets_when_optional_args_are_omitted() {
+    let bb = |input: Value| row_of("mcp__sikemux-tools__bitbucket", Some("other"), input);
+
+    let pulls = bb(json!({ "action": "pulls" }));
+    assert_eq!(
+        (
+            pulls.verb.as_deref(),
+            pulls.target.as_str(),
+            pulls.detail.as_deref(),
+            pulls.plugin.as_deref()
+        ),
+        (
+            Some("list"),
+            "pull requests",
+            None,
+            Some("sikemux.bitbucket")
+        )
+    );
+
+    let named_pulls = bb(json!({ "action": "pulls", "name": "api", "state": "open" }));
+    assert_eq!(
+        (named_pulls.target.as_str(), named_pulls.detail.as_deref()),
+        ("api pull requests", Some("open"))
+    );
+
+    let diff = bb(json!({ "action": "pull_files", "number": 123 }));
+    assert_eq!(
+        (
+            diff.verb.as_deref(),
+            diff.target.as_str(),
+            diff.plugin.as_deref()
+        ),
+        (Some("diff"), "PR #123", Some("sikemux.bitbucket"))
+    );
+
+    let named_diff = bb(json!({
+        "action": "pull_files",
+        "name": "api",
+        "number": 123,
+        "paths": ["src/main.rs"]
+    }));
+    assert_eq!(
+        (named_diff.target.as_str(), named_diff.detail.as_deref()),
+        ("api#123", Some("main.rs"))
+    );
+
+    let pipelines = bb(json!({ "action": "pipelines", "branch": "main" }));
+    assert_eq!(
+        (
+            pipelines.verb.as_deref(),
+            pipelines.target.as_str(),
+            pipelines.detail.as_deref()
+        ),
+        (Some("list"), "pipelines", Some("main"))
+    );
+
+    assert_eq!(
+        bb(json!({ "action": "pull", "number": 42 })).target,
+        "PR #42"
+    );
+    assert_eq!(
+        bb(json!({ "action": "comments", "number": 42 })).target,
+        "comments on #42"
+    );
+    assert_eq!(
+        bb(json!({ "action": "comment", "number": 42, "body": "LGTM" })).target,
+        "on #42"
+    );
+    assert_eq!(bb(json!({ "action": "issues" })).target, "issues");
+    assert_eq!(
+        bb(json!({ "action": "review", "number": 42, "event": "APPROVE" })).target,
+        "PR #42"
+    );
+    assert_eq!(
+        bb(json!({ "action": "edit_pull", "number": 42 })).target,
+        "PR #42"
+    );
+    assert_eq!(
+        bb(json!({ "action": "merge", "number": 42, "sha": "abc" })).target,
+        "PR #42"
+    );
+    assert_eq!(
+        bb(json!({ "action": "decline", "number": 42, "state": "closed" })).target,
+        "PR #42"
+    );
+    assert_eq!(
+        bb(json!({ "action": "issue_state", "number": 7, "state": "closed" })).target,
+        "issue #7 to closed"
+    );
+
+    assert_eq!(
+        row_of(
+            "mcp__sikemux-tools__signoz",
+            Some("other"),
+            json!({ "action": "fields" }),
+        )
+        .target,
+        "all fields"
+    );
+    assert_eq!(
+        row_of(
+            "mcp__sikemux-tools__gitlab",
+            Some("other"),
+            json!({ "action": "mr_files", "number": 9 }),
+        )
+        .target,
+        "MR !9"
+    );
+    assert_eq!(
+        row_of(
+            "mcp__sikemux-tools__forgejo",
+            Some("other"),
+            json!({ "action": "pulls" }),
+        )
+        .target,
+        "pull requests"
+    );
+    assert_eq!(
+        row_of(
+            "mcp__sikemux-tools__slack",
+            Some("other"),
+            json!({ "action": "thread" }),
+        )
+        .target,
+        "thread"
+    );
+}
+
+#[test]
 fn a_row_opens_the_file_the_call_reported_or_the_one_its_title_names() {
     let reported = |path: &str| {
         let raw = json!({ "toolCallId": "t1", "title": "Read", "locations": [{ "path": path, "line": 12 }] });
