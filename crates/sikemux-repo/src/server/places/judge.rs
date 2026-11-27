@@ -190,7 +190,7 @@ fn level_for(
 /// takes tags or GitHub releases has none, since every change there is a release, however it
 /// is started.
 pub fn ordinary(place: &Place, ship: &Ship, rewrites: bool) -> bool {
-    ship.kind == ShipKind::Deploy && !rewrites && !place.recognise.iter().any(releases)
+    !rewrites && !place.recognise.iter().any(releases) && crate::ship::ordinary_deploy(ship)
 }
 
 fn releases(fact: &Recognise) -> bool {
@@ -209,7 +209,14 @@ pub fn routine(place: &Place, ship: &Ship) -> bool {
     place.recognises(ship)
         && match (ship.kind, &ship.target) {
             (ShipKind::Deploy, Some(Target::Vercel { production: true })) => true,
-            (ShipKind::Deploy, Some(Target::Workflow { rerun: None, .. })) => true,
+            (
+                ShipKind::Deploy,
+                Some(Target::Workflow {
+                    rerun: None,
+                    unread: false,
+                    ..
+                }),
+            ) => true,
             (ShipKind::Publish, Some(Target::Tag { name })) => place.recurs && !name.is_empty(),
             _ => false,
         }

@@ -418,8 +418,8 @@ struct Reads {
     ship: Ship,
     cwd: PathBuf,
     merging: bool,
-    /// A push that may do more than send the checkout's commits to its own branch.
-    exact: bool,
+    /// A push or merge that does more than send commits normally (forced push, admin merge, etc.).
+    rewrites: bool,
     tool: bool,
     sends: Option<String>,
     /// The repository it changes when it is a push or merge through git with nothing else to it.
@@ -430,13 +430,11 @@ struct Reads {
 impl Reads {
     /// What its yes is kept under at the place that decided, and whether that covers it once.
     fn key(&self) -> Option<(String, bool)> {
-        let again = matches!(
-            self.ship.target.as_ref().map(Target::bare),
-            Some(Target::Workflow { rerun: Some(_), .. } | Target::Rerun { .. })
-        );
-        // A pull request's commits needn't be the checkout's, nor a past run's, so a yes to
-        // either is kept for it rather than for the work in the checkout.
-        let work = (!self.merging && !self.exact && !again).then(|| work::of(&self.cwd));
+        // Pull requests, reruns, rewrites and non-deploy actions keep an exact once-only key so a
+        // yes to an ordinary deploy never covers a destructive or unrelated action in the same turn.
+        let ordinary_deploy = crate::ship::ordinary_deploy(&self.ship);
+        let work =
+            (!self.merging && !self.rewrites && ordinary_deploy).then(|| work::of(&self.cwd));
         Some(key_of(
             self.judged.place.as_ref()?,
             &self.ship,
@@ -750,6 +748,7 @@ fn read(
         sends = Some(ship.what.clone());
     }
     let name = core.names().name_or_id(agent_id);
+    let rewrites = exact || merging.as_ref().is_some_and(push::Merging::rewrites);
     let (project, judged) = places::judge_anywhere(
         core,
         &project,
@@ -757,7 +756,7 @@ fn read(
         &name,
         addresses,
         plain.as_deref(),
-        exact,
+        rewrites,
     );
     let held = matches!(judged.goes, Goes::Tells | Goes::Asks);
     if held && merging.as_ref().is_some_and(|merging| merging.later) {
@@ -771,7 +770,7 @@ fn read(
         cwd: cwd.to_owned(),
         project,
         ship,
-        exact,
+        rewrites,
         tool,
         sends,
         plain,
@@ -810,7 +809,7 @@ pub(super) fn check_call(
         ship,
         cwd,
         merging,
-        exact,
+        rewrites,
         plain,
         judged,
         ..
@@ -877,7 +876,8 @@ pub(super) fn check_call(
             }
             let routine = plain.filter(|_| places::judge::routine(&gated, &ship));
             let asking = Asking {
-                always: routine.is_none() && may_stop_asking(core, &project, &gated, &ship, exact),
+                always: routine.is_none()
+                    && may_stop_asking(core, &project, &gated, &ship, rewrites),
                 place: &gated,
                 key,
                 once,
