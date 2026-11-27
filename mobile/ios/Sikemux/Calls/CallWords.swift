@@ -299,7 +299,8 @@ enum CallWords {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         if call.kind == .do || call.kind == .look, let title = call.title { return (title, lines) }
-        return (lines.first ?? "", Array(lines.dropFirst()))
+        let first = (lines.first ?? "").replacingOccurrences(of: "^#{1,6}\\s+", with: "", options: .regularExpression)
+        return (first, Array(lines.dropFirst()))
     }
     /// On the card when the answer sent from its notification did not go.
     static func pushFailed(_ why: String) -> String {

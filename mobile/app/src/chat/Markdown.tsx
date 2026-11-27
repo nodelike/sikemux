@@ -5,6 +5,7 @@ import { fencedDiff } from '@shared/chat/diff';
 import { decodedFenceName } from '@shared/chat/transcript';
 import { safeWebUrl } from '@shared/lib/urls';
 import { tableSource } from '@shared/markdown/tableSource';
+import { inlineNodes } from '@shared/markdown/inline';
 import type { MdElement, MdNode } from '@shared/markdown/types';
 import { visibleText } from '@shared/markdown/visible';
 import { WHY_URI, whyChip } from '@shared/chat/why';
@@ -573,6 +574,19 @@ function Blocks({
         />
       ))}
     </View>
+  );
+}
+
+/** One line of a call's words with its marks drawn, inside the caller's `Text`: a list item gets its bullet. */
+export function MarkdownWords({ text }: { text: string }) {
+  const styles = useStyles(makeStyles);
+  const item = /^[-*+]\s+/.exec(text);
+  const nodes = inlineNodes(item ? text.slice(item[0].length) : text);
+  return (
+    <>
+      {item ? '\u2022 ' : null}
+      {inlines(nodes, { styles, paths: false })}
+    </>
   );
 }
 

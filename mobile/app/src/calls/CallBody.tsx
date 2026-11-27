@@ -27,7 +27,7 @@ import {
 import { useT } from '@/i18n';
 import type { CallAsker, CallLink, CallOption, PersonCall } from '@shared/wire.generated';
 import { PageCard } from '@/chat/Notices';
-import { serviceMark } from '@/chat/Markdown';
+import { MarkdownWords, serviceMark } from '@/chat/Markdown';
 import { answer, answerOf, choose, chosenIn, deskOf, draftOf, edit, see, useKept, type Draft } from '@/calls/hostCalls';
 import { HostContext, useHostFile } from '@/chat/hostFiles';
 import { AgentPill, ChiefMark, namedAgent, type Named, openChat, useCrew } from '@/devices/Crew';
@@ -127,11 +127,11 @@ export const CallBody = memo(function CallBody({
         </Pressable>
       </View>
       <Text style={styles.question} selectable>
-        {asked.first}
+        <MarkdownWords text={asked.first} />
       </Text>
       {asked.rest.map((line, index) => (
         <Text key={index} style={styles.prose} selectable>
-          {line}
+          <MarkdownWords text={line} />
         </Text>
       ))}
       {call.link ? (
@@ -168,7 +168,7 @@ export const CallBody = memo(function CallBody({
       {call.against ? (
         <Text style={styles.against} selectable>
           <Text style={{ color: colors.tertiary }}>{t(AGAINST_IT)} </Text>
-          {call.against}
+          <MarkdownWords text={call.against} />
         </Text>
       ) : null}
       {runs ? (
@@ -235,12 +235,12 @@ function Why({ call }: { call: PersonCall }) {
       <SectionLabel>{t(WHY_IT_CAME_UP)}</SectionLabel>
       {context ? (
         <Text style={styles.context} selectable>
-          {context}
+          <MarkdownWords text={context} />
         </Text>
       ) : null}
       {evidence.map((item, index) => (
         <Text key={index} style={styles.evidenceText} selectable>
-          {item.what}
+          <MarkdownWords text={item.what} />
         </Text>
       ))}
     </View>

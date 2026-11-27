@@ -395,7 +395,8 @@ export function questionLines(call: PersonCall): { first: string; rest: string[]
         .map((line) => line.trim())
         .filter((line) => line);
     const title = call.kind === "do" || call.kind === "look" ? call.title : undefined;
-    return title != null ? { first: title, rest: lines } : { first: lines[0] ?? "", rest: lines.slice(1) };
+    if (title != null) return { first: title, rest: lines };
+    return { first: (lines[0] ?? "").replace(/^#{1,6}\s+/, ""), rest: lines.slice(1) };
 }
 
 /** On the card when the answer sent from its notification did not go. */

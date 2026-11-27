@@ -32,14 +32,14 @@ struct CallBody: View {
                 .buttonStyle(PressFade())
             }
             let asked = CallWords.questionLines(call)
-            Text(asked.first)
+            Text(CallMarks.line(asked.first, strong: palette.ink))
                 .font(Theme.ui(21, .semibold))
                 .tracking(-0.3)
                 .foregroundStyle(palette.ink)
                 .textSelection(.enabled)
                 .padding(.top, 10)
             ForEach(Array(asked.rest.enumerated()), id: \.offset) { _, line in
-                Text(line).font(Theme.ui(15)).foregroundStyle(palette.secondary).textSelection(.enabled)
+                Text(CallMarks.line(line, strong: palette.ink)).font(Theme.ui(15)).foregroundStyle(palette.secondary).textSelection(.enabled)
                     .padding(.top, 10)
             }
             if let link = call.link {
@@ -55,7 +55,7 @@ struct CallBody: View {
             if call.kind != .look { tiles }
             if let against = call.against {
                 (Text("\(CallWords.againstIt) ").foregroundStyle(palette.secondary)
-                    + Text(against).foregroundStyle(palette.tertiary))
+                    + Text(CallMarks.line(against, strong: palette.secondary)).foregroundStyle(palette.tertiary))
                     .font(Theme.ui(13.5))
                     .textSelection(.enabled)
                     .padding(.top, 12)
@@ -197,10 +197,10 @@ struct CallBody: View {
             SectionLabel(CallWords.whyItCameUp).padding(.horizontal, -8).padding(.top, 10)
             VStack(alignment: .leading, spacing: 8) {
                 if let context {
-                    Text(context).font(Theme.ui(14.5)).lineSpacing(3).foregroundStyle(palette.secondary)
+                    Text(CallMarks.line(context, strong: palette.ink)).font(Theme.ui(14.5)).lineSpacing(3).foregroundStyle(palette.secondary)
                 }
                 ForEach(Array(evidence.enumerated()), id: \.offset) {
-                    Text($0.element.what).font(Theme.ui(14)).foregroundStyle(palette.tertiary)
+                    Text(CallMarks.line($0.element.what, strong: palette.secondary)).font(Theme.ui(14)).foregroundStyle(palette.tertiary)
                 }
             }
             .textSelection(.enabled)
@@ -413,5 +413,25 @@ struct PictureLabel: View {
             .padding(.vertical, 3)
             .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.black.opacity(0.62)))
             .padding(6)
+    }
+}
+
+/// Draws a call's markdown as the Mac's ask sheet does.
+enum CallMarks {
+    /// One line of a call's words with its bold, italics, code and links drawn, bold in `strong`; a list item gets
+    /// its bullet.
+    static func line(_ line: String, strong: Color) -> AttributedString {
+        var text = line
+        var bullet = ""
+        if let item = text.range(of: "^[-*+]\\s+", options: .regularExpression) {
+            text.removeSubrange(item)
+            bullet = "\u{2022} "
+        }
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        var marked = (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+        for run in marked.runs where run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true {
+            marked[run.range].foregroundColor = strong
+        }
+        return AttributedString(bullet) + marked
     }
 }
