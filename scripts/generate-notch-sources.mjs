@@ -2,12 +2,13 @@
 // Writes what the notch helper shares with the app: its settings from
 // helpers/notch/settings.json, for the core's Rust and the helper's Swift,
 // its colours from shared/ui/palette.css, and the app's buddies from
-// shared/buddies, which the helper runs to draw them. The Swift is build output;
+// shared/buddies as compressed SVG markup. The Swift is build output;
 // `--check` fails when the committed Rust is out of date instead of writing it.
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { build } from "vite";
+import { deflateRawSync } from "node:zlib";
+import { emit, typescriptLoader, write } from "./lib/generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const settingsSource = resolve(root, "helpers/notch/settings.json");
@@ -21,11 +22,11 @@ const themeSwiftPath = resolve(
   root,
   "helpers/notch/Sources/NotchKit/Theme.generated.swift",
 );
-const buddiesSource = resolve(root, "shared/buddies/notch.ts");
 const buddiesSwiftPath = resolve(
   root,
   "helpers/notch/Sources/NotchKit/Buddies.generated.swift",
 );
+const BUDDY_STATES = ["idle", "working", "waiting", "done", "error"];
 
 /** The helper's colour names and the palette variable each one is. */
 const COLOURS = {
@@ -196,33 +197,69 @@ ${Object.entries(COLOURS)
 }
 `,
 );
-import { emit, write } from "./lib/generated.mjs";
+// Some shapes repeat an attribute on one tag. A page keeps the first; the notch's SVG reader rejects the whole drawing, so the repeats go.
+const firstAttributes = (markup) =>
+  markup.replace(/<[a-zA-Z][^>]*>/g, (tag) => {
+    const seen = new Set();
+    return tag.replace(/\s([a-zA-Z:-]+)="[^"]*"/g, (attribute, name) =>
+      seen.has(name) ? "" : (seen.add(name), attribute),
+    );
+  });
 
-const [bundle] = await build({
-  root,
-  configFile: false,
-  logLevel: "silent",
-  build: {
-    write: false,
-    minify: true,
-    lib: { entry: buddiesSource, formats: ["iife"], name: "SikemuxBuddies" },
-  },
-});
-const buddiesScript = bundle.output[0].code.trim();
-if (buddiesScript.includes('"""#'))
-  throw new Error("the buddies script ends the Swift string it is kept in");
+const swiftString = (value) => JSON.stringify(value);
+
+const server = await typescriptLoader();
+let packEntries;
+let compressedBytes = 0;
+try {
+  const { BUDDY_PACKS } = await server.ssrLoadModule(
+    "/shared/buddies/catalogue.ts",
+  );
+  packEntries = BUDDY_PACKS.map((pack) => {
+    const segments = [];
+    for (const shape of pack.shapes) {
+      for (const color of pack.colors) {
+        for (const state of BUDDY_STATES) {
+          const markup = firstAttributes(shape.draw(color, state, "notch"));
+          if (markup.includes("\0"))
+            throw new Error(`buddy ${pack.id}/${shape.id} contains a NUL byte`);
+          segments.push(markup);
+        }
+      }
+    }
+    const packed = deflateRawSync(Buffer.from(segments.join("\0"), "utf8"), {
+      level: 9,
+    });
+    compressedBytes += packed.length;
+    return `    BuddyPackData(
+        id: ${swiftString(pack.id)},
+        shapes: [${pack.shapes.map((shape) => swiftString(shape.id)).join(", ")}],
+        colors: ${pack.colors.length},
+        compressed: ${swiftString(packed.toString("base64"))}
+    )`;
+  });
+} finally {
+  await server.close();
+}
 
 await write(
   buddiesSwiftPath,
   `// ${banner("shared/buddies")}
 
-/// Defines \`SikemuxBuddies.notchFace(face, state)\`, an agent's face as an SVG document or null for one it does not know, and \`styledFace(agentId, style)\`, the face a host's style gives an agent.
-let buddiesScript = #"""
-${buddiesScript}
-"""#
+struct BuddyPackData: Sendable {
+    let id: String
+    let shapes: [String]
+    let colors: Int
+    /// Raw-deflated NUL-separated inner SVG markup ordered by shape, colour, then state (idle, working, waiting, done, error).
+    let compressed: String
+}
+
+let buddyPacks: [BuddyPackData] = [
+${packEntries.join(",\n")}
+]
 `,
 );
 
 console.log(
-  `✓ ${entries.length} notch settings, ${Object.keys(COLOURS).length} colours and ${Math.round(buddiesScript.length / 1024)} KB of buddies`,
+  `✓ ${entries.length} notch settings, ${Object.keys(COLOURS).length} colours and ${Math.round(compressedBytes / 1024)} KB of buddies`,
 );
