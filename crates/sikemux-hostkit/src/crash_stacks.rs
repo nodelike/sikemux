@@ -3,9 +3,9 @@
 //! held stays here.
 
 use minidump_common::format::{
-    CvSignature, MINIDUMP_DIRECTORY, MINIDUMP_EXCEPTION_STREAM, MINIDUMP_HEADER,
-    MINIDUMP_LOCATION_DESCRIPTOR, MINIDUMP_MODULE, MINIDUMP_SIGNATURE, MINIDUMP_STREAM_TYPE,
-    MINIDUMP_THREAD,
+    CvSignature, MINIDUMP_DIRECTORY, MINIDUMP_EXCEPTION, MINIDUMP_EXCEPTION_STREAM,
+    MINIDUMP_HEADER, MINIDUMP_LOCATION_DESCRIPTOR, MINIDUMP_MODULE, MINIDUMP_SIGNATURE,
+    MINIDUMP_STREAM_TYPE, MINIDUMP_THREAD,
 };
 use scroll::{Pread, LE};
 use sentry::protocol::debugid::{CodeId, DebugId};
@@ -28,13 +28,17 @@ pub(crate) fn read(dump: &[u8]) -> Option<CrashStack> {
     let modules = dump.modules().unwrap_or_default();
     let mut addresses = dump.walk(&crash, &modules).unwrap_or_default();
     addresses.retain(|address| modules.iter().any(|module| module.holds(*address)));
+    #[cfg(target_os = "macos")]
+    if soft_signal(&crash.exception_record).is_some() {
+        strip_signal_handler_frames(&mut addresses, &modules);
+    }
     let images = modules
         .iter()
         .filter(|module| addresses.iter().any(|address| module.holds(*address)))
         .filter_map(Module::image)
         .collect();
     Some(CrashStack {
-        reason: reason(crash.exception_record.exception_code),
+        reason: reason(&crash.exception_record),
         addresses,
         images,
     })
@@ -301,12 +305,99 @@ mod frames;
 use frames::walk;
 
 #[cfg(target_os = "macos")]
-fn reason(code: u32) -> String {
+const EXC_SOFTWARE: u32 = 5;
+#[cfg(target_os = "macos")]
+const EXC_SOFT_SIGNAL: u32 = 0x10003;
+
+#[cfg(target_os = "macos")]
+fn soft_signal(record: &MINIDUMP_EXCEPTION) -> Option<i32> {
+    if record.exception_code != EXC_SOFTWARE
+        || record.exception_flags != EXC_SOFT_SIGNAL
+        || record.number_parameters < 3
+    {
+        return None;
+    }
+    i32::try_from(*record.exception_information.get(2)?).ok()
+}
+
+/// On macOS, `crash-handler` catches `SIGABRT` in a POSIX signal handler and parks the crashing
+/// thread on a condvar while the handler thread dumps it. Dropping the frames up through
+/// `_sigtramp` leaves the real abort stack at the top so unrelated aborts do not group together.
+#[cfg(target_os = "macos")]
+fn strip_signal_handler_frames(addresses: &mut Vec<u64>, modules: &[Module]) {
+    let Some(platform) = modules
+        .iter()
+        .find(|module| file_name(&module.path) == "libsystem_platform.dylib")
+    else {
+        return;
+    };
+    let Some(local_base) = local_platform_base() else {
+        return;
+    };
+    let sigtramp = addresses.iter().position(|&address| {
+        if !platform.holds(address) {
+            return false;
+        }
+        let Some(local_addr) = address
+            .checked_sub(platform.start)
+            .and_then(|offset| local_base.checked_add(offset))
+        else {
+            return false;
+        };
+        symbol_name_at(local_addr).as_deref() == Some("_sigtramp")
+    });
+    if let Some(at) = sigtramp {
+        if at + 1 < addresses.len() {
+            addresses.drain(..=at);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn local_platform_base() -> Option<u64> {
+    // SAFETY: `os_unfair_lock_lock` is a null-terminated symbol name in `libsystem_platform.dylib`.
+    let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"os_unfair_lock_lock".as_ptr()) };
+    if symbol.is_null() {
+        return None;
+    }
+    let mut info = std::mem::MaybeUninit::<libc::Dl_info>::zeroed();
+    // SAFETY: `symbol` is a valid address returned by `dlsym`, and `info` is writable.
+    if unsafe { libc::dladdr(symbol, info.as_mut_ptr()) } == 0 {
+        return None;
+    }
+    // SAFETY: `dladdr` succeeded and initialized `info`.
+    let info = unsafe { info.assume_init() };
+    (!info.dli_fbase.is_null()).then_some(info.dli_fbase as usize as u64)
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn symbol_name_at(address: u64) -> Option<String> {
+    let mut info = std::mem::MaybeUninit::<libc::Dl_info>::zeroed();
+    // SAFETY: `dladdr` inspects dyld metadata without dereferencing `address`, and `info` is writable.
+    if unsafe { libc::dladdr(address as usize as *const libc::c_void, info.as_mut_ptr()) } == 0 {
+        return None;
+    }
+    // SAFETY: `dladdr` succeeded and initialized `info`.
+    let info = unsafe { info.assume_init() };
+    if info.dli_sname.is_null() {
+        return None;
+    }
+    // SAFETY: `dladdr` populates `dli_sname` with a valid static C string when non-null.
+    let name = unsafe { std::ffi::CStr::from_ptr(info.dli_sname) };
+    Some(name.to_string_lossy().into_owned())
+}
+
+#[cfg(target_os = "macos")]
+fn reason(record: &MINIDUMP_EXCEPTION) -> String {
+    if let Some(signal) = soft_signal(record) {
+        return unix_signal_name(signal);
+    }
+    let code = record.exception_code;
     let name = match code {
         1 => "EXC_BAD_ACCESS",
         2 => "EXC_BAD_INSTRUCTION",
         3 => "EXC_ARITHMETIC",
-        5 => "EXC_SOFTWARE",
+        EXC_SOFTWARE => "EXC_SOFTWARE",
         6 => "EXC_BREAKPOINT",
         10 => "EXC_CRASH",
         11 => "EXC_RESOURCE",
@@ -316,22 +407,28 @@ fn reason(code: u32) -> String {
     name.to_owned()
 }
 
-#[cfg(target_os = "linux")]
-fn reason(code: u32) -> String {
-    let name = match code as i32 {
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn unix_signal_name(signal: i32) -> String {
+    let name = match signal {
         libc::SIGILL => "SIGILL",
         libc::SIGTRAP => "SIGTRAP",
         libc::SIGABRT => "SIGABRT",
         libc::SIGBUS => "SIGBUS",
         libc::SIGFPE => "SIGFPE",
         libc::SIGSEGV => "SIGSEGV",
-        _ => return format!("signal {code}"),
+        _ => return format!("signal {signal}"),
     };
     name.to_owned()
 }
 
+#[cfg(target_os = "linux")]
+fn reason(record: &MINIDUMP_EXCEPTION) -> String {
+    unix_signal_name(record.exception_code as i32)
+}
+
 #[cfg(windows)]
-fn reason(code: u32) -> String {
+fn reason(record: &MINIDUMP_EXCEPTION) -> String {
+    let code = record.exception_code;
     let name = match code {
         0xc000_0005 => "EXCEPTION_ACCESS_VIOLATION",
         0xc000_001d => "EXCEPTION_ILLEGAL_INSTRUCTION",
@@ -343,4 +440,32 @@ fn reason(code: u32) -> String {
         _ => return format!("exception {code:#x}"),
     };
     name.to_owned()
+}
+
+#[cfg(test)]
+#[cfg(target_os = "macos")]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exc_soft_signal_reports_unix_signal_name() {
+        let mut info = [0u64; 15];
+        info[0] = u64::from(EXC_SOFTWARE);
+        info[1] = u64::from(EXC_SOFT_SIGNAL);
+        info[2] = libc::SIGABRT as u64;
+        let record = MINIDUMP_EXCEPTION {
+            exception_code: EXC_SOFTWARE,
+            exception_flags: EXC_SOFT_SIGNAL,
+            number_parameters: 3,
+            exception_information: info,
+            ..Default::default()
+        };
+        assert_eq!(reason(&record), "SIGABRT");
+
+        let plain = MINIDUMP_EXCEPTION {
+            exception_code: EXC_SOFTWARE,
+            ..Default::default()
+        };
+        assert_eq!(reason(&plain), "EXC_SOFTWARE");
+    }
 }

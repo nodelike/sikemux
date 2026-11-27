@@ -879,9 +879,145 @@ mod tests {
     use super::*;
 
     const TEST: &str = "crash_reports::tests::crashes_under_the_crash_handler_end";
+    const ABORT_TEST: &str = "crash_reports::tests::aborts_report_sigabrt_below_signal_handler";
     const ROLE: &str = "SIKEMUX_TEST_CRASH_ROLE";
     const PORT: &str = "SIKEMUX_TEST_CRASH_PORT";
     const IN_MEMORY: &[u8] = b"what the memory held when it crashed";
+
+    /// A `SIGABRT` on macOS must report as `SIGABRT` starting at the abort site, without the
+    /// crash handler's own signal-wait frames (`__psynch_cvwait` .. `_sigtramp`) that would
+    /// otherwise collapse every abort into one Sentry issue.
+    #[test]
+    fn aborts_report_sigabrt_below_signal_handler() {
+        if std::env::var(ROLE).as_deref() == Ok("abort") {
+            abort_with_crash_reports();
+        }
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let envelopes = Arc::new(Mutex::new(Vec::new()));
+        let received = envelopes.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                if let Some(body) = answer(stream) {
+                    received.locked().push(body);
+                }
+            }
+        });
+
+        let mut child = test_process_for(ABORT_TEST, "abort")
+            .env("HOME", home.path())
+            .env(PORT, port.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let ended = wait_for(&mut child, Duration::from_secs(30));
+        assert!(
+            ended.is_some_and(|status| !status.success()),
+            "the aborted child did not terminate: {ended:?}"
+        );
+
+        let crash_event = || {
+            envelopes
+                .locked()
+                .iter()
+                .find_map(|body| parse_crash_event(body))
+        };
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let event = loop {
+            if let Some(event) = crash_event() {
+                break event;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "aborting under the crash handler sent no crash event"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        };
+
+        let exception = event
+            .pointer("/exception/values/0")
+            .expect("crash event carries an exception");
+        assert_eq!(
+            exception.get("type").and_then(Value::as_str),
+            Some("SIGABRT"),
+            "abort should report SIGABRT instead of EXC_SOFTWARE: {event}"
+        );
+        let frames = exception
+            .pointer("/stacktrace/frames")
+            .and_then(Value::as_array)
+            .expect("SIGABRT event carries stack frames");
+        assert!(!frames.is_empty(), "SIGABRT stacktrace must not be empty");
+        let innermost = frames
+            .last()
+            .and_then(|frame| frame.get("instruction_addr"))
+            .and_then(Value::as_str)
+            .and_then(|addr| u64::from_str_radix(addr.trim_start_matches("0x"), 16).ok())
+            .expect("innermost frame has hex instruction_addr");
+        let innermost_symbol = crate::crash_stacks::symbol_name_at(innermost);
+        assert!(
+            !matches!(
+                innermost_symbol.as_deref(),
+                Some("__psynch_cvwait" | "_pthread_cond_wait" | "_sigtramp")
+            ),
+            "innermost frame should not be inside the signal handler wait: {innermost_symbol:?} (event={event})"
+        );
+        for frame in frames {
+            if let Some(addr) = frame
+                .get("instruction_addr")
+                .and_then(Value::as_str)
+                .and_then(|addr| u64::from_str_radix(addr.trim_start_matches("0x"), 16).ok())
+            {
+                let symbol = crate::crash_stacks::symbol_name_at(addr);
+                assert_ne!(
+                    symbol.as_deref(),
+                    Some("_sigtramp"),
+                    "signal trampoline frame should be stripped from SIGABRT stacks"
+                );
+            }
+        }
+    }
+
+    fn abort_with_crash_reports() -> ! {
+        clear_inherited_handlers();
+        let home = sikemux_process::paths::home().unwrap();
+        std::fs::create_dir_all(home.join("data")).unwrap();
+        std::fs::write(
+            home.join("data/preferences.json"),
+            r#"{"onboardingComplete":true}"#,
+        )
+        .unwrap();
+        let dsn = format!("http://public@127.0.0.1:{}/1", std::env::var(PORT).unwrap());
+        start_sending_to(
+            dsn.leak(),
+            Process::Core,
+            Some(home.join("data")),
+            Some(home.join("core.sock")),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Hub::main().client().is_none() {
+            assert!(Instant::now() < deadline, "crash reports never started");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        // SAFETY: this test process intentionally aborts to exercise the macOS SIGABRT path.
+        unsafe { libc::abort() }
+    }
+
+    fn parse_crash_event(body: &[u8]) -> Option<Value> {
+        let text = std::str::from_utf8(body).ok()?;
+        for line in text.lines() {
+            if let Ok(value) = serde_json::from_str::<Value>(line) {
+                if value
+                    .pointer("/exception/values/0/stacktrace/frames")
+                    .is_some()
+                {
+                    return Some(value);
+                }
+            }
+        }
+        None
+    }
 
     /// A core with crash reports on, and the programs it starts, which inherit its handler. Each
     /// crash must end its process: the core's own after sending its stack and none of its memory. Reports go to a
@@ -1038,10 +1174,14 @@ mod tests {
     }
 
     fn test_process(role: &str) -> Command {
+        test_process_for(TEST, role)
+    }
+
+    fn test_process_for(test_name: &str, role: &str) -> Command {
         let mut command =
             sikemux_process::user_environment::command(std::env::current_exe().unwrap());
         command
-            .args([TEST, "--exact", "--nocapture", "--test-threads=1"])
+            .args([test_name, "--exact", "--nocapture", "--test-threads=1"])
             .env_clear()
             .env("PATH", "/usr/bin:/bin")
             .env(ROLE, role);
