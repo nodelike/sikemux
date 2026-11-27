@@ -46,15 +46,13 @@ fn profile_dir(profile: ProfileStore) -> PathBuf {
 }
 
 pub fn clear_data(profile: ProfileStore) {
-    if let ProfileStore::Named(_) = profile {
-        let dir = profile_dir(profile);
-        on_gtk(move || {
-            PROFILE_CONTEXTS.with(|contexts| {
-                contexts.borrow_mut().remove(&profile);
-            });
-            let _ = std::fs::remove_dir_all(&dir);
+    let dir = profile_dir(profile);
+    on_gtk(move || {
+        PROFILE_CONTEXTS.with(|contexts| {
+            contexts.borrow_mut().remove(&profile);
         });
-    }
+        let _ = std::fs::remove_dir_all(&dir);
+    });
 }
 
 pub fn remove_data_store(profile: ProfileStore) {
