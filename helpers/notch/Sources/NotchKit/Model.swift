@@ -74,6 +74,7 @@ struct Ask: Equatable {
 /// One row of the island: an open agent as the core shows it, with what the inbox says about it, or an item of an
 /// agent on another host.
 struct Entry: Identifiable, Equatable {
+    let id: String
     let item: InboxItem?
     let agent: AgentShown?
     let ask: Ask?
@@ -84,7 +85,29 @@ struct Entry: Identifiable, Equatable {
     var leadName: String? = nil
     var teamNeedsYou: Bool = false
 
-    var id: String { item?.id ?? "agent:\(agent?.agentId ?? "")" }
+    init(
+        item: InboxItem?,
+        agent: AgentShown?,
+        ask: Ask?,
+        question: AgentQuestion? = nil,
+        host: String? = nil,
+        reachable: Bool = true,
+        depth: Int = 0,
+        leadName: String? = nil,
+        teamNeedsYou: Bool = false
+    ) {
+        self.id = item?.id ?? "agent:\(agent?.agentId ?? "")"
+        self.item = item
+        self.agent = agent
+        self.ask = ask
+        self.question = question
+        self.host = host
+        self.reachable = reachable
+        self.depth = depth
+        self.leadName = leadName
+        self.teamNeedsYou = teamNeedsYou
+    }
+
     var agentId: String? { agent?.agentId ?? item?.agentId }
     var name: String? { item?.name ?? agent?.name }
     var lead: String? { agent?.lead }

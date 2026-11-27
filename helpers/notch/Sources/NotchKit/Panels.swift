@@ -93,7 +93,6 @@ final class Panels {
                 guard let self else { return }
                 self.asleep = true
                 self.stopTimers()
-                self.applyVisibility()
             }
         )
         workspaceObservers.append(
@@ -283,7 +282,7 @@ final class Panels {
             case .never: covered = fullScreen.contains(id)
             case .needsYou: covered = fullScreen.contains(id) && !needsYou
             }
-            let hidden = asleep || yielding || covered
+            let hidden = yielding || covered
             if entry.island.hidden != hidden {
                 withAnimation(.smooth(duration: 0.2)) { entry.island.hidden = hidden }
             }
