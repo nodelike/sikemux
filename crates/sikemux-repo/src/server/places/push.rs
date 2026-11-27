@@ -693,7 +693,7 @@ pub fn api_reach(lands: &Lands, root: &Path) -> Reach {
             reach_beside(name, default)
         }
         Lands::Any | Lands::Unread => Reach::Tags(Vec::new()),
-        Lands::Merge { .. } => Reach::Project,
+        Lands::Merge { .. } | Lands::AutoMerge => Reach::Project,
     }
 }
 

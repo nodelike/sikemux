@@ -467,9 +467,16 @@ fn read(
         harmless,
     }) = ship.target.as_ref().map(Target::bare)
     {
-        let ours = [cwd, Path::new(&project)]
-            .into_iter()
-            .any(|root| push::is_remote_of(repo, root));
+        if *lands == Some(Lands::AutoMerge) {
+            return Err(
+                "Not run: enabling auto-merge through GitHub's GraphQL API leaves GitHub to merge whatever its branch holds once checks pass, past what the person saw. Wait for the checks, then merge directly with gh pr merge."
+                    .to_owned(),
+            );
+        }
+        let ours = !repo.is_empty()
+            && [cwd, Path::new(&project)]
+                .into_iter()
+                .any(|root| push::is_remote_of(repo, root));
         match (ours, lands.clone()) {
             (true, Some(Lands::Merge { pull })) => {
                 api_merging = Some(push::api_merging(&pull, repo));

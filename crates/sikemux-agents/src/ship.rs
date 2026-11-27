@@ -34,6 +34,8 @@ pub enum Lands {
     Merge {
         pull: String,
     },
+    /// Enabling auto-merge or queuing a pull request to merge later once checks pass.
+    AutoMerge,
     /// A branch written to; `HEAD` when the call leaves it to the repository.
     Branch {
         name: String,
@@ -1975,7 +1977,7 @@ impl ApiCall {
     /// request metadata and reviews, labels, milestones, release-notes generation or a draft
     /// release. Anything else asks.
     fn harmless(&self, cwd: &Path) -> bool {
-        if self.endpoint == "graphql" {
+        if self.path() == "graphql" {
             return false;
         }
         let method = self.method.as_str();
@@ -2066,7 +2068,7 @@ impl ApiCall {
             }
             Err(Unread) => Lands::Unread,
         };
-        if self.endpoint == "graphql" {
+        if self.path() == "graphql" {
             return self.graphql_lands(cwd);
         }
         match self.under_repo().as_slice() {
@@ -2115,10 +2117,9 @@ impl ApiCall {
     }
 
     fn graphql_lands(&self, cwd: &Path) -> Option<Lands> {
-        const MUTATIONS: [&str; 10] = [
+        const AUTO_MERGE: [&str; 2] = ["enablePullRequestAutoMerge", "enqueuePullRequest"];
+        const MUTATIONS: [&str; 17] = [
             "mergePullRequest",
-            "enablePullRequestAutoMerge",
-            "enqueuePullRequest",
             "createCommitOnBranch",
             "createRef",
             "updateRef",
@@ -2126,6 +2127,15 @@ impl ApiCall {
             "deleteRef",
             "mergeBranch",
             "revertPullRequest",
+            "createBranchProtectionRule",
+            "updateBranchProtectionRule",
+            "deleteBranchProtectionRule",
+            "createRepositoryRuleset",
+            "updateRepositoryRuleset",
+            "deleteRepositoryRuleset",
+            "updateRepository",
+            "deleteRepository",
+            "transferRepository",
         ];
         let Ok(query) = self.said("query", cwd, &|file| {
             std::fs::read_to_string(cwd.join(file)).ok()
@@ -2133,7 +2143,11 @@ impl ApiCall {
             return Some(Lands::Unread);
         };
         let query = query.unwrap_or_default();
-        (query.split(|c: char| !c.is_ascii_alphanumeric() && c != '_'))
+        let mut words = query.split(|c: char| !c.is_ascii_alphanumeric() && c != '_');
+        if words.clone().any(|word| AUTO_MERGE.contains(&word)) {
+            return Some(Lands::AutoMerge);
+        }
+        words
             .any(|word| MUTATIONS.contains(&word))
             .then_some(Lands::Any)
     }
@@ -2264,7 +2278,7 @@ fn api_writes(args: &[String], cwd: &Path) -> bool {
     let Some(call) = github_api(&args) else {
         return false;
     };
-    if call.endpoint != "graphql" {
+    if call.path() != "graphql" {
         return call.method != "GET";
     }
     let said = call.said("query", cwd, &|file| {

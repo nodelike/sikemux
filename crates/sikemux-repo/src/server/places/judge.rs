@@ -326,12 +326,13 @@ fn production_fact(ship: &Ship, addresses: &str, found_in: Option<String>) -> Op
                 registry: registry.clone(),
             },
         )),
-        Target::GitHub { repo, .. } if !repo.is_empty() => Some(new_place(
-            &format!("{repo} on GitHub"),
-            true,
-            Vec::new(),
-            found_in,
-        )),
+        Target::GitHub { repo, lands, .. } if !repo.is_empty() || lands.is_some() => {
+            let name = match repo.is_empty() {
+                true => "GitHub".to_owned(),
+                false => format!("{repo} on GitHub"),
+            };
+            Some(new_place(&name, true, Vec::new(), found_in))
+        }
         Target::Database { name } => Some(place(
             format!("The {name} database"),
             Recognise::Database { name: name.clone() },
