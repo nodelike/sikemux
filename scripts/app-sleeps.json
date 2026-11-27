@@ -43,6 +43,7 @@
   "app/src/track.rs": 1,
   "app/src/ui/clock.rs": 1,
   "app/src/ui/grain.rs": 5,
+  "app/src/ui/welcome_dots.rs": 1,
   "app/src/updates.rs": 2,
   "app/src/voice.rs": 1,
   "app/src/workbench.rs": 3
