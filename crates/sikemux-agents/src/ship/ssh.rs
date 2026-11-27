@@ -313,8 +313,10 @@ fn command_reads(words: &[String]) -> bool {
         Unwrapped::UnknownWrapperFlag { .. } => return false,
         Unwrapped::Command { words, .. } => words,
     };
-    if let Some(script) = shell_script(&words) {
-        return script_reads(script);
+    if words.first().map(String::as_str) != Some("eval") {
+        if let Some(script) = shell_script(&words) {
+            return script_reads(&script);
+        }
     }
     let Some((program, args)) = words.split_first() else {
         return true;

@@ -3266,7 +3266,7 @@ fn of_command_at(
                 let at = here.clone().unwrap_or_else(|| cwd.to_owned());
                 let inner_looks = if bypassed { Looks::Every } else { looks };
                 ships.extend(of_command_at(
-                    script,
+                    &script,
                     extra,
                     inner_looks,
                     &at,

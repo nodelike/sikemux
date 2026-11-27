@@ -69,9 +69,22 @@ pub fn refusal(
     others: &Others,
     in_project: &InProject,
 ) -> Option<String> {
+    refusal_at(command, cwd, others, in_project, 0)
+}
+
+fn refusal_at(
+    command: &str,
+    cwd: &Path,
+    others: &Others,
+    in_project: &InProject,
+    depth: u8,
+) -> Option<String> {
+    if depth >= 8 {
+        return None;
+    }
     let check = |words: &[String]| {
         if let Some(script) = shell_script(words) {
-            return refusal(script, cwd, others, in_project);
+            return refusal_at(&script, cwd, others, in_project, depth + 1);
         }
         let (first, args) = words.split_first()?;
         if base_name(first) != "git" {
@@ -93,9 +106,19 @@ pub fn refusal(
         })
 }
 
-/// The script of `sh -c script`, or of a shell given other options first.
-pub(crate) fn shell_script(words: &[String]) -> Option<&str> {
+/// The script of `sh -c script`, `sh <<< script`, or `eval script`.
+pub(crate) fn shell_script(words: &[String]) -> Option<String> {
     let (shell, rest) = words.split_first()?;
+    if shell == "eval" {
+        let rest = match rest.first().map(String::as_str) {
+            Some("--") => rest.get(1..).unwrap_or_default(),
+            _ => rest,
+        };
+        if rest.is_empty() {
+            return None;
+        }
+        return Some(rest.join(" "));
+    }
     if !is_shell(shell) {
         return None;
     }
@@ -105,8 +128,12 @@ pub(crate) fn shell_script(words: &[String]) -> Option<&str> {
             "-o" | "+o" => {
                 words.next();
             }
+            "<<<" => return words.next().cloned(),
+            here if here.starts_with("<<<") && here.len() > 3 => {
+                return here.get(3..).map(str::to_owned);
+            }
             flag if flag.starts_with('-') && !flag.starts_with("--") && flag.contains('c') => {
-                return words.next().map(String::as_str);
+                return words.next().cloned();
             }
             flag if flag.starts_with(['-', '+']) => {}
             _ => return None,
@@ -1155,18 +1182,34 @@ pub enum Piece {
 
 /// [`segments`], with where each subshell, `$(…)` or backtick command starts and ends.
 pub fn pieces(line: &str) -> Vec<Piece> {
+    pieces_at(line, 0)
+}
+
+fn pieces_at(line: &str, depth: u8) -> Vec<Piece> {
     let mut pieces = Vec::new();
     let mut words: Vec<String> = Vec::new();
     let mut word: Option<String> = None;
+    let mut nested: Vec<String> = Vec::new();
     let mut in_backticks = false;
-    let mut chars = line.chars();
-    let end_words =
-        |word: &mut Option<String>, words: &mut Vec<String>, pieces: &mut Vec<Piece>| {
-            words.extend(word.take());
-            if !words.is_empty() {
-                pieces.push(Piece::Words(std::mem::take(words)));
+    let mut chars = line.chars().peekable();
+    let end_words = |word: &mut Option<String>,
+                     words: &mut Vec<String>,
+                     pieces: &mut Vec<Piece>,
+                     nested: &mut Vec<String>| {
+        words.extend(word.take());
+        if !words.is_empty() {
+            pieces.push(Piece::Words(std::mem::take(words)));
+        }
+        if depth < 8 {
+            for inner in nested.drain(..) {
+                pieces.push(Piece::Open);
+                pieces.extend(pieces_at(&inner, depth + 1));
+                pieces.push(Piece::Close);
             }
-        };
+        } else {
+            nested.clear();
+        }
+    };
     while let Some(c) = chars.next() {
         match c {
             '\'' => {
@@ -1187,24 +1230,112 @@ pub fn pieces(line: &str) -> Vec<Piece> {
                             }
                             None => text.push('\\'),
                         },
+                        '`' => {
+                            let inner = take_backtick_sub(&mut chars);
+                            text.push('`');
+                            text.push_str(&inner);
+                            text.push('`');
+                            if !inner.trim().is_empty() {
+                                nested.push(inner);
+                            }
+                        }
+                        '$' if chars.peek() == Some(&'(') => {
+                            chars.next();
+                            if chars.peek() == Some(&'(') {
+                                text.push_str("$(");
+                            } else {
+                                let inner = take_paren_sub(&mut chars);
+                                text.push_str("$(");
+                                text.push_str(&inner);
+                                text.push(')');
+                                if !inner.trim().is_empty() {
+                                    nested.push(inner);
+                                }
+                            }
+                        }
                         c => text.push(c),
                     }
                 }
             }
             '\\' => word.get_or_insert_with(String::new).extend(chars.next()),
             '(' | ')' | '`' => {
-                end_words(&mut word, &mut words, &mut pieces);
+                end_words(&mut word, &mut words, &mut pieces, &mut nested);
                 let opens = c == '(' || (c == '`' && !in_backticks);
                 in_backticks ^= c == '`';
                 pieces.push(if opens { Piece::Open } else { Piece::Close });
             }
-            ';' | '&' | '|' | '\n' | '{' | '}' => end_words(&mut word, &mut words, &mut pieces),
+            ';' | '&' | '|' | '\n' | '{' | '}' => {
+                end_words(&mut word, &mut words, &mut pieces, &mut nested);
+            }
             c if c.is_whitespace() => words.extend(word.take()),
             c => word.get_or_insert_with(String::new).push(c),
         }
     }
-    end_words(&mut word, &mut words, &mut pieces);
+    end_words(&mut word, &mut words, &mut pieces, &mut nested);
     pieces
+}
+
+fn take_backtick_sub(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+    let mut inner = String::new();
+    while let Some(c) = chars.next() {
+        match c {
+            '`' => break,
+            '\\' => match chars.next() {
+                Some(escaped @ ('`' | '\\' | '$')) => inner.push(escaped),
+                Some(other) => {
+                    inner.push('\\');
+                    inner.push(other);
+                }
+                None => inner.push('\\'),
+            },
+            c => inner.push(c),
+        }
+    }
+    inner
+}
+
+fn take_paren_sub(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+    let mut inner = String::new();
+    let mut depth = 1usize;
+    let mut quote: Option<char> = None;
+    while let Some(c) = chars.next() {
+        if let Some(q) = quote {
+            inner.push(c);
+            if q == '"' && c == '\\' {
+                if let Some(next) = chars.next() {
+                    inner.push(next);
+                }
+            } else if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        match c {
+            '\\' => {
+                inner.push(c);
+                if let Some(next) = chars.next() {
+                    inner.push(next);
+                }
+            }
+            '\'' | '"' => {
+                quote = Some(c);
+                inner.push(c);
+            }
+            '(' => {
+                depth += 1;
+                inner.push(c);
+            }
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+                inner.push(c);
+            }
+            c => inner.push(c),
+        }
+    }
+    inner
 }
 
 #[cfg(test)]
