@@ -26,3 +26,15 @@ pub mod tcp_table;
 
 use sikemux_base::http;
 use sikemux_corekit::{accounts, android_sdk, cli, flights, tasks, text, timeout, trailers};
+
+/// Caps Rayon's global thread pool so the core does not keep one unnamed worker thread per CPU core.
+pub fn bound_rayon_pool() {
+    let threads = std::thread::available_parallelism()
+        .map(std::num::NonZeroUsize::get)
+        .unwrap_or(4)
+        .clamp(2, 4);
+    let _ = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .thread_name(|index| format!("sikemux-rayon-{index}"))
+        .build_global();
+}

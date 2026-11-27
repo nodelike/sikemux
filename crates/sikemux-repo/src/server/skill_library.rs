@@ -4,6 +4,8 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
+use crate::server::serving::ServeParts;
+use crate::server::watch_hub::{WatchHandle, WatchHub};
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::skill_library::{
     GlobalSkillAdded, Located, Named, NewSkill, OwnSkills, SkillsOverview, Source,
@@ -13,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use notify::{RecursiveMode, Watcher};
+use notify::RecursiveMode;
 use sikemux_process::sync::Locked;
 
 use super::changed::Topic;
@@ -247,9 +249,10 @@ fn concerns(path: &Path, folders: &[PathBuf]) -> bool {
 /// one that does not exist yet, and tells every client about a skill that
 /// shows up in one, so the person can move it in.
 pub fn watch_global(core: &Arc<Core>) {
+    let hub = core.watch_hub().clone();
     let core = Arc::downgrade(core);
-    std::thread::spawn(move || {
-        watch_folders(global_folders(), |skill| {
+    tokio::spawn(async move {
+        watch_folders(&hub, global_folders(), |skill| {
             let Some(core) = core.upgrade() else {
                 return;
             };
@@ -260,43 +263,45 @@ pub fn watch_global(core: &Arc<Core>) {
             kept.push(skill);
             drop(kept);
             core.changed(What::Read(Topic::Skills));
-        });
+        })
+        .await;
     });
 }
 
-fn watch_folders(folders: Vec<(&'static str, PathBuf)>, mut tell: impl FnMut(GlobalSkillAdded)) {
+async fn watch_folders(
+    hub: &Arc<WatchHub>,
+    folders: Vec<(&'static str, PathBuf)>,
+    mut tell: impl FnMut(GlobalSkillAdded),
+) {
     let mut known = HashSet::new();
     added_skills(&folders, &mut known);
     let real: Vec<PathBuf> = folders.iter().map(|(_, folder)| resolved(folder)).collect();
-    let (changed, changes) = std::sync::mpsc::channel::<()>();
-    let Ok(mut watcher) =
-        notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-            if event.is_ok_and(|event| {
-                !matches!(event.kind, notify::EventKind::Access(_))
-                    && event.paths.iter().any(|path| concerns(path, &real))
-            }) {
-                let _ = changed.send(());
-            }
-        })
-    else {
-        return;
-    };
+    let (changed, mut changes) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let watcher = hub.subscribe(move |event| {
+        if event.paths.iter().any(|path| concerns(path, &real)) {
+            let _ = changed.send(());
+        }
+    });
     let mut watching: HashSet<PathBuf> = HashSet::new();
-    let mut follow = |watcher: &mut notify::RecommendedWatcher| {
-        for (_, folder) in &folders {
-            let target = watch_target(folder);
-            if !watching.contains(&target)
-                && watcher.watch(&target, RecursiveMode::Recursive).is_ok()
-            {
-                watching.insert(target);
-            }
+    let mut follow = |watcher: &WatchHandle| {
+        let targets: HashSet<PathBuf> = folders
+            .iter()
+            .map(|(_, folder)| watch_target(folder))
+            .collect();
+        if targets != watching {
+            let watched = watcher.set_paths(
+                targets
+                    .into_iter()
+                    .map(|target| (target, RecursiveMode::Recursive)),
+            );
+            watching = watched.into_keys().collect();
         }
     };
-    follow(&mut watcher);
-    while changes.recv().is_ok() {
-        std::thread::sleep(Duration::from_millis(500));
+    follow(&watcher);
+    while changes.recv().await.is_some() {
+        tokio::time::sleep(Duration::from_millis(500)).await;
         while changes.try_recv().is_ok() {}
-        follow(&mut watcher);
+        follow(&watcher);
         for added in added_skills(&folders, &mut known) {
             tell(added);
         }
@@ -405,26 +410,37 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn a_skill_written_into_a_folder_made_after_watching_began_is_reported() {
+    #[tokio::test]
+    async fn a_skill_written_into_a_folder_made_after_watching_began_is_reported() {
         let root = tempfile::tempdir().unwrap();
+        let hub = Arc::new(WatchHub::new());
         let skills = root.path().join(".claude/skills");
-        let (told, heard) = std::sync::mpsc::channel();
+        let (told, mut heard) = tokio::sync::mpsc::unbounded_channel();
         let folders = vec![("Claude", skills.clone())];
-        std::thread::spawn(move || {
-            watch_folders(folders, move |added| {
-                let _ = told.send(added);
-            })
+        let task = tokio::spawn({
+            let hub = hub.clone();
+            async move {
+                watch_folders(&hub, folders, move |added| {
+                    let _ = told.send(added);
+                })
+                .await;
+            }
         });
-        std::thread::sleep(Duration::from_millis(300));
+        tokio::time::sleep(Duration::from_millis(300)).await;
 
         std::fs::create_dir_all(&skills).unwrap();
-        let added = (0..30)
-            .find_map(|attempt| {
-                write_skill(&skills, &format!("notes-{attempt}"));
-                heard.recv_timeout(Duration::from_secs(1)).ok()
-            })
-            .expect("a new skill is reported");
+        let mut found = None;
+        for attempt in 0..30 {
+            write_skill(&skills, &format!("notes-{attempt}"));
+            if let Ok(Some(added)) =
+                tokio::time::timeout(Duration::from_secs(1), heard.recv()).await
+            {
+                found = Some(added);
+                break;
+            }
+        }
+        task.abort();
+        let added = found.expect("a new skill is reported");
         assert!(added.name.starts_with("notes-"), "{}", added.name);
         assert_eq!(added.agent, "Claude");
     }

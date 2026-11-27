@@ -11,8 +11,8 @@
 //!
 //! A native view takes its place in paint order, as GPUI's own drawing does: what is
 //! painted after it and over it, such as a fade, a popover or a toast, shows above it,
-//! and takes the clicks where it sits. On macOS that needs `Window::enable_scene_overlay`
-//! as the window opens.
+//! and takes the clicks where it sits. On macOS the scene overlay plane is enabled on
+//! demand the first time a native view becomes visible in a window.
 
 #[cfg(target_os = "macos")]
 pub mod document;
@@ -23,13 +23,14 @@ mod macos;
 #[cfg(windows)]
 mod windows;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui::{
     App, Bounds, Element, ElementId, FocusHandle, GlobalElementId, Hitbox, HitboxBehavior,
     InspectorElementId, IntoElement, LayoutId, Pixels, Refineable, Style, StyleRefinement, Styled,
-    Window,
+    Window, WindowId,
 };
 
 #[cfg(target_os = "linux")]
@@ -217,7 +218,23 @@ impl Element for NativeView {
         window: &mut Window,
         _: &mut App,
     ) {
+        if !hitbox.bounds.is_empty() {
+            ensure_scene_overlay(window);
+        }
         window.paint_native_view(hitbox);
+    }
+}
+
+fn ensure_scene_overlay(window: &Window) {
+    let id = window.window_handle().window_id();
+    let inserted = OVERLAY_ENABLED.with(|enabled| enabled.borrow_mut().insert(id));
+    if !inserted {
+        return;
+    }
+    if let Err(error) = window.enable_scene_overlay() {
+        if raw_window_handle::HasWindowHandle::window_handle(window).is_ok() {
+            eprintln!("sikemux: pages will cover menus, with no overlay plane: {error}");
+        }
     }
 }
 
@@ -232,6 +249,7 @@ struct Placement {
 
 thread_local! {
     static MARKS: Cell<u64> = const { Cell::new(0) };
+    static OVERLAY_ENABLED: RefCell<HashSet<WindowId>> = RefCell::new(HashSet::new());
 }
 
 impl Placement {

@@ -19,9 +19,9 @@ Shows a native view, such as a web page or a PDF, in a
 
 A native view takes its place in paint order, as GPUI's own drawing does:
 whatever is painted after it and over it, such as a fade, a popover, a dialog or
-a toast, shows above it and takes the clicks where it sits. Call
-`Window::enable_scene_overlay` as the window opens. That needs GPUI with the
-window overlay plane, as in [sikemux/gpui](https://github.com/sikemux/gpui).
+a toast, shows above it and takes the clicks where it sits. The first visible
+native view in a window enables the window's overlay plane on demand. That needs
+GPUI with the window overlay plane, as in [sikemux/gpui](https://github.com/sikemux/gpui).
 
 ```rust
 let page = NativeSurface::new(OwnedView::new(pdf_view, window).unwrap());

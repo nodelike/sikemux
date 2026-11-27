@@ -644,7 +644,7 @@ async fn dispatch(
                 .map(|run| with_fields(&run, json!({})))
         }
         "events.wait" if super::wait_for::asked(&request.params) => {
-            super::wait_for::call(&request).await
+            super::wait_for::call(core.watch_hub(), &request).await
         }
         "events.wait" => events_wait(core, &request).await,
         "agent.list" => super::roster::list(core, &request).await,

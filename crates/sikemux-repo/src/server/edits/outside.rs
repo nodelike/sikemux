@@ -7,14 +7,15 @@
 
 use crate::server::chat_state::ChatParts;
 use crate::server::repo_state::RepoParts;
-use crate::server::serving::ServeCore;
+use crate::server::serving::{ServeCore, ServeParts};
+use crate::server::watch_hub::WatchHandle;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::RecursiveMode;
 use sikemux_process::clock::{epoch_ms, epoch_ms_of};
 use sikemux_process::sync::Locked;
 
@@ -50,7 +51,7 @@ pub struct Outside {
 }
 
 struct Checkout {
-    _watcher: RecommendedWatcher,
+    _watcher: WatchHandle,
     project: String,
     seen: Arc<Mutex<Seen>>,
     worked_at: u64,
@@ -147,7 +148,7 @@ impl Outside {
         }
         let seen = Arc::new(Mutex::new(Seen::default()));
         let since = UNIX_EPOCH + Duration::from_millis(began.min(now));
-        let Some(watcher) = watch(&top, seen.clone(), Arc::downgrade(core)) else {
+        let Some(watcher) = watch(core, &top, seen.clone()) else {
             return;
         };
         let project = core.workspaces().project_of(&top);
@@ -359,35 +360,32 @@ impl Outside {
     }
 }
 
-fn watch(top: &Path, seen: Arc<Mutex<Seen>>, core: Weak<Core>) -> Option<RecommendedWatcher> {
+fn watch(core: &Arc<Core>, top: &Path, seen: Arc<Mutex<Seen>>) -> Option<WatchHandle> {
     let at = top.to_path_buf();
-    let started = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        let Ok(event) = event else { return };
-        if matches!(event.kind, EventKind::Access(_)) {
-            return;
-        }
-        let now = epoch_ms();
-        let woke = {
-            let mut seen = seen.locked();
-            let idle = seen.idle();
-            for path in event.paths {
-                seen.note(&at, path, now);
+    let weak = Arc::downgrade(core);
+    let started = core
+        .watch_hub()
+        .watch(top, RecursiveMode::Recursive, move |event| {
+            let now = epoch_ms();
+            let woke = {
+                let mut seen = seen.locked();
+                let idle = seen.idle();
+                for path in &event.paths {
+                    seen.note(&at, path.clone(), now);
+                }
+                idle && !seen.idle()
+            };
+            if let (true, Some(core)) = (woke, weak.upgrade()) {
+                core.edits().wake();
             }
-            idle && !seen.idle()
-        };
-        if let (true, Some(core)) = (woke, core.upgrade()) {
-            core.edits().wake();
-        }
-    });
-    let mut watcher = match started {
-        Ok(watcher) => watcher,
+        });
+    match started {
+        Ok(watcher) => Some(watcher),
         Err(error) => {
             eprintln!("sikemux core: changes outside agents' edit tools go unrecorded: {error}");
-            return None;
+            None
         }
-    };
-    watcher.watch(top, RecursiveMode::Recursive).ok()?;
-    Some(watcher)
+    }
 }
 
 fn inside(top: &Path, path: &Path) -> Option<String> {

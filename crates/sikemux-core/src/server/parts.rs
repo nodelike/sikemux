@@ -29,7 +29,7 @@ pub(crate) struct Fields {
     /// Rings when a window opens, so the day's usage counts it at once.
     pub(super) usage_wake: Notify,
     /// Watches the SSH config once a client has listed its hosts.
-    pub(super) ssh_watch: OnceLock<Option<::notify::RecommendedWatcher>>,
+    pub(super) ssh_watch: OnceLock<Option<super::watch_hub::WatchHandle>>,
     /// Answers in parts on the connections that asked for them.
     pub(super) streams: streams::Streams,
     pub(super) look: themes::Look,
@@ -73,7 +73,7 @@ pub(crate) trait Parts {
     fn config(&self) -> &ServerConfig;
     fn manifest_folder(&self) -> &Mutex<Option<PathBuf>>;
     fn usage_wake(&self) -> &Notify;
-    fn ssh_watch(&self) -> &OnceLock<Option<::notify::RecommendedWatcher>>;
+    fn ssh_watch(&self) -> &OnceLock<Option<super::watch_hub::WatchHandle>>;
     fn streams(&self) -> &streams::Streams;
     fn look(&self) -> &themes::Look;
     fn harness(&self) -> &harness::Harness;
@@ -122,7 +122,7 @@ impl Parts for Core {
         &self.kept::<Fields>().usage_wake
     }
 
-    fn ssh_watch(&self) -> &OnceLock<Option<::notify::RecommendedWatcher>> {
+    fn ssh_watch(&self) -> &OnceLock<Option<super::watch_hub::WatchHandle>> {
         &self.kept::<Fields>().ssh_watch
     }
 

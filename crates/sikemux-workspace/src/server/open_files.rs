@@ -4,14 +4,16 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
+use crate::server::serving::ServeParts;
+use crate::server::watch_hub::WatchHandle;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::open_files::ShowFiles;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::RecursiveMode;
 use sikemux_process::sync::Locked;
 
 use super::changed::Topic;
@@ -36,7 +38,7 @@ struct State {
     by_client: HashMap<ClientId, HashMap<PathBuf, String>>,
     /// The folders watched, which hold the open files.
     folders: HashSet<PathBuf>,
-    watcher: Option<RecommendedWatcher>,
+    watcher: Option<WatchHandle>,
 }
 
 /// The path the disk reports for `path`: its folder with links resolved.
@@ -80,40 +82,35 @@ fn rewatch(core: &Arc<Core>, state: &mut State) -> CoreResult<()> {
         .flat_map(HashMap::keys)
         .filter_map(|path| path.parent().map(Path::to_path_buf))
         .collect();
-    if state.watcher.is_none() {
-        if wanted.is_empty() {
-            return Ok(());
-        }
-        state.watcher = Some(start(Arc::downgrade(core))?);
+    if wanted.is_empty() {
+        state.watcher = None;
+        state.folders.clear();
+        return Ok(());
     }
-    let Some(watcher) = state.watcher.as_mut() else {
+    if state.watcher.is_none() {
+        state.watcher = Some(start(core));
+    }
+    if state.folders == wanted {
+        return Ok(());
+    }
+    let Some(watcher) = state.watcher.as_ref() else {
         return Ok(());
     };
-    for gone in state.folders.difference(&wanted) {
-        let _ = watcher.unwatch(gone);
-    }
-    let mut folders = HashSet::new();
-    for folder in wanted {
-        if state.folders.contains(&folder)
-            || watcher.watch(&folder, RecursiveMode::NonRecursive).is_ok()
-        {
-            folders.insert(folder);
-        }
-    }
-    state.folders = folders;
+    let watched = watcher.set_paths(
+        wanted
+            .into_iter()
+            .map(|folder| (folder, RecursiveMode::NonRecursive)),
+    );
+    state.folders = watched.into_keys().collect();
     Ok(())
 }
 
-fn start(core: Weak<Core>) -> CoreResult<RecommendedWatcher> {
+fn start(core: &Arc<Core>) -> WatchHandle {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<PathBuf>>(EVENTS_QUEUED);
-    let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
-        let Ok(event) = event else { return };
-        if matches!(event.kind, EventKind::Access(_)) {
-            return;
-        }
-        let _ = tx.try_send(event.paths);
-    })
-    .map_err(|error| CoreError::from(format!("the core cannot watch open files: {error}")))?;
+    let watcher = core.watch_hub().subscribe(move |event| {
+        let _ = tx.try_send(event.paths.clone());
+    });
+    let core = Arc::downgrade(core);
     tokio::spawn(async move {
         while let Some(first) = rx.recv().await {
             let mut moved: HashSet<PathBuf> = first.into_iter().collect();
@@ -148,7 +145,7 @@ fn start(core: Weak<Core>) -> CoreResult<RecommendedWatcher> {
             }
         }
     });
-    Ok(watcher)
+    watcher
 }
 
 impl super::part::Part for OpenFiles {

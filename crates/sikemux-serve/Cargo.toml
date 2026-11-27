@@ -22,6 +22,7 @@ sikemux-wire = { path = "../sikemux-wire" }
 sikemux-keychain = { path = "../sikemux-keychain" }
 hex = "0.4"
 iroh = { version = "1.3", default-features = false, features = ["tls-ring"] }
+notify = "8"
 portable-pty = "0.9"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order"] }

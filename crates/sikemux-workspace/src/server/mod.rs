@@ -22,6 +22,6 @@ pub mod workspace_above;
 pub mod workspace_state;
 
 pub use sikemux_serve::server::{
-    access, changed, connection, kept, part, prepare, serving, session, wake, Core, CoreError,
-    CoreResult,
+    access, changed, connection, kept, part, prepare, serving, session, wake, watch_hub, Core,
+    CoreError, CoreResult,
 };

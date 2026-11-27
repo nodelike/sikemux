@@ -21,6 +21,7 @@ pub mod ssh_startup;
 pub mod updating;
 pub mod waits;
 pub mod wake;
+pub mod watch_hub;
 pub mod window;
 
 pub use capacity::{Capacity, CapacityPermit};

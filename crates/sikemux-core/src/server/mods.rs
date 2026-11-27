@@ -15,6 +15,7 @@ pub(super) use sync::{catch_up, heard};
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::serving::ServeParts;
 pub use sikemux_calls::mods::{
     AllowParams, BadgeParams, ModAsk, ModBatchParams, ModChange, ModExample, ModInfo, ModList,
     ModPage, ModParams, OffParams, PinModParams,
@@ -24,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use notify::{RecursiveMode, Watcher};
+use notify::RecursiveMode;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
@@ -694,73 +695,61 @@ fn touched(folder: &Path, paths: &[PathBuf]) -> BTreeSet<String> {
 
 /// Follows the mods folder while the core runs, including before it is made, and tells every
 /// client which mods changed, so a list reads again and an open mod shows its new page.
-pub(crate) fn watch(core: &Arc<Core>) {
-    let Some(folder) = core.mods().folder.clone() else {
-        return;
-    };
+pub(crate) fn watch(core: &Arc<Core>) -> Option<tokio::task::JoinHandle<()>> {
+    let folder = core.mods().folder.clone()?;
+    let hub = core.watch_hub().clone();
     let core = Arc::downgrade(core);
-    std::thread::Builder::new()
-        .name("sikemux-mods".into())
-        .spawn(move || {
-            let real = resolved(&folder);
-            let (changed, changes) = std::sync::mpsc::channel::<Vec<PathBuf>>();
-            let concerned = real.clone();
-            let Ok(mut watcher) =
-                notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-                    let changed_files = event
-                        .ok()
-                        .filter(|event| !matches!(event.kind, notify::EventKind::Access(_)));
-                    if let Some(event) = changed_files {
-                        let paths: Vec<PathBuf> = event
-                            .paths
-                            .into_iter()
-                            .filter(|path| {
-                                path.starts_with(&concerned) || concerned.starts_with(path)
-                            })
-                            .collect();
-                        if !paths.is_empty() {
-                            let _ = changed.send(paths);
-                        }
-                    }
-                })
-            else {
+    Some(tokio::spawn(async move {
+        let real = resolved(&folder);
+        let (changed, mut changes) = tokio::sync::mpsc::unbounded_channel::<Vec<PathBuf>>();
+        let concerned = real.clone();
+        let watcher = hub.subscribe(move |event| {
+            let paths: Vec<PathBuf> = event
+                .paths
+                .iter()
+                .filter(|path| path.starts_with(&concerned) || concerned.starts_with(path))
+                .cloned()
+                .collect();
+            if !paths.is_empty() {
+                let _ = changed.send(paths);
+            }
+        });
+        let mut watching = None;
+        let mut follow = |watcher: &crate::server::watch_hub::WatchHandle| {
+            let target = watch_target(&folder);
+            if watching.as_ref() != Some(&target) {
+                let watched = watcher.set_paths([(target.clone(), RecursiveMode::Recursive)]);
+                if !watched.is_empty() {
+                    watching = Some(target);
+                }
+            }
+        };
+        follow(&watcher);
+        while let Some(first) = changes.recv().await {
+            tokio::time::sleep(QUIET).await;
+            let mut paths = first;
+            while let Ok(more) = changes.try_recv() {
+                paths.extend(more);
+            }
+            follow(&watcher);
+            let Some(core) = core.upgrade() else {
                 return;
             };
-            let mut watching = None;
-            let mut follow = |watcher: &mut notify::RecommendedWatcher| {
-                let target = watch_target(&folder);
-                if watching.as_ref() != Some(&target)
-                    && watcher.watch(&target, RecursiveMode::Recursive).is_ok()
-                {
-                    if let Some(old) = watching.replace(target) {
-                        let _ = watcher.unwatch(&old);
-                    }
-                }
-            };
-            follow(&mut watcher);
-            while let Ok(first) = changes.recv() {
-                std::thread::sleep(QUIET);
-                let mut paths = first;
-                while let Ok(more) = changes.try_recv() {
-                    paths.extend(more);
-                }
-                follow(&mut watcher);
-                let Some(core) = core.upgrade() else {
-                    return;
-                };
-                let ids: Vec<String> = touched(&real, &paths).into_iter().collect();
-                core.mods().sync.folders_changed(&ids);
-                core.changed(What::ReadIn(Topic::Mods, None, Some(ids)));
-            }
-        })
-        .ok();
+            let ids: Vec<String> = touched(&real, &paths).into_iter().collect();
+            core.mods().sync.folders_changed(&ids);
+            core.changed(What::ReadIn(Topic::Mods, None, Some(ids)));
+        }
+    }))
 }
 
 impl super::part::Part for Mods {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
-        watch(core);
         self.data.attach(core);
-        vec![tokio::spawn(sync::run(Arc::downgrade(core)))]
+        let mut tasks = vec![tokio::spawn(sync::run(Arc::downgrade(core)))];
+        if let Some(watcher) = watch(core) {
+            tasks.push(watcher);
+        }
+        tasks
     }
 
     fn flush(&self) {

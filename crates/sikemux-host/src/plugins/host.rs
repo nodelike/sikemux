@@ -24,6 +24,8 @@ struct Loaded {
 }
 
 const PLUGIN_THREADS: usize = 2;
+const PLUGIN_MAX_BLOCKING_THREADS: usize = 8;
+const PLUGIN_BLOCKING_KEEP_ALIVE: Duration = Duration::from_secs(5);
 const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 const AGENT_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -61,6 +63,8 @@ impl PluginHost {
     ) -> std::io::Result<Self> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(PLUGIN_THREADS)
+            .max_blocking_threads(PLUGIN_MAX_BLOCKING_THREADS)
+            .thread_keep_alive(PLUGIN_BLOCKING_KEEP_ALIVE)
             .thread_name("sikemux-plugin")
             .enable_all()
             .build()?;

@@ -7,11 +7,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ::notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use ::notify::RecursiveMode;
 use serde_json::{json, Value};
 use tokio::sync::Notify;
 
 use crate::cli::protocol::HarnessRequest;
+use crate::server::watch_hub::{WatchHandle, WatchHub};
 
 const DEFAULT_WAIT_MS: u64 = 50_000;
 const MAX_WAIT_MS: u64 = 50_000;
@@ -28,7 +29,7 @@ pub(crate) fn asked(params: &Value) -> bool {
     params.get("file").is_some() || params.get("pid").is_some()
 }
 
-pub(crate) async fn call(request: &HarnessRequest) -> Result<Value, String> {
+pub(crate) async fn call(hub: &Arc<WatchHub>, request: &HarnessRequest) -> Result<Value, String> {
     let params = &request.params;
     let cursor = params.get("cursor").filter(|cursor| {
         !cursor.is_null() && cursor.as_str().is_none_or(|text| !text.trim().is_empty())
@@ -67,7 +68,7 @@ pub(crate) async fn call(request: &HarnessRequest) -> Result<Value, String> {
     let changed = Arc::new(Notify::new());
     let _watch = file
         .as_deref()
-        .and_then(|file| watch(file, changed.clone()));
+        .and_then(|file| watch(hub, file, changed.clone()));
     let mut scan = file.map(|file| Scan::new(file, text));
     loop {
         let mut failing = Vec::new();
@@ -119,24 +120,19 @@ pub(crate) async fn call(request: &HarnessRequest) -> Result<Value, String> {
 }
 
 /// Watches the folder holding `file`, which may not exist yet.
-fn watch(file: &Path, changed: Arc<Notify>) -> Option<RecommendedWatcher> {
+fn watch(hub: &Arc<WatchHub>, file: &Path, changed: Arc<Notify>) -> Option<WatchHandle> {
     let folder = file.parent()?.to_owned();
     let name = file.file_name()?.to_owned();
-    let mut watcher =
-        ::notify::recommended_watcher(move |event: ::notify::Result<::notify::Event>| {
-            if event.is_ok_and(|event| {
-                !matches!(event.kind, ::notify::EventKind::Access(_))
-                    && event
-                        .paths
-                        .iter()
-                        .any(|path| path.file_name() == Some(&name))
-            }) {
-                changed.notify_one();
-            }
-        })
-        .ok()?;
-    watcher.watch(&folder, RecursiveMode::NonRecursive).ok()?;
-    Some(watcher)
+    hub.watch(&folder, RecursiveMode::NonRecursive, move |event| {
+        if event
+            .paths
+            .iter()
+            .any(|path| path.file_name() == Some(&name))
+        {
+            changed.notify_one();
+        }
+    })
+    .ok()
 }
 
 #[cfg(windows)]

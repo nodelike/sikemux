@@ -7,13 +7,15 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
+use crate::server::serving::ServeParts;
+use crate::server::watch_hub::WatchHandle;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{EventKind, RecursiveMode};
 use sikemux_process::sync::Locked;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
@@ -66,7 +68,7 @@ struct Touched {
 struct Watching {
     places: Vec<Places>,
     folders: HashMap<PathBuf, RecursiveMode>,
-    watcher: Option<RecommendedWatcher>,
+    watcher: Option<WatchHandle>,
 }
 
 #[derive(Default)]
@@ -138,8 +140,14 @@ fn place(core: &Arc<Core>, watching: &mut Watching, groups: impl IntoIterator<It
             *known = mode;
         }
     }
+    if folders.is_empty() {
+        watching.places = places;
+        watching.folders.clear();
+        watching.watcher = None;
+        return;
+    }
     if watching.watcher.is_none() {
-        watching.watcher = start(core);
+        watching.watcher = Some(start(core));
     }
     let Watching {
         places: kept,
@@ -153,33 +161,21 @@ fn place(core: &Arc<Core>, watching: &mut Watching, groups: impl IntoIterator<It
     if *watched == folders {
         return;
     }
-    let mut paths = watcher.paths_mut();
-    for (dir, mode) in watched.iter() {
-        if folders.get(dir) != Some(mode) {
-            let _ = paths.remove(dir);
-        }
-    }
-    folders.retain(|dir, mode| watched.get(dir) == Some(mode) || paths.add(dir, *mode).is_ok());
-    let _ = paths.commit();
-    *watched = folders;
+    *watched = watcher.set_paths(folders);
 }
 
-fn start(core: &Arc<Core>) -> Option<RecommendedWatcher> {
+fn start(core: &Arc<Core>) -> WatchHandle {
     let (changed, heard) = mpsc::unbounded_channel::<Vec<PathBuf>>();
-    let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
-        let Ok(event) = event else {
-            return;
-        };
+    let watcher = core.watch_hub().subscribe(move |event| {
         if matches!(
             event.kind,
             EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
         ) {
-            let _ = changed.send(event.paths);
+            let _ = changed.send(event.paths.clone());
         }
-    })
-    .ok()?;
+    });
     tokio::spawn(listen(Arc::downgrade(core), heard));
-    Some(watcher)
+    watcher
 }
 
 async fn listen(owner: Weak<Core>, mut heard: mpsc::UnboundedReceiver<Vec<PathBuf>>) {

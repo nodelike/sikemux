@@ -138,7 +138,13 @@ pub(super) async fn follow(core: Arc<Core>) {
     wear_background_off_thread(&core).await;
     // Omarchy replaces its `theme` folder on a switch, so this watches the folder around it.
     let on_switch = || switched(core.clone(), current.clone());
-    crate::server::watched_folder::watch(current.clone(), SETTLE, on_switch).await;
+    crate::server::watched_folder::watch(
+        crate::server::serving::ServeParts::watch_hub(core.as_ref()),
+        current.clone(),
+        SETTLE,
+        on_switch,
+    )
+    .await;
 }
 
 async fn switched(core: Arc<Core>, current: PathBuf) {

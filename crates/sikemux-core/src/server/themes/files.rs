@@ -13,6 +13,7 @@ use sikemux_view::theme::Theme;
 use crate::server::changed::{ChangedCore, Topic, What};
 use crate::server::connection::blocking;
 use crate::server::parts::Parts;
+use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 use crate::server::{watched_folder, Core, CoreResult, ServerCore};
 
@@ -59,12 +60,12 @@ pub(super) async fn follow(core: Arc<Core>) {
     };
     let ghostty_changes = async {
         if let Some(ghostty) = ghostty {
-            watched_folder::watch(ghostty, SETTLE, changed).await;
+            watched_folder::watch(core.watch_hub(), ghostty, SETTLE, changed).await;
         }
     };
     let own_changes = async {
         if let Some(own) = folder() {
-            watched_folder::watch(own, SETTLE, changed).await;
+            watched_folder::watch(core.watch_hub(), own, SETTLE, changed).await;
         }
     };
     tokio::join!(ghostty_changes, own_changes);

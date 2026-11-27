@@ -672,12 +672,36 @@ mod fsevent {
 
     extern "C" {
         fn dispatch_queue_create(label: *const c_char, attr: *const c_void) -> DispatchQueue;
-        fn dispatch_release(object: DispatchQueue);
         fn dispatch_sync_f(
             queue: DispatchQueue,
             context: *mut c_void,
             work: extern "C" fn(*mut c_void),
         );
+    }
+
+    struct SharedQueue(DispatchQueue);
+    // SAFETY: GCD serial dispatch queues are thread-safe and live for the process's lifetime.
+    unsafe impl Send for SharedQueue {}
+    // SAFETY: GCD serial dispatch queues are thread-safe and live for the process's lifetime.
+    unsafe impl Sync for SharedQueue {}
+
+    fn shared_queue() -> Result<DispatchQueue, String> {
+        static QUEUE: std::sync::OnceLock<Result<SharedQueue, String>> = std::sync::OnceLock::new();
+        QUEUE
+            .get_or_init(|| {
+                let label = CString::new("com.nodelike.sikemux.git-watch")
+                    .map_err(|error| error.to_string())?;
+                // SAFETY: label is a valid NUL-terminated C string; null attr creates a serial queue.
+                let queue = unsafe { dispatch_queue_create(label.as_ptr(), ptr::null()) };
+                if queue.is_null() {
+                    Err("could not create FSEvents dispatch queue".into())
+                } else {
+                    Ok(SharedQueue(queue))
+                }
+            })
+            .as_ref()
+            .map(|queue| queue.0)
+            .map_err(Clone::clone)
     }
 
     struct StreamContext {
@@ -702,18 +726,9 @@ mod fsevent {
             tx: tokio::sync::mpsc::Sender<WatchMessage>,
             rescan: Arc<AtomicBool>,
         ) -> Result<Self, String> {
-            let label = CString::new("com.nodelike.sikemux.git-watch")
-                .map_err(|error| error.to_string())?;
-            // SAFETY: label is a valid NUL-terminated C string; null attr creates a serial queue.
-            let queue = unsafe { dispatch_queue_create(label.as_ptr(), ptr::null()) };
-            if queue.is_null() {
-                return Err("could not create FSEvents dispatch queue".into());
-            }
-            let watch_paths = cf_path_array(std::slice::from_ref(&root)).ok_or_else(|| {
-                // SAFETY: queue was just created and is non-null.
-                unsafe { dispatch_release(queue) };
-                "could not encode watched path for FSEvents".to_owned()
-            })?;
+            let queue = shared_queue()?;
+            let watch_paths = cf_path_array(std::slice::from_ref(&root))
+                .ok_or_else(|| "could not encode watched path for FSEvents".to_owned())?;
             let context_ptr = Box::into_raw(Box::new(StreamContext {
                 root: root.clone(),
                 tx,
@@ -746,7 +761,6 @@ mod fsevent {
                 // SAFETY: stream creation failed so CoreServices will not invoke release_context.
                 unsafe {
                     drop(Box::from_raw(context_ptr));
-                    dispatch_release(queue);
                 }
                 return Err("could not create FSEvents stream".into());
             }
@@ -758,13 +772,12 @@ mod fsevent {
                     CFRelease(cf_excluded);
                 }
             }
-            // SAFETY: stream and queue are valid; on start failure both are torn down immediately.
+            // SAFETY: stream and queue are valid; on start failure the stream is torn down immediately.
             unsafe {
                 FSEventStreamSetDispatchQueue(stream, queue);
                 if FSEventStreamStart(stream) == 0 {
                     FSEventStreamInvalidate(stream);
                     FSEventStreamRelease(stream);
-                    dispatch_release(queue);
                     return Err("could not start FSEvents stream".into());
                 }
             }
@@ -774,13 +787,12 @@ mod fsevent {
 
     impl Drop for MacWatcher {
         fn drop(&mut self) {
-            // SAFETY: stop and invalidate detach callbacks, dispatch_sync_f drains any in-flight callback, then handles are released.
+            // SAFETY: stop and invalidate detach callbacks, dispatch_sync_f drains any in-flight callback, then the stream is released.
             unsafe {
                 FSEventStreamStop(self.stream);
                 FSEventStreamInvalidate(self.stream);
                 dispatch_sync_f(self.queue, ptr::null_mut(), noop);
                 FSEventStreamRelease(self.stream);
-                dispatch_release(self.queue);
             }
         }
     }

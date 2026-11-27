@@ -17,7 +17,7 @@ use tokio::sync::Notify;
 use super::changed::{self, ChangedCore, What};
 use super::connection::{ClientConn, ClientId};
 use super::session::{self, Session};
-use super::{waits, window, Capacity, Core};
+use super::{waits, watch_hub, window, Capacity, Core};
 
 pub struct ServeFields {
     pub sessions: Mutex<HashMap<SessionId, Arc<Session>>>,
@@ -30,6 +30,7 @@ pub struct ServeFields {
     pub detection: RwLock<ManifestRegistry>,
     pub window: window::Window,
     pub waits: waits::Waits,
+    pub watch_hub: Arc<watch_hub::WatchHub>,
     pub changes: changed::Changes,
     pub updating: super::updating::Updating,
     /// The rail numbers running loose terminals have.
@@ -50,6 +51,7 @@ pub trait ServeParts {
     fn detection(&self) -> &RwLock<ManifestRegistry>;
     fn window(&self) -> &window::Window;
     fn waits(&self) -> &waits::Waits;
+    fn watch_hub(&self) -> &Arc<watch_hub::WatchHub>;
     fn changes(&self) -> &changed::Changes;
     fn updating(&self) -> &super::updating::Updating;
     fn rail_numbers(&self) -> &Mutex<BTreeSet<u32>>;
@@ -96,6 +98,10 @@ impl ServeParts for Core {
 
     fn waits(&self) -> &waits::Waits {
         &self.kept::<ServeFields>().waits
+    }
+
+    fn watch_hub(&self) -> &Arc<watch_hub::WatchHub> {
+        &self.kept::<ServeFields>().watch_hub
     }
 
     fn changes(&self) -> &changed::Changes {

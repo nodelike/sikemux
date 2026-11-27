@@ -4,13 +4,14 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::serving::ServeParts;
 use crate::server::ServerCore;
 pub use sikemux_calls::ssh::{Reach, SshHost};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Weak;
 
-use notify::{RecursiveMode, Watcher};
+use notify::RecursiveMode;
 use sikemux_pty::shell_protocol::SshLink;
 
 use super::changed::Topic;
@@ -160,22 +161,17 @@ fn watch(core: &Core) {
     };
     let weak: Weak<Core> = core.weak();
     core.ssh_watch().get_or_init(|| {
-        let mut watcher =
-            notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-                let touches_config = event.is_ok_and(|event| {
-                    !matches!(event.kind, notify::EventKind::Access(_))
-                        && event
-                            .paths
-                            .iter()
-                            .any(|path| path.file_name().is_some_and(|name| name == "config"))
-                });
+        core.watch_hub()
+            .watch(&folder, RecursiveMode::NonRecursive, move |event| {
+                let touches_config = event
+                    .paths
+                    .iter()
+                    .any(|path| path.file_name().is_some_and(|name| name == "config"));
                 if let (true, Some(core)) = (touches_config, weak.upgrade()) {
                     core.changed(What::Read(Topic::Ssh));
                 }
             })
-            .ok()?;
-        watcher.watch(&folder, RecursiveMode::NonRecursive).ok()?;
-        Some(watcher)
+            .ok()
     });
 }
 

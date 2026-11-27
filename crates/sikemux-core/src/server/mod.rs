@@ -176,6 +176,7 @@ mod wait_for;
 mod watched_folder;
 pub(crate) use sikemux_serve::server::waits;
 pub(crate) use sikemux_serve::server::wake;
+pub(crate) use sikemux_serve::server::watch_hub;
 pub mod wallpaper;
 pub(crate) use sikemux_repo::server::who_wrote;
 mod why;
@@ -486,6 +487,7 @@ impl ServerCore for Core {
                     detection: RwLock::new(detection),
                     window: window::Window::new(first_session_id()),
                     waits: waits::Waits::new(data_dir),
+                    watch_hub: Arc::new(watch_hub::WatchHub::new()),
                     changes: changed::Changes::default(),
                     updating: upgrade::Updating::default(),
                     rail_numbers: Mutex::default(),
@@ -1075,11 +1077,33 @@ pub fn run(config: ServerConfig) -> Result<(), ServerError> {
     on_runtime(serve(config))
 }
 
+const CORE_BLOCKING_KEEP_ALIVE: Duration = Duration::from_secs(3);
+
+fn core_worker_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(std::num::NonZeroUsize::get)
+        .unwrap_or(4)
+        .clamp(2, 6)
+}
+
+fn core_max_blocking_threads() -> usize {
+    // Windows reaps each live native chat via `spawn_blocking(child.wait)`, so keep higher headroom there.
+    if cfg!(windows) {
+        128
+    } else {
+        24
+    }
+}
+
 /// Runs a core on a runtime of its own until it stops, then ends what outlives its tasks.
 pub(crate) fn on_runtime(
     core: impl std::future::Future<Output = Result<(), ServerError>>,
 ) -> Result<(), ServerError> {
+    sikemux_agents::bound_rayon_pool();
     let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(core_worker_threads())
+        .max_blocking_threads(core_max_blocking_threads())
+        .thread_keep_alive(CORE_BLOCKING_KEEP_ALIVE)
         .enable_all()
         .thread_name("sikemux-core")
         .build()?;

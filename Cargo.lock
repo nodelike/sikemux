@@ -10827,6 +10827,7 @@ dependencies = [
  "hex",
  "iroh",
  "libc",
+ "notify",
  "portable-pty",
  "security-framework",
  "serde",
