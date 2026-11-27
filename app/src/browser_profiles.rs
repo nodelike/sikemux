@@ -3,7 +3,7 @@
 
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
-use gpui_kit::{App, Context, SharedString, WeakEntity};
+use gpui_kit::{App, AsyncApp, Context, SharedString, WeakEntity};
 use sikemux_browser::{ProfileStore, TabProfile};
 use sikemux_calls::browser_profiles::{
     BrowserProfileDeleteParams, BrowserProfileSetGlobalParams, BrowserProfileSetProjectParams,
@@ -37,7 +37,7 @@ pub fn source_hint(resolved: &ResolvedBrowserProfile) -> SharedString {
     }
 }
 
-pub type OnProfileSaved = Box<dyn FnOnce(&mut Workbench, BrowserProfile, &mut Context<Workbench>)>;
+pub type OnProfileSaved = Box<dyn FnOnce(WeakEntity<Workbench>, BrowserProfile, &mut AsyncApp)>;
 
 pub fn tab_profile_for(
     profile: &BrowserProfile,
@@ -246,10 +246,10 @@ impl Workbench {
                     if let Some(msg) = toast_message {
                         bench.notify(toast::success(msg), cx);
                     }
-                    if let Some(on_done) = on_done {
-                        on_done(bench, answer.profile, cx);
-                    }
                 });
+                if let Some(on_done) = on_done {
+                    on_done(bench, answer.profile, cx);
+                }
             }
             Err(error) => {
                 let _ = bench.update(cx, |bench, cx| bench.notify(toast::error(error), cx));

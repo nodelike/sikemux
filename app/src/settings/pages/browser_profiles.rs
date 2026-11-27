@@ -209,6 +209,7 @@ fn make_desc_input(
 fn start_rename(
     bench: &mut Workbench,
     profile_id: String,
+    initial_name: Option<String>,
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
@@ -218,6 +219,7 @@ fn start_rename(
     let current_name = bench
         .browser_profile_by_id(&profile_id)
         .map(|p| p.name)
+        .or(initial_name)
         .unwrap_or_default();
     let input = cx.new(|cx| {
         InputState::new(window, cx)
@@ -273,7 +275,6 @@ pub(in crate::settings) fn create_profile(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let this = cx.entity();
     let window_handle = window.window_handle();
     let count = bench.browser_profiles().len();
     let name = format!("Profile {}", count + 1);
@@ -287,10 +288,10 @@ pub(in crate::settings) fn create_profile(
             link_space_id: None,
         },
         Some(t!("New browser profile created").to_owned()),
-        Some(Box::new(move |_bench, created, cx| {
+        Some(Box::new(move |bench, created, cx| {
             let _ = window_handle.update(cx, |_, window, cx| {
-                this.update(cx, |bench, cx| {
-                    start_rename(bench, created.id.clone(), window, cx);
+                let _ = bench.update(cx, |bench, cx| {
+                    start_rename(bench, created.id, Some(created.name), window, cx);
                 });
             });
         })),
@@ -521,7 +522,7 @@ pub fn render(
                             .on_click(move |_, window, cx| {
                                 let pid = ren_pid.clone();
                                 ren_this.update(cx, |bench, cx| {
-                                    start_rename(bench, pid, window, cx)
+                                    start_rename(bench, pid, None, window, cx)
                                 });
                             }),
                         )
@@ -985,4 +986,155 @@ pub(super) fn dialog(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> O
         )
         .into_any_element(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{size, Bounds, Modifiers, Pixels, Render, TestAppContext, VisualTestContext};
+    use serde_json::json;
+    use sikemux_calls::browser_profiles::BrowserProfileUpsertAnswer;
+    use sikemux_calls::call;
+    use sikemux_view::browser_profiles::{default_profile, DEFAULT_PROFILE_ID};
+    use sikemux_view::prefs::Preferences;
+    use tokio::sync::mpsc;
+
+    use super::*;
+    use crate::core::{Ask, Link, Update};
+    use crate::hosts::Place;
+    use crate::reads::Read;
+    use crate::settings::Page;
+
+    struct Shown(Entity<Workbench>);
+
+    impl Render for Shown {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            self.0
+                .update(cx, |bench, cx| crate::settings::view(bench, window, cx))
+        }
+    }
+
+    fn drawn(window: &mut VisualTestContext, id: &str) -> Vec<Bounds<Pixels>> {
+        window.update(|window, _| {
+            gpui_base::test_support::snapshots(window)
+                .into_iter()
+                .filter(|element| element.visible())
+                .filter(|element| element.path().iter().any(|part| part.to_string() == id))
+                .map(|element| element.bounds())
+                .collect()
+        })
+    }
+
+    fn settle(window: &mut VisualTestContext) {
+        for _ in 0..3 {
+            window.update(|window, _| window.refresh());
+            window.run_until_parked();
+        }
+    }
+
+    #[gpui::test]
+    fn clicking_new_profile_enters_inline_rename_without_panicking(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            theme::install(cx);
+        });
+        let (updates, from_core) = mpsc::unbounded_channel();
+        let (asks, mut asked) = mpsc::unbounded_channel();
+        let link = Link {
+            updates: from_core,
+            asks,
+        };
+        let mut profiles = vec![
+            default_profile(),
+            BrowserProfile {
+                id: "profile-2".into(),
+                slug: "profile-2".into(),
+                name: "Profile 2".into(),
+                description: String::new(),
+                access: ProfileAccess::Standard,
+                is_default_store: false,
+                created_at: 1,
+            },
+        ];
+        let mut bench_handle = None;
+        let (_, window) = cx.add_window_view(|window, cx| {
+            let bench = cx.new(|cx| Workbench::new(link, window, cx));
+            bench.update(cx, |bench, cx| {
+                crate::settings::open(bench, Page::BrowserProfiles, window, cx)
+            });
+            bench_handle = Some(bench.clone());
+            let shown = cx.new(|_| Shown(bench));
+            gpui_kit::base::Root::new(shown, window, cx)
+        });
+        let bench = bench_handle.expect("workbench created");
+        window.simulate_resize(size(px(1400.), px(1000.)));
+
+        let send_prefs = |profiles: &[BrowserProfile]| {
+            let prefs = Preferences {
+                browser_profiles: profiles.to_vec(),
+                ..Preferences::default()
+            };
+            updates
+                .send(Update::Read(Place::This, Read::Preferences, json!(prefs)))
+                .expect("window listens");
+        };
+        send_prefs(&profiles);
+        settle(window);
+
+        let new_btn = drawn(window, "bp-new-profile");
+        assert_eq!(new_btn.len(), 1, "New profile button is visible");
+        window.simulate_click(new_btn[0].center(), Modifiers::none());
+        settle(window);
+
+        let mut created = None;
+        while let Ok(ask) = asked.try_recv() {
+            let Ask::Request(method, reply) = ask else {
+                continue;
+            };
+            if let Some(params) = method.params_of::<call::BrowserProfileUpsert>() {
+                assert_eq!(params.name, "Profile 3");
+                let profile = BrowserProfile {
+                    id: "profile-3".into(),
+                    slug: "profile-3".into(),
+                    name: params.name,
+                    description: params.description.unwrap_or_default(),
+                    access: params.access.unwrap_or_default(),
+                    is_default_store: false,
+                    created_at: 2,
+                };
+                profiles.push(profile.clone());
+                created = Some(profile.clone());
+                let answer = BrowserProfileUpsertAnswer {
+                    profile,
+                    profiles: profiles.clone(),
+                    global_default_id: DEFAULT_PROFILE_ID.into(),
+                };
+                let _ = reply.send(Ok(json!(answer)));
+            }
+        }
+        assert!(created.is_some(), "upsert request was sent");
+        settle(window);
+
+        window.update(|_, cx| {
+            let bench = bench.read(cx);
+            let fields = super::super::state(bench, cx)
+                .and_then(|pages| pages.browser_profiles.as_ref())
+                .expect("browser profiles page initialized");
+            assert_eq!(fields.selected.as_deref(), Some("profile-3"));
+            assert_eq!(fields.renaming.as_deref(), Some("profile-3"));
+            let (input, _) = fields.rename_input.as_ref().expect("rename input created");
+            assert_eq!(input.read(cx).value().as_str(), "Profile 3");
+        });
+
+        send_prefs(&profiles);
+        settle(window);
+
+        window.update(|_, cx| {
+            let bench = bench.read(cx);
+            let fields = super::super::state(bench, cx)
+                .and_then(|pages| pages.browser_profiles.as_ref())
+                .expect("browser profiles page initialized");
+            assert_eq!(fields.selected.as_deref(), Some("profile-3"));
+            assert_eq!(fields.renaming.as_deref(), Some("profile-3"));
+        });
+    }
 }
