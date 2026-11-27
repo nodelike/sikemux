@@ -3758,3 +3758,120 @@ fn keeps_streaming_markdown_doc_warm_across_mid_turn_notices_until_tool_or_end()
         "side.doc should drop once ended_at is set"
     );
 }
+
+#[test]
+fn consecutive_silent_wakes_fold_into_one_team_run_with_clean_preview() {
+    let mut chat = Chat::new();
+    let mut at = 1_795_487_800_000u64;
+    let mut tick = |chat: &mut Chat| {
+        at += 1_000;
+        chat.at(at);
+    };
+    let calm_wake = |line: &str| {
+        json!({
+            "paths": [],
+            "text": format!(
+                "<agent-message from=\"Sikemux\" agent-id=\"sikemux\" cli=\"sikemux\" note=\"Sent by Sikemux itself about agents you started, not by the person or another agent.\">\n{CALM_HEADING}\n{line}\n</agent-message>"
+            )
+        })
+    };
+
+    tick(&mut chat);
+    chat.prompt(json!({ "text": "Keep an eye on @Kei." }))
+        .turn_started()
+        .update(chunk("-", "a0"))
+        .turn_completed(Some("end_turn"));
+    chat.flush();
+    assert!(
+        chat.fold.main.rows[1].msg.team.is_none(),
+        "a silent reply to the person never opens a team fold"
+    );
+
+    tick(&mut chat);
+    chat.prompt(calm_wake(
+        "- @Kei: Landed \"First commit\" on main and origin/main.",
+    ))
+    .turn_started()
+    .update(chunk("-", "a1"))
+    .turn_completed(Some("end_turn"));
+    chat.flush();
+
+    tick(&mut chat);
+    chat.prompt(calm_wake(
+        "- @Kei: Landed \"Second commit\" on main and origin/main.",
+    ))
+    .turn_started()
+    .update(json!({
+        "sessionUpdate": "agent_thought_chunk",
+        "messageId": "a2",
+        "content": { "type": "text", "text": "Still working, staying quiet." }
+    }))
+    .update(chunk("-", "a2"))
+    .turn_completed(Some("end_turn"));
+    chat.flush();
+
+    let run_rows = &chat.fold.main.rows[2..6];
+    let run_id = run_rows[0]
+        .msg
+        .team
+        .as_ref()
+        .expect("first wake starts team run")
+        .id
+        .clone();
+    for (offset, row) in run_rows.iter().enumerate() {
+        let team = row
+            .msg
+            .team
+            .as_ref()
+            .unwrap_or_else(|| panic!("row {offset} should stay inside the team run"));
+        assert_eq!(team.id, run_id);
+        assert!(team.shown.is_empty());
+        if offset + 1 < run_rows.len() {
+            assert!(team.line.is_none());
+        }
+    }
+    let line = run_rows
+        .last()
+        .and_then(|row| row.msg.team.as_ref())
+        .and_then(|team| team.line.as_ref())
+        .expect("last absorbed row carries TeamLine");
+    assert_eq!(line.messages, 2);
+    let latest = line.latest.as_ref().expect("latest update");
+    assert_eq!(latest.name, "Sikemux");
+    assert_eq!(
+        latest.text,
+        "@Kei: Landed \"Second commit\" on main and origin/main."
+    );
+    assert!(!latest
+        .text
+        .contains("How turns of agents you started ended"));
+
+    tick(&mut chat);
+    chat.prompt(calm_wake("- @Kei: finished its turn: \"All green.\""))
+        .turn_started()
+        .update(chunk("Closing @Kei now.", "a3"))
+        .turn_completed(Some("end_turn"));
+    chat.flush();
+
+    assert_eq!(
+        chat.fold.main.rows[6]
+            .msg
+            .team
+            .as_ref()
+            .map(|team| team.id.as_str()),
+        Some(run_id.as_str())
+    );
+    assert_eq!(
+        chat.fold.main.rows[6]
+            .msg
+            .team
+            .as_ref()
+            .and_then(|team| team.line.as_ref())
+            .map(|line| line.messages),
+        Some(3)
+    );
+    assert!(
+        chat.fold.main.rows[7].msg.team.is_none(),
+        "an assistant row that actually speaks ends the team run"
+    );
+}

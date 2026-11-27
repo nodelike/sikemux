@@ -170,8 +170,7 @@ impl Letter {
     }
 }
 
-pub(super) const CALM_HEADING: &str =
-    "How turns of agents you started ended, sent by Sikemux; agent_read has the rest:";
+pub(super) use sikemux_fold::CALM_HEADING;
 
 /// `queued` as one message, its calm reports as lines under one heading in a letter from
 /// Sikemux, so the message stays only letters and the chat reads it as such.

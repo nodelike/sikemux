@@ -1,7 +1,7 @@
 //! Messages between agents, folded so they do not bury what the person asked and what they were
 //! answered. Messages from other agents in a row fold into one run; anything else ends it.
 
-use sikemux_view::chat::{ChatRole, LetterKind, TeamAgent, TeamFold, TeamLine, TeamSaid};
+use sikemux_view::chat::{ChatPart, ChatRole, LetterKind, TeamAgent, TeamFold, TeamLine, TeamSaid};
 
 use super::{Fold, Row};
 
@@ -14,6 +14,9 @@ const MOST_ROWS: usize = 400;
 const MAX_LINE_CHARS: usize = 240;
 /// How a worker's report opens when its turn ended with an answer, which follows.
 pub const REPORT_OPENING: &str = "Finished its turn. Its final answer:";
+/// How a batch of calm worker reports opens, before its worker lines.
+pub const CALM_HEADING: &str =
+    "How turns of agents you started ended, sent by Sikemux; agent_read has the rest:";
 /// A run this quick says nothing by how long it lasted.
 const MIN_TOOK_MS: u64 = 1000;
 
@@ -22,6 +25,12 @@ fn from_an_agent(row: &Row) -> bool {
     row.msg.role == ChatRole::User
         && !row.msg.letters.is_empty()
         && (row.msg.letters.iter()).all(|letter| letter.kind == LetterKind::Message)
+}
+
+fn silent_assistant(row: &Row) -> bool {
+    row.msg.role == ChatRole::Assistant
+        && row.finished
+        && (row.msg.parts.iter()).all(|part| matches!(part, ChatPart::Thought { .. }))
 }
 
 /// Where a change at `from` starts to matter: the start of the run it continues.
@@ -41,7 +50,10 @@ fn read_from(rows: &[Row], from: usize) -> usize {
 /// The first words of a message, without what marks them up. A report opens on words of
 /// Sikemux's own, so its first words are the answer's.
 pub fn first_words(text: &str) -> String {
-    let text = text.strip_prefix(REPORT_OPENING).unwrap_or(text);
+    let text = text
+        .strip_prefix(REPORT_OPENING)
+        .or_else(|| text.strip_prefix(CALM_HEADING))
+        .unwrap_or(text);
     let words = sikemux_markdown::words(text);
     let line = (words.lines().map(str::trim))
         .chain(text.lines().map(str::trim))
@@ -68,6 +80,10 @@ struct Run {
 }
 
 impl Run {
+    fn is_open(&self) -> bool {
+        !self.rows.is_empty()
+    }
+
     fn add(&mut self, rows: &mut [Row], at: usize, touched: &mut Vec<usize>) {
         if self.rows.len() >= MOST_ROWS {
             self.close(rows, touched);
@@ -86,6 +102,14 @@ impl Run {
         }
         self.said.push((at, row.msg.letters.len() as u64));
         self.rows.push(at);
+    }
+
+    fn absorb_silent(&mut self, at: usize) -> bool {
+        if self.rows.is_empty() || self.rows.len() >= MOST_ROWS {
+            return false;
+        }
+        self.rows.push(at);
+        true
     }
 
     /// Ends the run, writing what it came to on its rows.
@@ -119,11 +143,14 @@ impl Run {
             .zip(times().max())
             .map(|(began, ended)| ended - began)
             .filter(|took| *took >= MIN_TOOK_MS);
-        let latest = rows[last].msg.letters.last().map(|letter| TeamSaid {
-            agent_id: letter.agent_id.clone(),
-            name: letter.name.clone(),
-            text: first_words(&letter.text),
-        });
+        let latest = said
+            .last()
+            .and_then(|(at, _)| rows[*at].msg.letters.last())
+            .map(|letter| TeamSaid {
+                agent_id: letter.agent_id.clone(),
+                name: letter.name.clone(),
+                text: first_words(&letter.text),
+            });
         let line = TeamLine {
             more: agents.len().saturating_sub(MOST_MARKS) as u64,
             agents: agents.into_iter().take(MOST_MARKS).collect(),
@@ -162,6 +189,11 @@ fn read(rows: &mut [Row], from: usize) -> Vec<usize> {
     for at in read_from(rows, from)..rows.len() {
         if rows.get(at).is_some_and(from_an_agent) {
             run.add(rows, at, &mut touched);
+        } else if run.is_open()
+            && rows.get(at).is_some_and(silent_assistant)
+            && run.absorb_silent(at)
+        {
+            continue;
         } else {
             run.close(rows, &mut touched);
             if let Some(row) = rows.get_mut(at) {
