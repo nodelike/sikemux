@@ -116,6 +116,7 @@ pub fn judge(
     plain: Option<&str>,
 ) -> Judged {
     deploys_pushes(core, project, Path::new(project));
+    let _ = has_ci_push_deploys(core, project, Path::new(project));
     let (places, confirmed) = current(core, project);
     let addresses = addresses.unwrap_or(&ship.what);
     let judged = judge::judged_reading(&places, confirmed, ship, agent, addresses, plain);
@@ -351,6 +352,59 @@ pub fn deploys_pushes(core: &Core, project: &str, root: &Path) -> bool {
         });
     }
     deploys
+}
+
+/// Whether `project` (as its files at `root` say or once said) has any workflow that deploys
+/// pushes to a branch. Captures seen push-deploying workflows and their places.
+pub fn has_ci_push_deploys(core: &Core, project: &str, root: &Path) -> bool {
+    let seen = found::workflow_push_deploys(root);
+    if !seen.is_empty() {
+        let _ = change(core, project, |kept| {
+            for deploy in &seen {
+                found::merge_push_deploy(&mut kept.push_workflows, deploy.clone());
+                let words = Recognise::Command {
+                    words: format!("gh workflow run {}", deploy.file),
+                };
+                let name = deploy
+                    .environments
+                    .iter()
+                    .find(|env| place::says_production(env))
+                    .map_or_else(
+                        || format!("The {} workflow on GitHub", deploy.file),
+                        |env| format!("{env} on GitHub"),
+                    );
+                keep(
+                    &mut kept.places,
+                    place::new_place(
+                        &name,
+                        true,
+                        vec![words],
+                        Some(format!(".github/workflows/{}", deploy.file)),
+                    ),
+                );
+            }
+            Ok(())
+        });
+        return true;
+    }
+    !core.places().of(project).push_workflows.is_empty()
+}
+
+/// A workflow of `project` (as its files at `root` say or once said) that deploys a push to
+/// `branch` touching `changed` files. Keeps seen push-deploying workflows and their places.
+pub fn ci_push_deploy(
+    core: &Core,
+    project: &str,
+    root: &Path,
+    branch: Option<&str>,
+    changed: Option<&[String]>,
+) -> Option<store::PushDeploy> {
+    if !has_ci_push_deploys(core, project, root) {
+        return None;
+    }
+    let all = core.places().of(project).push_workflows;
+    all.into_iter()
+        .find(|deploy| deploy.matches(branch, changed))
 }
 
 /// `project`'s places as clients show them.

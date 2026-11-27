@@ -522,15 +522,46 @@ fn read(
         target: Some(Target::Vercel { production: true }),
         what: ship.what,
     };
+    let to_workflow = |ship: Ship, deploy: places::store::PushDeploy| Ship {
+        kind: ShipKind::Deploy,
+        target: Some(Target::Workflow {
+            file: deploy.file,
+            environments: deploy.environments,
+            inputs: Vec::new(),
+            rerun: None,
+            unread: false,
+        }),
+        what: ship.what,
+    };
     if let Some(merging) = &merging {
         let deployed = from_one(&|root| on_vercel(root) && merging.is_into(Path::new(root)));
         if let Some(deployed) = deployed {
-            let (reach, head, repository) = merging.reach(Path::new(&deployed), &pushed_in);
-            if reach == Reach::Project {
-                plain = repository.filter(|_| !tool);
+            let merged = merging.reach(Path::new(&deployed), &pushed_in);
+            if merged.reach == Reach::Project {
+                plain = merged.repository.filter(|_| !tool);
                 project = deployed;
-                sends = head;
+                sends = merged.head;
                 ship = to_vercel(ship);
+            }
+        } else if let Some(into) = from_one(&|root| {
+            places::has_ci_push_deploys(core, root, Path::new(root))
+                && merging.is_into(Path::new(root))
+        }) {
+            let merged = merging.reach(Path::new(&into), &pushed_in);
+            if merged.reach == Reach::Project {
+                let ci = places::ci_push_deploy(
+                    core,
+                    &into,
+                    Path::new(&into),
+                    merged.branch.as_deref(),
+                    merged.files.as_deref(),
+                );
+                if let Some(wf) = ci {
+                    plain = merged.repository.filter(|_| !tool);
+                    project = into;
+                    sends = merged.head;
+                    ship = to_workflow(ship, wf);
+                }
             }
         }
     }
@@ -546,9 +577,31 @@ fn read(
                 push::may_reach_project(&ship.what, cwd),
             ),
         };
+        let (push_branch, push_files) = match &api_lands {
+            Some(Lands::Branch { name }) => {
+                let branch = (name != "HEAD").then(|| name.clone());
+                (branch, None)
+            }
+            Some(_) => (None, None),
+            None => push::pushed_branch_and_files(&ship.what, cwd),
+        };
+        let ci_deploy = |root: &str| {
+            places::ci_push_deploy(
+                core,
+                root,
+                Path::new(root),
+                push_branch.as_deref(),
+                push_files.as_deref(),
+            )
+        };
+        let from_ci = || {
+            from.iter()
+                .find_map(|root| ci_deploy(root).map(|wf| (root.clone(), wf)))
+        };
         let published = |root: &str| tag_places(core, root) || releases_on_tags(core, root);
         if api_lands == Some(Lands::Unread)
-            && from_one(&|root| published(root) || on_vercel(root)).is_some()
+            && (from_one(&|root| published(root) || on_vercel(root)).is_some()
+                || from_ci().is_some())
         {
             return Err(
                 "Not run: Sikemux can't read which branch or tag this changes. Put it in the command, or in a file given with --input or @, and run it again."
@@ -561,6 +614,9 @@ fn read(
                 if let Some(deployed) = from_one(&on_vercel) {
                     project = deployed;
                     ship = to_vercel(ship);
+                } else if let Some((deployed, wf)) = from_ci() {
+                    project = deployed;
+                    ship = to_workflow(ship, wf);
                 }
             }
             Reach::Tags(names) => {
@@ -573,11 +629,16 @@ fn read(
                 }
                 sends = push::tag_commits(&names, &pushed_in);
                 let deployed = from_one(&on_vercel);
+                let ci_deployed = may_reach_project.then(from_ci).flatten();
                 plain = (!tool && !names.is_empty())
                     .then(|| push::one_tag(&ship.what, cwd))
                     .flatten();
                 let name = match names.as_slice() {
-                    [name] if !may_reach_project || deployed.is_none() => name.clone(),
+                    [name]
+                        if !may_reach_project || (deployed.is_none() && ci_deployed.is_none()) =>
+                    {
+                        name.clone()
+                    }
                     _ => String::new(),
                 };
                 project = from_one(&published).unwrap_or(project);
@@ -588,19 +649,23 @@ fn read(
                     }),
                     (false, false) => None,
                 };
-                match (target, deployed) {
-                    (Some(target), _) => {
+                match (target, deployed, ci_deployed) {
+                    (Some(target), _, _) => {
                         ship = Ship {
                             kind: ShipKind::Publish,
                             target: Some(target),
                             what: ship.what,
                         };
                     }
-                    (None, Some(deployed)) if may_reach_project => {
+                    (None, Some(deployed), _) if may_reach_project => {
                         project = deployed;
                         ship = to_vercel(ship);
                     }
-                    (None, _) => {}
+                    (None, None, Some((deployed, wf))) if may_reach_project => {
+                        project = deployed;
+                        ship = to_workflow(ship, wf);
+                    }
+                    (None, _, _) => {}
                 }
             }
             Reach::Deploy { tool, app } => {
@@ -612,11 +677,13 @@ fn read(
             }
         }
     }
-    if let Some(Target::Workflow { file, .. }) = ship.target.as_ref().map(Target::bare) {
-        if let Some(starter) = places::found::starter_of(Path::new(&project), file) {
-            return Err(format!(
-                "Not run: the {starter} workflow starts {file} by itself, so nobody starts it by hand. If it hasn't, read {starter}'s latest run for why."
-            ));
+    if !pushed && merging.is_none() {
+        if let Some(Target::Workflow { file, .. }) = ship.target.as_ref().map(Target::bare) {
+            if let Some(starter) = places::found::starter_of(Path::new(&project), file) {
+                return Err(format!(
+                    "Not run: the {starter} workflow starts {file} by itself, so nobody starts it by hand. If it hasn't, read {starter}'s latest run for why."
+                ));
+            }
         }
     }
     let cwd = pushed_in.as_path();

@@ -863,6 +863,188 @@ fn database_at(args: &[String], env: &dyn Fn(&str) -> Option<String>) -> Option<
     (!local_host(&host) && !host.starts_with('/')).then_some(host)
 }
 
+/// When a workflow runs on a branch push: its branch and path filters, if any.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PushTrigger {
+    pub branches: Vec<String>,
+    pub branches_ignore: Vec<String>,
+    pub paths: Vec<String>,
+    pub paths_ignore: Vec<String>,
+}
+
+/// The branch-push trigger of a GitHub Actions workflow, or none when it does not run on branch
+/// pushes (including workflows whose `on: push:` names only `tags:`).
+pub fn push_trigger(text: &str) -> Option<PushTrigger> {
+    let lines: Vec<&str> = text.lines().collect();
+    let on_at = lines.iter().position(|line| {
+        !line.starts_with([' ', '\t'])
+            && line
+                .strip_prefix("on:")
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '\t', '#']))
+    })?;
+    let after_on = strip_yaml_comment(lines.get(on_at)?.strip_prefix("on:")?).trim();
+    if !after_on.is_empty() {
+        if let Some(list) = after_on
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+        {
+            let has_push = list
+                .split(',')
+                .map(|item| item.trim().trim_matches(['"', '\'']))
+                .any(|item| item == "push");
+            return has_push.then(PushTrigger::default);
+        }
+        return (after_on.trim_matches(['"', '\'']) == "push").then(PushTrigger::default);
+    }
+    let mut on_indent: Option<usize> = None;
+    let mut push_at: Option<(usize, usize)> = None;
+    for (at, &line) in lines.iter().enumerate().skip(on_at + 1) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+        if indent == 0 {
+            break;
+        }
+        let base = *on_indent.get_or_insert(indent);
+        if indent != base {
+            continue;
+        }
+        if let Some(item) = trimmed.strip_prefix("- ") {
+            if strip_yaml_comment(item).trim().trim_matches(['"', '\'']) == "push" {
+                return Some(PushTrigger::default());
+            }
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("push:") {
+            let rest = strip_yaml_comment(rest).trim();
+            if rest == "{}" {
+                return Some(PushTrigger::default());
+            }
+            push_at = Some((at, base));
+            break;
+        }
+    }
+    let (push_at, push_indent) = push_at?;
+    let mut trigger = PushTrigger::default();
+    let mut has_tags = false;
+    let mut has_branches = false;
+    let mut at = push_at + 1;
+    let mut field_indent: Option<usize> = None;
+    while let Some(&line) = lines.get(at) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            at += 1;
+            continue;
+        }
+        let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+        if indent <= push_indent {
+            break;
+        }
+        let base = *field_indent.get_or_insert(indent);
+        if indent != base {
+            at += 1;
+            continue;
+        }
+        let Some((key, rest)) = trimmed.split_once(':') else {
+            at += 1;
+            continue;
+        };
+        let key = key.trim();
+        let (values, next_at) = read_yaml_list(&lines, at, base, rest);
+        at = next_at;
+        match key {
+            "branches" => {
+                has_branches = true;
+                trigger.branches.extend(values);
+            }
+            "branches-ignore" => {
+                has_branches = true;
+                trigger.branches_ignore.extend(values);
+            }
+            "paths" => trigger.paths.extend(values),
+            "paths-ignore" => trigger.paths_ignore.extend(values),
+            "tags" | "tags-ignore" => has_tags = true,
+            _ => {}
+        }
+    }
+    if has_tags && !has_branches {
+        return None;
+    }
+    Some(trigger)
+}
+
+fn strip_yaml_comment(text: &str) -> &str {
+    let mut quote: Option<char> = None;
+    for (at, ch) in text.char_indices() {
+        if let Some(q) = quote {
+            if ch == q {
+                quote = None;
+            }
+            continue;
+        }
+        match ch {
+            '\'' | '"' => quote = Some(ch),
+            '#' if at == 0
+                || text
+                    .as_bytes()
+                    .get(at - 1)
+                    .is_some_and(u8::is_ascii_whitespace) =>
+            {
+                return text.get(..at).unwrap_or_default();
+            }
+            _ => {}
+        }
+    }
+    text
+}
+
+fn read_yaml_list(lines: &[&str], at: usize, base: usize, rest: &str) -> (Vec<String>, usize) {
+    let mut rest = strip_yaml_comment(rest).trim();
+    if let Some(after_anchor) = rest.strip_prefix('&') {
+        rest = after_anchor
+            .split_once(char::is_whitespace)
+            .map_or("", |(_, tail)| tail)
+            .trim();
+    }
+    let clean = |item: &str| {
+        strip_yaml_comment(item)
+            .trim()
+            .trim_matches(['"', '\''])
+            .to_owned()
+    };
+    if let Some(inline) = rest.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+        let items = inline
+            .split(',')
+            .map(clean)
+            .filter(|item| !item.is_empty())
+            .collect();
+        return (items, at + 1);
+    }
+    let mut items = Vec::new();
+    let mut next = at + 1;
+    while let Some(&line) = lines.get(next) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            next += 1;
+            continue;
+        }
+        let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+        if indent <= base {
+            break;
+        }
+        if let Some(item) = trimmed.strip_prefix("- ") {
+            let item = clean(item);
+            if !item.is_empty() {
+                items.push(item);
+            }
+        }
+        next += 1;
+    }
+    (items, next)
+}
+
 /// What a workflow's file says it does: the deployment environments its jobs name, whether
 /// it publishes a release or a package, and whether it deploys by a step known to.
 pub struct WorkflowRead {

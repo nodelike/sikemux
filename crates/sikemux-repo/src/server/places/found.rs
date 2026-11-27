@@ -167,6 +167,110 @@ pub fn starter_of(root: &Path, file: &str) -> Option<String> {
     })
 }
 
+/// Workflows in `root` (in the checkout or committed at `HEAD` / `origin/*`) that deploy to
+/// production when a branch is pushed.
+pub fn workflow_push_deploys(root: &Path) -> Vec<super::store::PushDeploy> {
+    let mut found = Vec::new();
+    let mut collect =
+        |file: &str, mut text: String, load_called: &dyn Fn(&str) -> Option<String>| {
+            let Some(trigger) = crate::ship::push_trigger(&text) else {
+                return;
+            };
+            for called in crate::ship::called_workflows(&text.clone()) {
+                if let Some(more) = load_called(&called) {
+                    text.push('\n');
+                    text.push_str(&more);
+                }
+            }
+            let read = crate::ship::read_workflow(&text);
+            let prod_env = read.environments.iter().any(|name| says_production(name));
+            let non_dev_env = read.environments.is_empty()
+                || read
+                    .environments
+                    .iter()
+                    .any(|name| !says_not_production(name));
+            let deploys_production = prod_env
+                || ((read.deploys || read.publishes) && non_dev_env && !says_not_production(file));
+            if !deploys_production {
+                return;
+            }
+            let deploy = super::store::PushDeploy {
+                file: file.to_owned(),
+                environments: read.environments,
+                branches: trigger.branches,
+                branches_ignore: trigger.branches_ignore,
+                paths: trigger.paths,
+                paths_ignore: trigger.paths_ignore,
+            };
+            merge_push_deploy(&mut found, deploy);
+        };
+    if let Ok(entries) = std::fs::read_dir(root.join(".github/workflows")) {
+        let mut files: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
+        files.sort();
+        for path in files {
+            let Some(file) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if !file.ends_with(".yml") && !file.ends_with(".yaml") {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                collect(file, text, &|called| {
+                    std::fs::read_to_string(root.join(called)).ok()
+                });
+            }
+        }
+    }
+    let git = || crate::git::Git::quick(root);
+    for reference in ["HEAD", "origin/HEAD", "origin/main", "origin/master"] {
+        let Ok(listed) =
+            git().trimmed(&["ls-tree", "--name-only", reference, ".github/workflows/"])
+        else {
+            continue;
+        };
+        for path in listed.lines() {
+            let Some(file) = path.rsplit('/').next() else {
+                continue;
+            };
+            if !file.ends_with(".yml") && !file.ends_with(".yaml") {
+                continue;
+            }
+            let Ok(text) = git().trimmed(&["show", &format!("{reference}:{path}")]) else {
+                continue;
+            };
+            collect(file, text, &|called| {
+                git()
+                    .trimmed(&["show", &format!("{reference}:{called}")])
+                    .ok()
+            });
+        }
+    }
+    found
+}
+
+/// Keeps `deploy` in `list`, never narrowing a workflow already seen without path filters.
+pub fn merge_push_deploy(
+    list: &mut Vec<super::store::PushDeploy>,
+    deploy: super::store::PushDeploy,
+) {
+    if let Some(kept) = list.iter_mut().find(|kept| kept.file == deploy.file) {
+        if deploy.paths.is_empty() {
+            kept.paths.clear();
+            kept.paths_ignore.clear();
+        }
+        if deploy.branches.is_empty() {
+            kept.branches.clear();
+        }
+        for env in deploy.environments {
+            if !kept.environments.contains(&env) {
+                kept.environments.push(env);
+            }
+        }
+        return;
+    }
+    list.push(deploy);
+}
+
 /// Whether a push to the branch of the project at `root` deploys it to production on Vercel:
 /// the project is a Vercel one and its config doesn't turn off deploys from Git, in the checkout
 /// or as committed or last pushed there.

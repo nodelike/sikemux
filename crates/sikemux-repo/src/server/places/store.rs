@@ -13,6 +13,102 @@ use crate::server::kept;
 
 const FOLDER: &str = "places";
 
+/// A workflow that deploys pushes to a branch, kept once seen so later edits can't hide it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushDeploy {
+    pub file: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub environments: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub branches: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub branches_ignore: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths_ignore: Vec<String>,
+}
+
+impl PushDeploy {
+    /// Whether a push to `branch` changing `changed` files starts this workflow. Unknown branch
+    /// or unknown files match conservatively.
+    pub fn matches(&self, branch: Option<&str>, changed: Option<&[String]>) -> bool {
+        if let Some(branch) = branch {
+            if !self.branches.is_empty() && !matches_filter(&self.branches, branch) {
+                return false;
+            }
+            if !self.branches_ignore.is_empty() && matches_filter(&self.branches_ignore, branch) {
+                return false;
+            }
+        }
+        if self.paths.is_empty() && self.paths_ignore.is_empty() {
+            return true;
+        }
+        let Some(files) = changed else {
+            return true;
+        };
+        files.iter().any(|file| {
+            let file = file.trim_start_matches("./");
+            if !self.paths.is_empty() && !matches_filter(&self.paths, file) {
+                return false;
+            }
+            if !self.paths_ignore.is_empty() && matches_filter(&self.paths_ignore, file) {
+                return false;
+            }
+            true
+        })
+    }
+}
+
+fn matches_filter(patterns: &[String], value: &str) -> bool {
+    let mut matched = false;
+    for pattern in patterns {
+        if let Some(negated) = pattern.strip_prefix('!') {
+            if glob_matches(negated, value) {
+                matched = false;
+            }
+        } else if glob_matches(pattern, value) {
+            matched = true;
+        }
+    }
+    matched
+}
+
+fn glob_matches(pattern: &str, value: &str) -> bool {
+    let p: Vec<char> = pattern.chars().collect();
+    let v: Vec<char> = value.chars().collect();
+    let mut memo = vec![None; (p.len() + 1) * (v.len() + 1)];
+    glob_at(&p, &v, 0, 0, &mut memo)
+}
+
+fn glob_at(p: &[char], v: &[char], pi: usize, vi: usize, memo: &mut [Option<bool>]) -> bool {
+    let idx = pi * (v.len() + 1) + vi;
+    if let Some(Some(cached)) = memo.get(idx) {
+        return *cached;
+    }
+    let result = match (p.get(pi..), v.get(vi..)) {
+        (Some([]), Some([])) => true,
+        (Some(['*', '*', '/', ..]), _) => {
+            glob_at(p, v, pi + 3, vi, memo) || (vi < v.len() && glob_at(p, v, pi, vi + 1, memo))
+        }
+        (Some(['*', '*', ..]), _) => {
+            glob_at(p, v, pi + 2, vi, memo) || (vi < v.len() && glob_at(p, v, pi, vi + 1, memo))
+        }
+        (Some(['*', ..]), Some([ch, ..])) => {
+            glob_at(p, v, pi + 1, vi, memo) || (*ch != '/' && glob_at(p, v, pi, vi + 1, memo))
+        }
+        (Some(['*', ..]), Some([])) => glob_at(p, v, pi + 1, vi, memo),
+        (Some(['?', ..]), Some([ch, ..])) => *ch != '/' && glob_at(p, v, pi + 1, vi + 1, memo),
+        (Some([pc, ..]), Some([vc, ..])) => pc == vc && glob_at(p, v, pi + 1, vi + 1, memo),
+        _ => false,
+    };
+    if let Some(slot) = memo.get_mut(idx) {
+        *slot = Some(result);
+    }
+    result
+}
+
 /// What a project keeps of its places.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +128,9 @@ pub struct Kept {
     /// Whether its files once said a push to its branch deploys it to production on Vercel.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deploys_pushes: bool,
+    /// Workflows that deploy pushes to the project's branch, kept once seen.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub push_workflows: Vec<PushDeploy>,
 }
 
 pub struct Store {

@@ -181,6 +181,7 @@ pub fn routine(place: &Place, ship: &Ship) -> bool {
     place.recognises(ship)
         && match (ship.kind, &ship.target) {
             (ShipKind::Deploy, Some(Target::Vercel { production: true })) => true,
+            (ShipKind::Deploy, Some(Target::Workflow { rerun: None, .. })) => true,
             (ShipKind::Publish, Some(Target::Tag { name })) => place.recurs && !name.is_empty(),
             _ => false,
         }

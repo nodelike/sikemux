@@ -524,6 +524,14 @@ pub fn merging(what: &str) -> Merging {
     found
 }
 
+pub struct MergeReach {
+    pub reach: Reach,
+    pub head: Option<String>,
+    pub repository: Option<String>,
+    pub branch: Option<String>,
+    pub files: Option<Vec<String>>,
+}
+
 impl Merging {
     /// Whether the pull request is of the repository checked out at `root`.
     pub fn is_into(&self, root: &Path) -> bool {
@@ -533,16 +541,22 @@ impl Merging {
     /// Where a merge run from `cwd` lands in the repository checked out at `root`, and the
     /// commit it merges, and the repository it does so in where it only goes into the project's
     /// own branch, as the repository asks. GitHub is asked for the branch it goes into.
-    pub fn reach(&self, root: &Path, cwd: &Path) -> (Reach, Option<String>, Option<String>) {
+    pub fn reach(&self, root: &Path, cwd: &Path) -> MergeReach {
         if !self.read {
-            return (Reach::Project, None, None);
+            return MergeReach {
+                reach: Reach::Project,
+                head: None,
+                repository: None,
+                branch: None,
+                files: None,
+            };
         }
         let mut view = sikemux_process::user_environment::command("gh");
         view.current_dir(cwd)
             .env("GH_PROMPT_DISABLED", "1")
             .args(["pr", "view"])
             .args(&self.pull)
-            .args(["--json", "baseRefName,headRefName,headRefOid,url"]);
+            .args(["--json", "baseRefName,headRefName,headRefOid,url,files"]);
         if let Some(repo) = &self.repo {
             view.args(["--repo", repo]);
         }
@@ -550,16 +564,97 @@ impl Merging {
             .filter(|output| output.status.success())
             .and_then(|output| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok());
         let field = |name: &str| found.as_ref()?.get(name)?.as_str().map(str::to_owned);
-        let reach =
-            field("baseRefName").map_or(Reach::Project, |base| branch_reach(&base, "origin", root));
-        let own = field("baseRefName").is_some_and(|base| is_own_branch(&base, root));
+        let branch = field("baseRefName");
+        let reach = branch
+            .as_deref()
+            .map_or(Reach::Project, |base| branch_reach(base, "origin", root));
+        let own = branch
+            .as_deref()
+            .is_some_and(|base| is_own_branch(base, root));
         let work = |head: String| branch_reach(&head, "origin", root) == Reach::Branches;
         let keeps = !self.deletes || field("headRefName").is_some_and(work);
         let repository = field("url")
             .and_then(|url| Some(repository_at(url.split_once("/pull/")?.0)))
             .filter(|_| own && !self.overrides && keeps);
-        (reach, field("headRefOid"), repository)
+        let files = found
+            .as_ref()
+            .and_then(|value| value.get("files")?.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.get("path")?.as_str().map(str::to_owned))
+                    .collect()
+            });
+        MergeReach {
+            reach,
+            head: field("headRefOid"),
+            repository,
+            branch,
+            files,
+        }
     }
+}
+
+/// The target branch and changed files of the git push `what` run from `cwd`, when readable.
+pub fn pushed_branch_and_files(what: &str, cwd: &Path) -> (Option<String>, Option<Vec<String>>) {
+    let cwd = &run_in(what, cwd);
+    let Some((options, positional)) = push_words(what) else {
+        return (None, None);
+    };
+    let many = ["--all", "--branches", "--mirror", "--tags"];
+    if options.iter().any(|option| many.contains(option)) {
+        return (None, None);
+    }
+    let (remote, refspecs) = match positional.split_first() {
+        Some((remote, refspecs)) => ((*remote).to_owned(), refspecs.to_vec()),
+        None => match push_remote(cwd) {
+            Some(remote) => (remote, Vec::new()),
+            None => return (None, None),
+        },
+    };
+    let (source, branch) = match refspecs.as_slice() {
+        [] => ("HEAD".to_owned(), pushed_to(cwd)),
+        [spec] => {
+            let spec = spec.trim_start_matches('+');
+            if spec.contains('*') {
+                return (None, None);
+            }
+            match spec.split_once(':') {
+                Some(("", _)) => return (None, None),
+                Some((src, dst)) => {
+                    let dst = dst
+                        .strip_prefix("refs/heads/")
+                        .or_else(|| dst.strip_prefix("heads/"))
+                        .unwrap_or(dst);
+                    (src.to_owned(), Some(dst.to_owned()))
+                }
+                None if matches!(spec, "HEAD" | "@") => ("HEAD".to_owned(), pushed_to(cwd)),
+                None => {
+                    let branch = spec
+                        .strip_prefix("refs/heads/")
+                        .or_else(|| spec.strip_prefix("heads/"))
+                        .unwrap_or(spec);
+                    (spec.to_owned(), Some(branch.to_owned()))
+                }
+            }
+        }
+        _ => return (None, None),
+    };
+    let Some(branch) = branch else {
+        return (None, None);
+    };
+    let base = format!("refs/remotes/{remote}/{branch}");
+    let git = Git::quick(cwd);
+    let files = git
+        .trimmed(&["diff", "--name-only", &format!("{base}..{source}")])
+        .ok()
+        .map(|out| {
+            out.lines()
+                .filter(|line| !line.is_empty())
+                .map(str::to_owned)
+                .collect()
+        });
+    (Some(branch), files)
 }
 
 /// Whether `repo`, an `owner/name` or address, is a remote of the checkout at `root`.
