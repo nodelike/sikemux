@@ -495,9 +495,52 @@ pub fn merging(what: &str) -> Merging {
         later: false,
     };
     let words: Vec<&str> = what.split_whitespace().collect();
-    let args = match words.as_slice() {
-        [gh, "pr", "merge", args @ ..] if gh.rsplit('/').next() == Some("gh") => args,
-        _ => return found,
+    let mut at = 0;
+    while let Some(word) = words.get(at) {
+        if !word.starts_with('-') && word.contains('=') {
+            if let Some(repo) = word.strip_prefix("GH_REPO=") {
+                if !repo.is_empty() {
+                    found.repo = Some(repo.to_owned());
+                }
+            }
+            at += 1;
+        } else {
+            break;
+        }
+    }
+    let Some(rest) = words
+        .get(at..)
+        .and_then(|slice| slice.split_first())
+        .filter(|(gh, _)| gh.rsplit('/').next() == Some("gh"))
+        .map(|(_, rest)| rest)
+    else {
+        return found;
+    };
+    let mut positional_before = Vec::new();
+    let mut after_merge: Option<&[&str]> = None;
+    let mut i = 0;
+    while let Some(&arg) = rest.get(i) {
+        i += 1;
+        match arg {
+            "-R" | "--repo" => {
+                found.repo = rest.get(i).map(|repo| (*repo).to_owned());
+                i += usize::from(rest.get(i).is_some());
+            }
+            arg if arg.starts_with("--repo=") => {
+                found.repo = arg.split_once('=').map(|(_, repo)| repo.to_owned());
+            }
+            arg if arg.starts_with('-') => {}
+            arg => {
+                positional_before.push(arg);
+                if positional_before.as_slice() == ["pr", "merge"] {
+                    after_merge = Some(rest.get(i..).unwrap_or_default());
+                    break;
+                }
+            }
+        }
+    }
+    let Some(args) = after_merge else {
+        return found;
     };
     found.read = true;
     let mut args = args.iter();
@@ -655,6 +698,49 @@ pub fn pushed_branch_and_files(what: &str, cwd: &Path) -> (Option<String>, Optio
                 .collect()
         });
     (Some(branch), files)
+}
+
+/// The `owner/name` repository a `git push` targets, when its remote resolves to a hosted git URL.
+pub fn target_repo(what: &str, cwd: &Path) -> Option<String> {
+    let words: Vec<&str> = what.split_whitespace().collect();
+    let (_, mut rest) = words.split_first().filter(|(program, _)| is_git(program))?;
+    while let ["-C", _, after @ ..] | ["-c", _, after @ ..] = rest {
+        rest = after;
+    }
+    let cwd = run_in(what, cwd);
+    let ("push", args) = rest.split_first().map(|(sub, args)| (*sub, args))? else {
+        return None;
+    };
+    let mut remote_arg: Option<&str> = None;
+    let mut at = 0;
+    while let Some(&arg) = args.get(at) {
+        at += 1;
+        match arg {
+            "-o" | "--push-option" | "--receive-pack" | "--exec" => at += 1,
+            "--" => {
+                remote_arg = args.get(at).copied();
+                break;
+            }
+            arg if arg.starts_with('-') => {}
+            arg => {
+                remote_arg = Some(arg);
+                break;
+            }
+        }
+    }
+    let remote = match remote_arg {
+        Some(remote) => remote.to_owned(),
+        None => push_remote(&cwd)?,
+    };
+    let url = if remote.contains("://") || remote.contains('@') {
+        remote
+    } else {
+        Git::quick(&cwd)
+            .trimmed(&["remote", "get-url", "--push", &remote])
+            .ok()?
+    };
+    let (owner, name) = crate::server::credential::owner_and_name(&url)?;
+    Some(format!("{owner}/{name}"))
 }
 
 /// Whether `repo`, an `owner/name` or address, is a remote of the checkout at `root`.

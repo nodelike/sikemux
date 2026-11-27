@@ -519,6 +519,24 @@ fn read(
         };
         project = core.workspaces().project_of(top);
     }
+    let target_repo = match (&merging, api_lands.is_some()) {
+        (Some(merging), false) => merging.repo.clone(),
+        (None, false) if ship.kind == ShipKind::Push => push::target_repo(&ship.what, &pushed_in),
+        _ => None,
+    };
+    if let Some(repo) = target_repo.as_deref() {
+        if !push::is_remote_of(repo, Path::new(&project)) {
+            if let Some(matched) = core
+                .workspaces()
+                .project_paths()
+                .into_iter()
+                .find(|path| push::is_remote_of(repo, path))
+                .map(|path| path.to_string_lossy().into_owned())
+            {
+                project = matched;
+            }
+        }
+    }
     let mut sends = None;
     let from = [project.clone(), checkout_of(&pushed_in, &project)];
     let from_one = |deploys: &dyn Fn(&str) -> bool| from.iter().find(|root| deploys(root)).cloned();
@@ -555,7 +573,7 @@ fn read(
                 && merging.is_into(Path::new(root))
         }) {
             let merged = merging.reach(Path::new(&into), &pushed_in);
-            if merged.reach == Reach::Project {
+            if merged.reach == Reach::Project || merged.branch.is_some() {
                 let ci = places::ci_push_deploy(
                     core,
                     &into,
@@ -616,7 +634,14 @@ fn read(
             );
         }
         match reach {
-            Reach::Branches => return Ok(Reading::Passes),
+            Reach::Branches => {
+                if let Some((deployed, wf)) = from_ci() {
+                    project = deployed;
+                    ship = to_workflow(ship, wf);
+                } else {
+                    return Ok(Reading::Passes);
+                }
+            }
             Reach::Project => {
                 if let Some(deployed) = from_one(&on_vercel) {
                     project = deployed;
@@ -697,6 +722,12 @@ fn read(
     if matches!(ship.kind, ShipKind::Push | ShipKind::Merge) {
         if (core.repo_above().board_landing)(core, &project) == Landing::Core {
             return Ok(Reading::Passes);
+        }
+        if merging.as_ref().is_some_and(|merging| merging.later) {
+            return Err(
+                "Not run: a merge left for GitHub to finish once its checks pass merges whatever its branch holds by then, past what the person saw. Wait for the checks, then merge without --auto."
+                    .to_owned(),
+            );
         }
         return Ok(Reading::Lands {
             project,

@@ -877,14 +877,17 @@ pub struct PushTrigger {
 /// The branch-push trigger of a GitHub Actions workflow, or none when it does not run on branch
 /// pushes (including workflows whose `on: push:` names only `tags:`).
 pub fn push_trigger(text: &str) -> Option<PushTrigger> {
+    fn strip_on_key(line: &str) -> Option<&str> {
+        ["on:", "\"on\":", "'on':"].into_iter().find_map(|prefix| {
+            line.strip_prefix(prefix)
+                .filter(|rest| rest.is_empty() || rest.starts_with([' ', '\t', '#']))
+        })
+    }
     let lines: Vec<&str> = text.lines().collect();
-    let on_at = lines.iter().position(|line| {
-        !line.starts_with([' ', '\t'])
-            && line
-                .strip_prefix("on:")
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '\t', '#']))
-    })?;
-    let after_on = strip_yaml_comment(lines.get(on_at)?.strip_prefix("on:")?).trim();
+    let on_at = lines
+        .iter()
+        .position(|line| !line.starts_with([' ', '\t']) && strip_on_key(line).is_some())?;
+    let after_on = strip_yaml_comment(strip_on_key(lines.get(on_at)?)?).trim();
     if !after_on.is_empty() {
         if let Some(list) = after_on
             .strip_prefix('[')
@@ -895,6 +898,12 @@ pub fn push_trigger(text: &str) -> Option<PushTrigger> {
                 .map(|item| item.trim().trim_matches(['"', '\'']))
                 .any(|item| item == "push");
             return has_push.then(PushTrigger::default);
+        }
+        if let Some(map) = after_on
+            .strip_prefix('{')
+            .and_then(|rest| rest.strip_suffix('}'))
+        {
+            return flow_push_trigger(map);
         }
         return (after_on.trim_matches(['"', '\'']) == "push").then(PushTrigger::default);
     }
@@ -975,6 +984,91 @@ pub fn push_trigger(text: &str) -> Option<PushTrigger> {
         return None;
     }
     Some(trigger)
+}
+
+fn flow_push_trigger(map: &str) -> Option<PushTrigger> {
+    let push_val = flow_map_entries(map)
+        .into_iter()
+        .find_map(|(key, value)| (key.trim_matches(['"', '\'']) == "push").then_some(value))?;
+    let push_val = push_val.trim();
+    let Some(inner) = push_val
+        .strip_prefix('{')
+        .and_then(|rest| rest.strip_suffix('}'))
+    else {
+        return Some(PushTrigger::default());
+    };
+    let mut trigger = PushTrigger::default();
+    let mut has_tags = false;
+    let mut has_branches = false;
+    for (key, value) in flow_map_entries(inner) {
+        let key = key.trim_matches(['"', '\'']);
+        let values: Vec<String> = value
+            .trim()
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+            .map(|list| {
+                list.split(',')
+                    .map(|item| item.trim().trim_matches(['"', '\'']).to_owned())
+                    .filter(|item| !item.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        match key {
+            "branches" => {
+                has_branches = true;
+                trigger.branches.extend(values);
+            }
+            "branches-ignore" => {
+                has_branches = true;
+                trigger.branches_ignore.extend(values);
+            }
+            "paths" => trigger.paths.extend(values),
+            "paths-ignore" => trigger.paths_ignore.extend(values),
+            "tags" | "tags-ignore" => has_tags = true,
+            _ => {}
+        }
+    }
+    if has_tags && !has_branches {
+        return None;
+    }
+    Some(trigger)
+}
+
+fn flow_map_entries(map: &str) -> Vec<(&str, &str)> {
+    fn push_entry<'a>(slice: &'a str, entries: &mut Vec<(&'a str, &'a str)>) {
+        let slice = slice.trim();
+        if let Some((key, value)) = slice.split_once(':') {
+            entries.push((key.trim(), value.trim()));
+        }
+    }
+    let mut entries = Vec::new();
+    let mut depth = 0usize;
+    let mut quote: Option<char> = None;
+    let mut start = 0usize;
+    for (at, ch) in map.char_indices() {
+        if let Some(q) = quote {
+            if ch == q {
+                quote = None;
+            }
+            continue;
+        }
+        match ch {
+            '\'' | '"' => quote = Some(ch),
+            '{' | '[' => depth += 1,
+            '}' | ']' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                if let Some(slice) = map.get(start..at) {
+                    push_entry(slice, &mut entries);
+                }
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    if let Some(slice) = map.get(start..) {
+        push_entry(slice, &mut entries);
+    }
+    entries
 }
 
 fn strip_yaml_comment(text: &str) -> &str {
@@ -1095,18 +1189,49 @@ const DEPLOY_STEPS: &[&str] = &[
 ];
 
 pub fn read_workflow(text: &str) -> WorkflowRead {
-    let lines: Vec<&str> = text.lines().map(str::trim).collect();
-    let environments = (lines.iter().enumerate())
-        .filter_map(|(at, line)| {
-            let value = line.strip_prefix("environment:")?.trim();
-            let value = match value.is_empty() {
-                true => lines.get(at + 1)?.strip_prefix("name:")?.trim(),
-                false => value,
-            };
-            let value = value.trim_matches(['"', '\'']);
-            (!value.is_empty() && !value.starts_with('{')).then(|| value.to_owned())
-        })
-        .collect();
+    let raw_lines: Vec<&str> = text.lines().collect();
+    let mut environments = Vec::new();
+    for (at, line) in raw_lines.iter().enumerate() {
+        let trimmed = line.trim();
+        let Some(value) = trimmed.strip_prefix("environment:") else {
+            continue;
+        };
+        let value = strip_yaml_comment(value).trim();
+        let picked = if value.is_empty() {
+            let env_indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+            let mut found = None;
+            for next in raw_lines.iter().skip(at + 1) {
+                let next_trimmed = next.trim();
+                if next_trimmed.is_empty() || next_trimmed.starts_with('#') {
+                    continue;
+                }
+                let next_indent = next.len() - next.trim_start_matches([' ', '\t']).len();
+                if next_indent <= env_indent {
+                    break;
+                }
+                if let Some(name) = next_trimmed.strip_prefix("name:") {
+                    found = Some(strip_yaml_comment(name).trim());
+                    break;
+                }
+            }
+            found
+        } else if let Some(inner) = value
+            .strip_prefix('{')
+            .and_then(|rest| rest.strip_suffix('}'))
+        {
+            flow_map_entries(inner)
+                .into_iter()
+                .find_map(|(k, v)| (k.trim_matches(['"', '\'']) == "name").then_some(v))
+        } else {
+            Some(value)
+        };
+        if let Some(name) = picked {
+            let name = name.trim_matches(['"', '\'']);
+            if !name.is_empty() && !name.starts_with('{') {
+                environments.push(name.to_owned());
+            }
+        }
+    }
     let publishes = [
         "gh release",
         "action-gh-release",
