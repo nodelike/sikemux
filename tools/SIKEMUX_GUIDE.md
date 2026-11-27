@@ -795,14 +795,16 @@ turn-end forces an extra turn).
 
 `agent_read` gives an agent's last few turns: what it was `asked`, what it
 `said`, its tools in a line, its `answer` and `state`; pass back `cursor` for
-what came after. An asleep or closed agent reads from what it kept, without
-waking it. For a terminal agent of another CLI it gives only `screen`.
+what came after. Long answers are chunked with `truncated: true` and `more: true`;
+pass back `cursor` to read the rest of the answer. An asleep or closed agent reads
+from what it kept, without waking it. For a terminal agent whose CLI keeps no
+readable session it gives only `screen`.
 
 To learn one thing about a busy agent, pass `question` (up to 1,000
-characters) instead of reading its turns: its own account's quick model
-answers in a few sentences from what it said, and the agent is never told.
-The `answer` is that model's claim, not the agent's; weigh it. The same
-question within 2 minutes gets the first answer. Claude chats on this host only.
+characters) instead of reading its turns: a quick model on this host answers in
+a few sentences from what it said, and the agent is never told. The `answer` is
+that model's claim, not the agent's; weigh it. The same question within 2 minutes
+gets the first answer. Agents on this host only.
 
 `agent_wait` waits up to 30 seconds on up to eight agents until one is `idle`,
 `done`, `needs_you` or does `any` thing; pass back its `cursor`. For longer,

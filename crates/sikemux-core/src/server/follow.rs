@@ -31,13 +31,16 @@ const MAX_WAIT_MS: u64 = 30_000;
 const MAX_AGENTS: usize = 8;
 /// Turns read when no cursor says where to start.
 const RECENT_TURNS: usize = 3;
-/// About how much one read answers with.
-const MAX_READ_BYTES: usize = 16 * 1024;
+/// Serialized turns budget per read, keeping the full JSON under MCP's 10 KB cap.
+const MAX_READ_BYTES: usize = 9 * 1024;
+const EXCERPT_BYTES: usize = 64 * 1024;
 const MAX_ASKED_CHARS: usize = 600;
 const MAX_SAID_BYTES: usize = 2 * 1024;
+/// Total intermediate narration kept when a finished turn also carries a final answer.
+const MAX_SAID_WITH_ANSWER_BYTES: usize = 3 * 1024;
 const TURN_ASKED: usize = 6;
 const TURN_SAID: usize = 4;
-const MAX_ANSWER_BYTES: usize = 8 * 1024;
+const MIN_ANSWER_CHUNK_BYTES: usize = 2 * 1024;
 const TOOL_TITLES: usize = 6;
 const MAX_TITLE_CHARS: usize = 80;
 const SCREEN_LINES: usize = 40;
@@ -172,13 +175,72 @@ fn cursor_param(params: &Value) -> Result<Option<&str>, String> {
     }
 }
 
+fn omitted_label(bytes: usize) -> String {
+    if bytes >= 1024 {
+        format!("{} KB", bytes.div_ceil(1024))
+    } else if bytes == 1 {
+        "1 byte".to_owned()
+    } else {
+        format!("{bytes} bytes")
+    }
+}
+
 pub(crate) fn cut_bytes(text: &str, max: usize) -> String {
     let text = text.trim();
     if text.len() <= max {
         return text.to_owned();
     }
-    let kept = text.get(..text.floor_char_boundary(max)).unwrap_or(text);
-    format!("{} […]", kept.trim_end())
+    let end = text.floor_char_boundary(max);
+    let kept = text.get(..end).unwrap_or(text).trim_end();
+    let omitted = text.len().saturating_sub(kept.len());
+    format!("{kept} [truncated: {} omitted]", omitted_label(omitted))
+}
+
+fn json_char_bytes(ch: char) -> usize {
+    match ch {
+        '"' | '\\' | '\x08' | '\x0c' | '\n' | '\r' | '\t' => 2,
+        ch if (ch as u32) < 0x20 => 6,
+        ch => ch.len_utf8(),
+    }
+}
+
+fn take_json_bytes(text: &str, max_json_bytes: usize) -> usize {
+    let mut used = 0;
+    for (idx, ch) in text.char_indices() {
+        let need = json_char_bytes(ch);
+        if used + need > max_json_bytes {
+            return idx;
+        }
+        used += need;
+    }
+    text.len()
+}
+
+fn split_chunk(rest: &str, raw_end: usize) -> usize {
+    let prefix = rest.get(..raw_end).unwrap_or(rest);
+    let line_floor = raw_end.saturating_sub(512);
+    if let Some(pos) = prefix.rfind('\n') {
+        let after = pos + 1;
+        if after > line_floor && after < rest.len() {
+            return after;
+        }
+    }
+    let word_floor = raw_end.saturating_sub(128);
+    if let Some((pos, ch)) = prefix
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| ch.is_whitespace())
+    {
+        let after = pos + ch.len_utf8();
+        if after > word_floor && after < rest.len() {
+            return after;
+        }
+    }
+    if raw_end == 0 {
+        rest.chars().next().map_or(0, char::len_utf8)
+    } else {
+        raw_end
+    }
 }
 
 fn cut_chars(text: &str, max: usize) -> String {
@@ -244,6 +306,21 @@ struct Turn {
     last: Last,
 }
 
+enum Next {
+    Turn(u64),
+    Answer {
+        start: u64,
+        offset: usize,
+        omitted: usize,
+    },
+}
+
+struct Viewed {
+    view: Value,
+    /// When the turn's answer did not fit in this read: `(next_byte_offset, remaining_bytes)`.
+    truncated: Option<(usize, usize)>,
+}
+
 impl Turn {
     fn new(start: u64) -> Self {
         Self {
@@ -284,11 +361,29 @@ impl Turn {
         Some(line)
     }
 
-    fn view(mut self) -> Value {
+    fn view(mut self, answer_offset: Option<usize>, room: usize) -> Option<Viewed> {
         let finished = self.ended.as_ref().and_then(Value::as_str) == Some("finished");
         let answer = (finished && self.last == Last::Message)
             .then(|| self.said.pop())
             .flatten();
+        if let Some(offset) = answer_offset.filter(|offset| *offset > 0) {
+            let answer = answer?;
+            let answer = answer.trim();
+            let offset = answer.floor_char_boundary(offset.min(answer.len()));
+            if offset >= answer.len() {
+                return None;
+            }
+            let rest = answer.get(offset..).unwrap_or_default();
+            let mut fields = serde_json::Map::new();
+            fields.insert("state".into(), "finished".into());
+            fields.insert("continued".into(), true.into());
+            let budget = room.saturating_sub(160).max(MIN_ANSWER_CHUNK_BYTES);
+            let truncated = insert_answer(&mut fields, rest, offset, budget);
+            return Some(Viewed {
+                view: Value::Object(fields),
+                truncated,
+            });
+        }
         let tools = self.tools_line();
         let mut fields = serde_json::Map::new();
         fields.insert(
@@ -300,19 +395,40 @@ impl Turn {
         if earlier_asked > 0 {
             omitted.push(format!("{earlier_asked} earlier messages to it"));
         }
-        let earlier_said = self.said.len().saturating_sub(TURN_SAID);
-        if earlier_said > 0 {
-            omitted.push(format!("{earlier_said} earlier things it said"));
-        }
         if !self.asked.is_empty() {
             let asked: Vec<Value> = self.asked.drain(earlier_asked..).collect();
             fields.insert("asked".into(), asked.into());
         }
+        let mut earlier_said = self.said.len().saturating_sub(TURN_SAID);
         if !self.said.is_empty() {
-            let said: Vec<String> = (self.said.iter().skip(earlier_said))
-                .map(|text| cut_bytes(text, MAX_SAID_BYTES))
-                .collect();
-            fields.insert("said".into(), said.into());
+            let mut kept_said: Vec<String> = Vec::new();
+            if answer.is_some() {
+                let mut used = 0;
+                for text in self.said.iter().skip(earlier_said).rev() {
+                    let cut = cut_bytes(text, MAX_SAID_BYTES);
+                    let len = cut.len();
+                    if !kept_said.is_empty() && used + len > MAX_SAID_WITH_ANSWER_BYTES {
+                        earlier_said += 1;
+                        continue;
+                    }
+                    used += len;
+                    kept_said.push(cut);
+                }
+                kept_said.reverse();
+            } else {
+                kept_said = self
+                    .said
+                    .iter()
+                    .skip(earlier_said)
+                    .map(|text| cut_bytes(text, MAX_SAID_BYTES))
+                    .collect();
+            }
+            if !kept_said.is_empty() {
+                fields.insert("said".into(), kept_said.into());
+            }
+        }
+        if earlier_said > 0 {
+            omitted.push(format!("{earlier_said} earlier things it said"));
         }
         if !omitted.is_empty() {
             fields.insert("omitted".into(), omitted.into());
@@ -320,11 +436,48 @@ impl Turn {
         if let Some(tools) = tools {
             fields.insert("tools".into(), tools.into());
         }
-        if let Some(answer) = answer {
-            fields.insert("answer".into(), cut_bytes(&answer, MAX_ANSWER_BYTES).into());
-        }
-        Value::Object(fields)
+        let truncated = if let Some(answer) = answer {
+            let answer = answer.trim();
+            let overhead = serde_json::to_vec(&fields).map_or(0, |bytes| bytes.len());
+            let budget = room
+                .saturating_sub(overhead + 140)
+                .max(MIN_ANSWER_CHUNK_BYTES);
+            insert_answer(&mut fields, answer, 0, budget)
+        } else {
+            None
+        };
+        Some(Viewed {
+            view: Value::Object(fields),
+            truncated,
+        })
     }
+}
+
+fn insert_answer(
+    fields: &mut serde_json::Map<String, Value>,
+    rest: &str,
+    offset: usize,
+    budget: usize,
+) -> Option<(usize, usize)> {
+    let raw_end = take_json_bytes(rest, budget);
+    if raw_end >= rest.len() {
+        fields.insert("answer".into(), rest.into());
+        return None;
+    }
+    let split = split_chunk(rest, raw_end);
+    let shown = rest.get(..split).unwrap_or(rest).trim_end();
+    let remaining = rest.len().saturating_sub(split);
+    fields.insert(
+        "answer".into(),
+        format!(
+            "{shown}\n\n[truncated: {} omitted]",
+            omitted_label(remaining)
+        )
+        .into(),
+    );
+    fields.insert("truncated".into(), true.into());
+    fields.insert("remainingBytes".into(), (remaining as u64).into());
+    Some((offset + split, remaining))
 }
 
 fn build(said: Vec<(u64, bool, Said)>) -> Vec<Turn> {
@@ -380,28 +533,75 @@ fn build(said: Vec<(u64, bool, Said)>) -> Vec<Turn> {
     turns
 }
 
-/// What was said, as turns, as many as fit, and where the first that did
-/// not fit starts.
-fn turns(said: Vec<(u64, bool, Said)>) -> (Vec<Value>, Option<u64>) {
+/// What was said, as turns, as many as fit, and where reading on resumes (either
+/// at the next turn or mid-answer when a long answer was chunked).
+fn turns_from(
+    said: Vec<(u64, bool, Said)>,
+    resume: Option<(u64, usize)>,
+) -> (Vec<Value>, Option<Next>) {
     let mut views = Vec::new();
     let mut bytes = 0;
+    let mut resume = resume;
     for turn in build(said) {
         if bytes >= MAX_READ_BYTES && !views.is_empty() {
-            return (views, Some(turn.start));
+            return (views, Some(Next::Turn(turn.start)));
         }
         let start = turn.start;
-        let view = turn.view();
-        bytes += serde_json::to_vec(&view).map_or(0, |bytes| bytes.len());
-        if bytes > MAX_READ_BYTES && !views.is_empty() {
-            return (views, Some(start));
+        let offset = resume
+            .take()
+            .filter(|(at, _)| *at == start)
+            .map(|(_, offset)| offset);
+        let Some(viewed) = turn.view(offset, MAX_READ_BYTES) else {
+            continue;
+        };
+        let size = serde_json::to_vec(&viewed.view).map_or(0, |bytes| bytes.len());
+        if bytes + size > MAX_READ_BYTES && !views.is_empty() {
+            return (views, Some(Next::Turn(start)));
         }
-        views.push(view);
+        bytes += size;
+        views.push(viewed.view);
+        if let Some((next_offset, omitted)) = viewed.truncated {
+            return (
+                views,
+                Some(Next::Answer {
+                    start,
+                    offset: next_offset,
+                    omitted,
+                }),
+            );
+        }
     }
     (views, None)
 }
 
-fn read_cursor(feed: &str, index: u64) -> String {
-    format!("{feed}:{index}")
+fn parse_index_offset(raw: &str) -> Option<(u64, Option<usize>)> {
+    match raw.split_once('+') {
+        Some((index, offset)) => {
+            let offset = offset.parse::<usize>().ok().filter(|offset| *offset > 0)?;
+            Some((index.parse::<u64>().ok()?, Some(offset)))
+        }
+        None => Some((raw.parse::<u64>().ok()?, None)),
+    }
+}
+
+fn format_cursor(prefix: &str, sep: char, next: Option<&Next>, fallback: u64) -> String {
+    match next {
+        Some(Next::Answer { start, offset, .. }) => format!("{prefix}{sep}{start}+{offset}"),
+        Some(Next::Turn(start)) => format!("{prefix}{sep}{start}"),
+        None => format!("{prefix}{sep}{fallback}"),
+    }
+}
+
+fn more_note(rest: Option<&Next>, whole: bool) -> Option<String> {
+    match rest {
+        Some(Next::Answer { omitted, .. }) => Some(format!(
+            "The answer was truncated ({} omitted). Read again with this cursor for the rest.",
+            omitted_label(*omitted)
+        )),
+        Some(Next::Turn(_)) => Some("There is more: read again with this cursor.".to_owned()),
+        None if !whole => Some("There is more: read again with this cursor.".to_owned()),
+        None => None,
+    }
 }
 
 /// The chat's last turns, or what it said since `cursor`, from the feed it runs on or the one
@@ -416,35 +616,40 @@ fn read_chat(target: &Listed, feed: &Feed, cursor: Option<&str>) -> Result<Value
         .map(|cursor| {
             cursor
                 .split_once(':')
-                .and_then(|(feed, index)| Some((feed, index.parse::<u64>().ok()?)))
+                .and_then(|(feed, rest)| {
+                    let (index, offset) = parse_index_offset(rest)?;
+                    Some((feed, index, offset))
+                })
                 .ok_or("cursor must be one agent_read gave you")
         })
         .transpose()?;
     let mut notes = Vec::new();
-    let index = match from {
-        Some((id, index)) if id == feed.id() => Some(index),
+    let (index, resume) = match from {
+        Some((id, index, offset)) if id == feed.id() => {
+            (Some(index), offset.map(|offset| (index, offset)))
+        }
         Some(_) => {
             notes.push(format!(
                 "{name} started again since that cursor, so this begins at its last turns."
             ));
-            None
+            (None, None)
         }
-        None => None,
+        None => (None, None),
     };
-    let excerpt = feed.excerpt(index, RECENT_TURNS, MAX_READ_BYTES * 4);
+    let excerpt = feed.excerpt(index, RECENT_TURNS, EXCERPT_BYTES);
     if excerpt.skipped {
         notes.push("Some of what it said after your cursor is no longer kept.".to_owned());
     }
-    let (turns, rest) = turns(excerpt.said);
+    let (turns, rest) = turns_from(excerpt.said, resume);
     if turns.is_empty() {
         notes.push(format!("{name} has said nothing since your cursor."));
     }
-    if rest.is_some() {
-        notes.push("There is more: read again with this cursor.".to_owned());
+    if let Some(note) = more_note(rest.as_ref(), true) {
+        notes.push(note);
     }
     let mut answer = json!({
         "turns": turns,
-        "cursor": read_cursor(&excerpt.feed, rest.unwrap_or(excerpt.next)),
+        "cursor": format_cursor(&excerpt.feed, ':', rest.as_ref(), excerpt.next),
         "more": rest.is_some(),
     });
     if !notes.is_empty() {
@@ -561,25 +766,33 @@ fn read_terminal(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<V
     let mut notes = Vec::new();
     let mut answer = match session_file(core, &target.agent_id) {
         Some((cli, session, path)) => {
-            let from = match cursor.map(|cursor| {
-                cursor
-                    .rsplit_once('@')
-                    .and_then(|(session, at)| Some((session, at.parse::<u64>().ok()?)))
-                    .ok_or("cursor must be one agent_read gave you")
-            }) {
-                Some(Ok((from, at))) if from == session => Some(at),
-                Some(Ok(_)) => {
+            let parsed = cursor
+                .map(|cursor| {
+                    cursor
+                        .rsplit_once('@')
+                        .and_then(|(session, rest)| {
+                            let (at, offset) = parse_index_offset(rest)?;
+                            Some((session, at, offset))
+                        })
+                        .ok_or("cursor must be one agent_read gave you")
+                })
+                .transpose()?;
+            let (from, mut resume) = match parsed {
+                Some((from, at, offset)) if from == session => {
+                    (Some(at), offset.map(|offset| (at, offset)))
+                }
+                Some(_) => {
                     notes.push(format!(
                         "{name} started a new session since that cursor, so this begins at its last turns."
                     ));
-                    None
+                    (None, None)
                 }
-                Some(Err(error)) => return Err(error.into()),
-                None => None,
+                None => (None, None),
             };
             let excerpt = transcript::read(cli, &path, from, RECENT_TURNS)
                 .map_err(|error| format!("Sikemux could not read {name}'s session: {error}"))?;
             if excerpt.restarted {
+                resume = None;
                 notes.push(format!(
                     "{name}'s session is not where your cursor was, so this begins at its last turns."
                 ));
@@ -589,16 +802,16 @@ fn read_terminal(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<V
             } else {
                 excerpt.said
             };
-            let (turns, rest) = turns(said);
+            let (turns, rest) = turns_from(said, resume);
             if turns.is_empty() {
                 notes.push(format!("{name} has said nothing since your cursor."));
             }
-            if rest.is_some() || !excerpt.whole {
-                notes.push("There is more: read again with this cursor.".to_owned());
+            if let Some(note) = more_note(rest.as_ref(), excerpt.whole) {
+                notes.push(note);
             }
             json!({
                 "turns": turns,
-                "cursor": format!("{session}@{}", rest.unwrap_or(excerpt.next)),
+                "cursor": format_cursor(&session, '@', rest.as_ref(), excerpt.next),
                 "more": rest.is_some() || !excerpt.whole,
             })
         }
@@ -650,6 +863,43 @@ pub(crate) fn terminal_answer(core: &Core, agent_id: &str) -> TerminalTurn {
             .and_then(|mut turn| turn.said.pop())
             .map(TerminalAnswer::Said),
     }
+}
+
+/// Whether `agent_id` has a readable CLI session transcript on disk.
+pub(crate) fn has_transcript(core: &Core, agent_id: &str) -> bool {
+    session_file(core, agent_id).is_some()
+}
+
+/// What a terminal agent wrote in its newest `count` turns, oldest first,
+/// each cut to its last `longest` characters to match `Feed::answers`.
+pub(crate) fn terminal_answers(
+    core: &Core,
+    agent_id: &str,
+    count: usize,
+    longest: usize,
+) -> Option<Vec<String>> {
+    let (cli, _, path) = session_file(core, agent_id)?;
+    let excerpt = transcript::read(cli, &path, None, count).ok()?;
+    let mut answers: Vec<String> = build(ended(excerpt.said, excerpt.next))
+        .into_iter()
+        .filter_map(|turn| {
+            let joined = turn.said.join("\n\n");
+            let text = joined.trim();
+            if text.is_empty() {
+                return None;
+            }
+            let skip = text.chars().count().saturating_sub(longest);
+            let kept: String = text.chars().skip(skip).collect();
+            Some(if skip > 0 {
+                format!("[cut] {kept}")
+            } else {
+                kept
+            })
+        })
+        .collect();
+    let first = answers.len().saturating_sub(count);
+    answers.drain(..first);
+    Some(answers)
 }
 
 /// What an agent at rest said last, when its last turn ended on words: from the feed its chat
@@ -1071,4 +1321,173 @@ fn answer(
         }
     }
     answer
+}
+
+#[cfg(test)]
+mod tests {
+    use sikemux_fold::ChatEventKind;
+    use sikemux_wire::protocol::PermissionMode;
+
+    use super::*;
+
+    fn listed(id: &str, name: &str, cli: &str, reach: Reach) -> Listed {
+        Listed {
+            agent_id: id.to_owned(),
+            name: Some(name.to_owned()),
+            project: "/repo".to_owned(),
+            cli: cli.to_owned(),
+            title: Some("Worker".to_owned()),
+            status: AgentStatus::Idle,
+            parent: Some("chief".to_owned()),
+            active_at: None,
+            rank: 0,
+            reach,
+        }
+    }
+
+    fn emit_turn(feed: &Arc<Feed>, prompt: &str, answer: &str) {
+        feed.emit(ChatEventKind::Prompt, json!({ "text": prompt }));
+        feed.emit(ChatEventKind::TurnStarted, json!({}));
+        feed.emit(
+            ChatEventKind::SessionUpdate,
+            json!({
+                "update": {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": { "type": "text", "text": answer }
+                }
+            }),
+        );
+        feed.emit(
+            ChatEventKind::TurnCompleted,
+            json!({ "stopReason": "end_turn" }),
+        );
+    }
+
+    #[test]
+    fn cut_bytes_surfaces_omitted_size_instead_of_silent_ellipsis() {
+        assert_eq!(cut_bytes("short text", 100), "short text");
+        let under_kb = cut_bytes(&"a".repeat(200), 50);
+        assert!(
+            under_kb.ends_with("[truncated: 150 bytes omitted]"),
+            "{under_kb}"
+        );
+        let over_kb = cut_bytes(&"x".repeat(5 * 1024), 1024);
+        assert!(over_kb.ends_with("[truncated: 4 KB omitted]"), "{over_kb}");
+        let utf8 = cut_bytes(&"é".repeat(100), 11);
+        assert!(utf8.contains("[truncated:"), "{utf8}");
+    }
+
+    #[tokio::test]
+    async fn long_chat_answer_reports_truncation_and_continues_to_completion_via_cursor() {
+        let feed = Feed::new("agent-asuna".into(), PermissionMode::WorkspaceWrite, None);
+        let mut sections = Vec::new();
+        for i in 0..45 {
+            sections.push(format!(
+                "## Section {i:02}\nFindings for item {i:02}: \"quoted\" value & unicode — café.\n{}",
+                "detail ".repeat(65)
+            ));
+        }
+        let full_answer = sections.join("\n\n");
+        assert!(full_answer.len() > 20 * 1024);
+
+        emit_turn(&feed, "Audit the Android simulation tooling", &full_answer);
+        let target = listed("agent-asuna", "Asuna", "antigravity", Reach::Chat);
+
+        let mut cursor: Option<String> = None;
+        let mut chunks = Vec::new();
+        let mut pages = 0;
+        loop {
+            pages += 1;
+            assert!(pages <= 10, "continuation loop did not terminate");
+            let page = read_chat(&target, &feed, cursor.as_deref()).unwrap();
+            let serialized = serde_json::to_vec(&page).unwrap().len();
+            assert!(
+                serialized <= 10 * 1024,
+                "page {pages} exceeded MCP 10 KB budget ({serialized} bytes)"
+            );
+            let turn = &page["turns"][0];
+            let answer = turn["answer"].as_str().unwrap();
+            let more = page["more"].as_bool().unwrap();
+            if pages == 1 {
+                assert!(more, "first page must signal more");
+                assert_eq!(turn["truncated"], json!(true));
+                assert!(turn["remainingBytes"].as_u64().unwrap() > 0);
+                assert!(answer.contains("[truncated:"), "{answer}");
+                assert!(page["note"].as_str().unwrap().contains("truncated"));
+                assert!(page["cursor"].as_str().unwrap().contains('+'));
+                assert!(turn.get("asked").is_some());
+            } else {
+                assert_eq!(turn["continued"], json!(true));
+                assert!(turn.get("asked").is_none());
+            }
+            let body = answer
+                .split_once("\n\n[truncated:")
+                .map_or(answer, |(head, _)| head);
+            chunks.push(body.to_owned());
+            cursor = page["cursor"].as_str().map(str::to_owned);
+            if !more {
+                assert!(turn.get("truncated").is_none());
+                assert!(!page["cursor"].as_str().unwrap().contains('+'));
+                break;
+            }
+        }
+        assert!(pages >= 3);
+        let rebuilt = chunks.join("\n");
+        for i in 0..45 {
+            assert!(
+                rebuilt.contains(&format!("## Section {i:02}")),
+                "missing section {i:02} after cursor continuation"
+            );
+            assert!(
+                rebuilt.contains(&format!("Findings for item {i:02}")),
+                "missing findings {i:02} after cursor continuation"
+            );
+        }
+
+        // Calling once more with the final cursor reports nothing new.
+        let done = read_chat(&target, &feed, cursor.as_deref()).unwrap();
+        assert_eq!(done["turns"].as_array().unwrap().len(), 0);
+        assert_eq!(done["more"], json!(false));
+    }
+
+    #[tokio::test]
+    async fn continuation_cursor_advances_to_subsequent_turn_and_handles_restarts() {
+        let feed = Feed::new("agent-asuna".into(), PermissionMode::WorkspaceWrite, None);
+        let long_first = (0..25)
+            .map(|i| format!("Line {i:02}: {}", "word ".repeat(85)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let second = "Second turn final conclusion.";
+        emit_turn(&feed, "First prompt", &long_first);
+        emit_turn(&feed, "Second prompt", second);
+        let target = listed("agent-asuna", "Asuna", "codex", Reach::Chat);
+
+        let mut cursor: Option<String> = None;
+        let mut saw_second = false;
+        for _ in 0..10 {
+            let page = read_chat(&target, &feed, cursor.as_deref()).unwrap();
+            for turn in page["turns"].as_array().unwrap() {
+                if turn["answer"].as_str() == Some(second) {
+                    saw_second = true;
+                }
+            }
+            cursor = page["cursor"].as_str().map(str::to_owned);
+            if !page["more"].as_bool().unwrap() {
+                break;
+            }
+        }
+        assert!(saw_second, "never reached turn after truncated answer");
+
+        // A cursor from an earlier feed resets cleanly even with +offset.
+        let restarted = read_chat(&target, &feed, Some("old-feed:0+4096")).unwrap();
+        assert!(restarted["note"]
+            .as_str()
+            .unwrap()
+            .contains("started again"));
+        assert!(!restarted["turns"].as_array().unwrap().is_empty());
+
+        // Malformed +offset cursors are rejected.
+        assert!(read_chat(&target, &feed, Some(&format!("{}:0+0", feed.id()))).is_err());
+        assert!(read_chat(&target, &feed, Some(&format!("{}:0+abc", feed.id()))).is_err());
+    }
 }

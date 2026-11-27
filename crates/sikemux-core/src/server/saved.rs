@@ -155,7 +155,7 @@ fn recorded_account(core: &Core, agent_id: &str, agent: AgentKind) -> Option<Opt
     )
 }
 
-fn chosen_account(core: &Core, agent: AgentKind) -> Option<String> {
+pub(crate) fn chosen_account(core: &Core, agent: AgentKind) -> Option<String> {
     let book = core.workspaces().accounts()?;
     book.profile(&book.chosen(agent.as_str()))?
         .config_path

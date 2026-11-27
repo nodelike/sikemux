@@ -282,7 +282,7 @@ pub(crate) fn answer(
                 .into_iter()
                 .find(|agent| agent.agent_id == holder)
         })
-        .filter(ask_aside::askable);
+        .filter(|agent| ask_aside::askable(core, agent));
     let keep = |to: &str, to_name: &str, answer: &str| {
         asks.keep(
             project,
@@ -344,7 +344,7 @@ pub(crate) fn answer(
             task_said.replace("</task", "&lt;/task"),
             ask_aside::quoted(&said, question),
         );
-        let Ok(answer) = ask_aside::model_answer(core, &target.agent_id, &name, &prompt) else {
+        let Ok(answer) = ask_aside::model_answer(core, &target, None, &name, &prompt) else {
             return cannot();
         };
         if may_hold_secret(&answer) {
