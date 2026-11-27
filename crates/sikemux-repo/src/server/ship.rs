@@ -503,7 +503,8 @@ fn read(
     let mut sends = None;
     let from = [project.clone(), checkout_of(&pushed_in, &project)];
     let from_one = |deploys: &dyn Fn(&str) -> bool| from.iter().find(|root| deploys(root)).cloned();
-    let on_vercel = |root: &str| places::found::vercel_deploys_pushes(Path::new(root));
+    let home = project.clone();
+    let on_vercel = |root: &str| places::deploys_pushes(core, &home, Path::new(root));
     let to_vercel = |ship: Ship| Ship {
         kind: ShipKind::Deploy,
         target: Some(Target::Vercel { production: true }),

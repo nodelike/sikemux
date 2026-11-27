@@ -115,6 +115,7 @@ pub fn judge(
     addresses: Option<&str>,
     plain: Option<&str>,
 ) -> Judged {
+    deploys_pushes(core, project, Path::new(project));
     let (places, confirmed) = current(core, project);
     let addresses = addresses.unwrap_or(&ship.what);
     let judged = judge::judged_reading(&places, confirmed, ship, agent, addresses, plain);
@@ -336,8 +337,25 @@ pub fn allowed_sites(core: &Core, project: &str) -> Vec<String> {
         .collect()
 }
 
+/// Whether a push to the branch of `project` deploys it to production on Vercel, as its files
+/// at `root` say or once said. Agents can change those files, so what they said is kept.
+pub fn deploys_pushes(core: &Core, project: &str, root: &Path) -> bool {
+    if core.places().of(project).deploys_pushes {
+        return true;
+    }
+    let deploys = found::vercel_deploys_pushes(root);
+    if deploys {
+        let _ = core.places().change(project, |kept| {
+            kept.deploys_pushes = true;
+            Ok(())
+        });
+    }
+    deploys
+}
+
 /// `project`'s places as clients show them.
 pub fn of(core: &Core, project: &str) -> Places {
+    deploys_pushes(core, project, Path::new(project));
     let (places, _) = current(core, project);
     let kept = core.places().of(project);
     Places {

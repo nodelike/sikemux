@@ -29,6 +29,9 @@ pub struct Kept {
     /// Things sent out past what `unplaced` holds, which it doesn't list.
     #[serde(default)]
     pub more_seen: u32,
+    /// Whether its files once said a push to its branch deploys it to production on Vercel.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub deploys_pushes: bool,
 }
 
 pub struct Store {
