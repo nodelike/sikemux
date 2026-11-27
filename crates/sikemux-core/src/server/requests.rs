@@ -362,6 +362,7 @@ pub(super) async fn run(
                     text,
                     paths,
                     context,
+                    steer: false,
                 };
                 if chat_calls::must_wake(&core, &params) {
                     tokio::spawn(async move {

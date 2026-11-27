@@ -735,6 +735,15 @@ impl Feed {
         !self.inner.locked().queued.is_empty()
     }
 
+    pub fn queued_ids(&self) -> Vec<String> {
+        self.inner
+            .locked()
+            .queued
+            .iter()
+            .map(|message| message.id.clone())
+            .collect()
+    }
+
     /// Takes the waiting messages `ids`, or with none the next that go out together.
     pub fn take_queued(&self, ids: Option<&[String]>) -> Vec<Queued> {
         let mut inner = self.inner.locked();

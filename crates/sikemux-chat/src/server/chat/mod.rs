@@ -1177,6 +1177,13 @@ impl Chat {
         self.turn.locked().turn == Turn::Prompted
     }
 
+    pub fn can_steer(&self) -> bool {
+        self.feed
+            .start()
+            .and_then(|start| start.capabilities.get("steering").and_then(Value::as_bool))
+            .unwrap_or(false)
+    }
+
     /// A prompt this side sent is being answered from now. Answers whether one already was.
     pub fn start_prompted(&self) -> bool {
         self.message_waiting.store(false, Ordering::Release);

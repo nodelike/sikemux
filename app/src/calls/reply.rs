@@ -66,7 +66,7 @@ pub(crate) fn composer(
         Rc::new(move |window: &mut Window, cx: &mut App| {
             this.update(cx, |bench, cx| match About::of(&owner) {
                 Some(About::Call(id)) => bench.reply(id, cx),
-                _ => bench.write_about_page(&owner, window, cx),
+                _ => bench.write_about_page(&owner, false, window, cx),
             })
             .ok();
         })
@@ -203,6 +203,7 @@ impl Workbench {
         let params = PromptChatParams {
             paths,
             context,
+            steer: self.steers_mid_turn(),
             ..PromptChatParams::new(asker.agent_id, words)
         };
         let to = crate::core::Target::new(&self.asks, place);
@@ -214,6 +215,7 @@ impl Workbench {
     pub(crate) fn write_about_page(
         &mut self,
         owner: &str,
+        primary: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -246,6 +248,7 @@ impl Workbench {
         let params = PromptChatParams {
             paths,
             context,
+            steer: self.sends_as_steer(primary),
             ..PromptChatParams::new(to, words)
         };
         let at = self.chat_target(owner);

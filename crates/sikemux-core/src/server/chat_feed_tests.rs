@@ -527,3 +527,125 @@ async fn reattaching_an_asleep_long_turn_sends_full_view_instead_of_mismatched_k
         "reattaching an unshelved mid-turn chat with a prior mark must send Live"
     );
 }
+
+#[tokio::test]
+async fn prompt_chat_steers_mid_turn_when_requested_and_supported() {
+    use sikemux_calls::chat::PromptChatParams;
+    use sikemux_chat::server::chat::calls::prompt_chat;
+    use sikemux_chat::server::chat::queue::Queued;
+    use sikemux_chat::server::chat::{ChatCommand, Origin, Steered, Whose};
+    use sikemux_chat::server::chat_state::ChatParts;
+    use sikemux_wire::protocol::ChatLaunch;
+
+    let dir = tempfile::tempdir().unwrap();
+    let core = crate::server::Core::new(Default::default(), Some(dir.path())).unwrap();
+    let launch = |agent_id: &str| ChatLaunch {
+        agent_id: agent_id.into(),
+        provider: "antigravity".into(),
+        cwd: "/repo".into(),
+        program: "/bin/false".into(),
+        args: Vec::new(),
+        env: Default::default(),
+        mcp_servers: Vec::new(),
+        resume_id: None,
+        permission_mode: PermissionMode::WorkspaceWrite,
+        model: None,
+        model_provider: None,
+        effort: None,
+        account: None,
+        fallbacks: Vec::new(),
+    };
+
+    let mut steerable = core
+        .chats()
+        .insert(&core, launch("steerable"), Origin::default(), None)
+        .unwrap();
+    steerable.chat.mark_ready(ChatStart {
+        session_id: "s1".into(),
+        capabilities: json!({ "steering": true }),
+        setup: json!({}),
+    });
+    steerable.chat.start_prompted();
+    steerable.chat.feed.enqueue(Queued::new(
+        Some("q1".into()),
+        "earlier queued".into(),
+        Vec::new(),
+        Vec::new(),
+        Whose::PERSON,
+    ));
+
+    let driver = tokio::spawn(async move {
+        let mut seen = Vec::new();
+        while let Some(command) = steerable.queue.recv().await {
+            match command {
+                ChatCommand::Steer { text, reply, .. } => {
+                    seen.push(("steer", text));
+                    let _ = reply.send(Ok(Steered::Injected));
+                }
+                ChatCommand::Prompt { text, .. } => {
+                    seen.push(("prompt", text));
+                }
+                _ => {}
+            }
+            if seen.len() == 2 {
+                break;
+            }
+        }
+        seen
+    });
+
+    prompt_chat(
+        &core,
+        PromptChatParams {
+            steer: true,
+            ..PromptChatParams::new("steerable".into(), "isnt the bottom one redundant?".into())
+        },
+    )
+    .await
+    .unwrap();
+    assert!(!steerable.chat.feed.has_queued());
+
+    prompt_chat(
+        &core,
+        PromptChatParams::new("steerable".into(), "wait behind turn".into()),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        driver.await.unwrap(),
+        vec![
+            (
+                "steer",
+                "earlier queued\n\nisnt the bottom one redundant?".into()
+            ),
+            ("prompt", "wait behind turn".into()),
+        ]
+    );
+
+    let mut unsteerable = core
+        .chats()
+        .insert(&core, launch("unsteerable"), Origin::default(), None)
+        .unwrap();
+    unsteerable.chat.mark_ready(ChatStart {
+        session_id: "s2".into(),
+        capabilities: json!({ "steering": false }),
+        setup: json!({}),
+    });
+    unsteerable.chat.start_prompted();
+
+    prompt_chat(
+        &core,
+        PromptChatParams {
+            steer: true,
+            ..PromptChatParams::new("unsteerable".into(), "fallback to prompt".into())
+        },
+    )
+    .await
+    .unwrap();
+
+    match unsteerable.queue.recv().await {
+        Some(ChatCommand::Prompt { text, .. }) => assert_eq!(text, "fallback to prompt"),
+        other => panic!("expected Prompt fallback, got {}", other.is_some()),
+    }
+}

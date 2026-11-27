@@ -682,7 +682,7 @@ pub(super) fn composer(
         .strip(strip)
         .ready(settable(agent, head, fresh))
         .running(chat.running())
-        .steers(bench.preferences().mid_turn_send == MidTurnSend::Steer)
+        .steers(bench.steers_mid_turn())
         .usage(
             head.and_then(|head| head.usage.clone()),
             head.and_then(|head| head.compactions.clone()),
@@ -1475,7 +1475,7 @@ impl Workbench {
             self.keep_draft(&agent, cx);
         }
         self.focus_draft(&agent, window, cx);
-        let steer_first = self.preferences().mid_turn_send == MidTurnSend::Steer;
+        let steer_first = self.steers_mid_turn();
         let chief_hears = (self.chats.open.get(&agent))
             .and_then(|chat| chat.state.as_ref())
             .is_some_and(|head| head.chief_hears.is_some());
@@ -1585,6 +1585,14 @@ impl Workbench {
         }
     }
 
+    pub(crate) fn steers_mid_turn(&self) -> bool {
+        self.preferences().mid_turn_send == MidTurnSend::Steer
+    }
+
+    pub(crate) fn sends_as_steer(&self, primary: bool) -> bool {
+        primary != self.steers_mid_turn()
+    }
+
     /// Sends what the person wrote: the answer to a question it answers, else words for
     /// the agent, which join a running turn or wait behind it as the person prefers,
     /// and ⌘ does the other. ⌘ with nothing written sends the questions' answers, else
@@ -1600,7 +1608,7 @@ impl Workbench {
             // A production call is never sent by a key; only a click sends it.
             Some(About::Call(call)) if self.ships_to_production(call) => return,
             Some(About::Call(call)) => return self.reply(call, cx),
-            Some(About::Page { .. }) => return self.write_about_page(agent, window, cx),
+            Some(About::Page { .. }) => return self.write_about_page(agent, primary, window, cx),
             None => {}
         }
         let waits = self
@@ -1681,14 +1689,14 @@ impl Workbench {
             return;
         }
         let sent = composing.held(cx);
-        let steers = self.preferences().mid_turn_send == MidTurnSend::Steer;
+        let queue = !self.sends_as_steer(primary);
         self.answer(
             agent,
             |chat, open| {
                 if let Some(composing) = chat.composer.as_mut() {
                     composing.stage = ComposeStage::Sent(sent);
                 }
-                chat.sent(agent, text, outgoing, primary == steers, open)
+                chat.sent(agent, text, outgoing, queue, open)
             },
             cx,
         );

@@ -74,6 +74,7 @@ pub fn prompt_awake(core: &Arc<Core>, params: PromptChatParams) -> CoreResult<()
         text,
         paths,
         mut context,
+        steer: _,
     } = params;
     core.workspaces().person_said(&agent_id);
     core.activity_log()
@@ -123,6 +124,19 @@ pub async fn prompt_from_mod(core: &Arc<Core>, agent_id: &str, text: String) -> 
 /// it names.
 pub async fn prompt_chat(core: &Arc<Core>, mut params: PromptChatParams) -> CoreResult<()> {
     if !core.workspaces().in_terminal(&params.agent_id) {
+        if params.steer {
+            if let Some(chat) = core.chats().get(&params.agent_id) {
+                if chat.prompted() && chat.can_steer() {
+                    let ids = chat.feed.queued_ids();
+                    let message = sikemux_calls::chat::QueuedMessageParams {
+                        text: params.text,
+                        paths: params.paths,
+                        context: params.context,
+                    };
+                    return super::queue::steer(core, &params.agent_id, ids, Some(message)).await;
+                }
+            }
+        }
         super::wake_for_prompt(core, &params.agent_id, &mut params.context).await?;
     }
     prompt_awake(core, params)

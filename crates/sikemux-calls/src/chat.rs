@@ -135,6 +135,8 @@ pub struct PromptChatParams {
     pub paths: Vec<String>,
     #[serde(default)]
     pub context: Vec<ChatContext>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub steer: bool,
 }
 
 impl PromptChatParams {
@@ -146,6 +148,7 @@ impl PromptChatParams {
             text,
             paths: Vec::new(),
             context: Vec::new(),
+            steer: false,
         }
     }
 }
