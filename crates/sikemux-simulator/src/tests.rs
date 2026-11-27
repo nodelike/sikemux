@@ -144,9 +144,9 @@ mod tools {
     use crate::claims::Claim;
     use crate::tools::{
         app_size, cap_logs, changes, choose_device, edge_warning, element_lines, elements_from,
-        inside_project, inspect, labelled, landed, launching, newest_iphone, pick_device, run,
-        tap_point, text_fields_from, trailing_escaped_newline, type_steps, Device, Element,
-        Numbered, Numbering, Pick, Read, TypeStep,
+        inside_project, inspect, labelled, landed, launching, newest_iphone, pick_device,
+        popover_dismissed_note, run, tap_point, text_fields_from, trailing_escaped_newline,
+        type_steps, Device, Element, Numbered, Numbering, Pick, Read, TypeStep,
     };
     use sikemux_process::sync::Locked;
     use std::collections::{HashMap, HashSet};
@@ -1163,6 +1163,115 @@ done
         std::fs::remove_file(&focused_flag).unwrap();
         let missed = call("sim.type", json!({ "text": "000000" })).unwrap_err();
         assert!(missed.contains("no text field's value changed"), "{missed}");
+    }
+
+    #[test]
+    fn sim_tap_notes_when_ipad_popover_dismiss_region_consumes_tap() {
+        let screen = |app: &str, popover: bool| {
+            let mut children = vec![json!({
+                "type": "Button",
+                "label": "Verify & Sign In",
+                "enabled": true,
+                "frame": { "x": 200, "y": 420, "width": 400, "height": 48 }
+            })];
+            if popover {
+                children.push(json!({
+                    "type": "Group",
+                    "label": "dismiss popup",
+                    "identifier": "PopoverDismissRegion",
+                    "enabled": true,
+                    "frame": { "x": 0, "y": 0, "width": 834, "height": 1194 }
+                }));
+            }
+            read_from(&json!({ "elements": [
+                { "type": "Application", "label": app,
+                  "frame": { "x": 0, "y": 0, "width": 834, "height": 1194 },
+                  "children": children }
+            ]}))
+        };
+
+        let with_popover = screen("Academy", true);
+        let without_popover = screen("Academy", false);
+        let other_app = screen("Settings", false);
+
+        assert!(
+            popover_dismissed_note(&with_popover, &without_popover, false).is_some_and(|note| note
+                .contains("PopoverDismissRegion")
+                && note.contains("tap again"))
+        );
+        assert_eq!(
+            popover_dismissed_note(&with_popover, &without_popover, true),
+            None
+        );
+        assert_eq!(
+            popover_dismissed_note(&with_popover, &with_popover, false),
+            None
+        );
+        assert_eq!(
+            popover_dismissed_note(&without_popover, &without_popover, false),
+            None
+        );
+        assert_eq!(
+            popover_dismissed_note(&with_popover, &other_app, false),
+            None
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("requests");
+        let popover_flag = dir.path().join("popover");
+        std::fs::write(&popover_flag, "1").unwrap();
+        let script = format!(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> '{log}'
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+  case "$line" in
+    *'"type":"devices"'*) echo "{{\"id\":$id,\"type\":\"result\",\"devices\":[{{\"udid\":\"P1\",\"name\":\"iPad Pro 11-inch (M5)\",\"runtime\":\"iOS 27.0\",\"state\":\"booted\"}}]}}" ;;
+    *'"type":"screen"'*) echo "{{\"id\":$id,\"type\":\"result\",\"width\":834,\"height\":1194,\"scale\":2}}" ;;
+    *'"type":"tap"'*)
+      rm -f '{flag}'
+      echo "{{\"id\":$id,\"type\":\"result\"}}"
+      ;;
+    *'"type":"tree"'*)
+      if [ -e '{flag}' ]; then
+        echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}},\"children\":[{{\"type\":\"Button\",\"label\":\"Verify & Sign In\",\"enabled\":true,\"frame\":{{\"x\":200,\"y\":420,\"width\":400,\"height\":48}}}},{{\"type\":\"Group\",\"label\":\"dismiss popup\",\"identifier\":\"PopoverDismissRegion\",\"enabled\":true,\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}}}}]}}]}}"
+      else
+        echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}},\"children\":[{{\"type\":\"Button\",\"label\":\"Verify & Sign In\",\"enabled\":true,\"frame\":{{\"x\":200,\"y\":420,\"width\":400,\"height\":48}}}}]}}]}}"
+      fi
+      ;;
+    *) echo "{{\"id\":$id,\"type\":\"result\"}}" ;;
+  esac
+done
+"#,
+            log = log.display(),
+            flag = popover_flag.display(),
+        );
+        let (_dir, manager) = helper(&script);
+        let call = |method: &str, params: serde_json::Value| {
+            run_now(&manager, "agent-ipad", "/tmp", method, &params)
+        };
+        call("sim.attach", json!({ "device": "iPad Pro 11-inch (M5)" })).expect("attach");
+
+        let dismissed = call("sim.tap", json!({ "label": "Verify & Sign In" })).expect("tap 1");
+        assert!(
+            dismissed["note"]
+                .as_str()
+                .is_some_and(|n| n.contains("PopoverDismissRegion")),
+            "{dismissed}"
+        );
+        let tap_count = std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .filter(|line| line.contains(r#""type":"tap""#))
+            .count();
+        assert_eq!(tap_count, 1, "must not silently double-tap");
+
+        let activated = call("sim.tap", json!({ "label": "Verify & Sign In" })).expect("tap 2");
+        assert!(activated.get("note").is_none(), "{activated}");
+
+        std::fs::write(&popover_flag, "1").unwrap();
+        let explicit = call("sim.tap", json!({ "label": "dismiss popup" })).expect("dismiss");
+        assert!(explicit.get("note").is_none(), "{explicit}");
     }
 
     /// Drives the fixture app the way an agent would, through every kind of tool:

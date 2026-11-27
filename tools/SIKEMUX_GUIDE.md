@@ -623,7 +623,8 @@ what to tap. Network content can arrive after a call returns; read again.
 Calls run one at a time, about 50 seconds each.
 
 - `sim tap` by `index` or `label` rather than a point; a `label` that matches
-  two elements fails and lists them.
+  two elements fails and lists them. On iPad, tapping outside a popover (such as
+  a number pad) dismisses `PopoverDismissRegion` first—tap again to trigger it.
 - `sim type` types into the focused field, US keyboard characters only. Pass
   `submit: true` (or a real newline, not literal `\n`) to press Return. While
   the keyboard shows, a swipe over it types a word: press Return or tap outside

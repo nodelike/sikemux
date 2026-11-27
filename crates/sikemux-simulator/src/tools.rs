@@ -182,21 +182,34 @@ pub(super) async fn run(
             let device = attached(manager, agent_id)?;
             let before = read_screen(manager, &device).await?;
             let numbered = manager.number(agent_id, &before.elements);
-            let point = match text("label") {
-                Some(label) => labelled(&numbered, label)?,
-                None => tap_point(
+            let (point, target) = match text("label") {
+                Some(label) => {
+                    let element = labelled_element(&numbered, label)?;
+                    (element.center, Some(element))
+                }
+                None => tap_target(
                     &numbered,
                     params.get("index").and_then(Value::as_u64),
                     number("x"),
                     number("y"),
                 )?,
             };
+            let targeted_dismiss_region = target.is_some_and(is_popover_dismiss_region);
             let mut fields = json!({ "udid": device.udid, "x": point.0, "y": point.1 });
             if let (Some(duration), Some(fields)) = (number("duration"), fields.as_object_mut()) {
                 fields.insert("duration".to_owned(), duration.into());
             }
             manager.request("tap", fields).await?;
-            settled_state(manager, agent_id, Some(before), report(params)?).await
+            let (mut state, after) =
+                settled_state_with_read(manager, agent_id, Some(before.clone()), report(params)?)
+                    .await?;
+            if let (Some(note), Some(state)) = (
+                popover_dismissed_note(&before, &after, targeted_dismiss_region),
+                state.as_object_mut(),
+            ) {
+                state.insert("note".to_owned(), note.into());
+            }
+            Ok(state)
         }
         "sim.swipe" => {
             let device = attached(manager, agent_id)?;
@@ -1526,6 +1539,17 @@ async fn settled_state(
     before: Option<Read>,
     report: Report,
 ) -> Result<Value, String> {
+    settled_state_with_read(manager, agent_id, before, report)
+        .await
+        .map(|(state, _)| state)
+}
+
+async fn settled_state_with_read(
+    manager: &SimulatorManager,
+    agent_id: &str,
+    before: Option<Read>,
+    report: Report,
+) -> Result<(Value, Read), String> {
     let device = attached(manager, agent_id)?;
     let mut latest = read_screen(manager, &device).await?;
     if let Some(before) = before {
@@ -1580,9 +1604,9 @@ async fn settled_state(
         );
     }
     if !matches!(report, Report::Outcome) {
-        manager.remember_read(agent_id, latest.app, numbered);
+        manager.remember_read(agent_id, latest.app.clone(), numbered);
     }
-    Ok(Value::Object(state))
+    Ok((Value::Object(state), latest))
 }
 
 /// How much an acting tool says about the screen afterwards, as the browser's tools do.
@@ -1826,10 +1850,36 @@ pub(super) fn timed(
         .collect()
 }
 
+const POPOVER_DISMISS_REGION: &str = "PopoverDismissRegion";
+
+fn is_popover_dismiss_region(element: &Element) -> bool {
+    element.identifier == POPOVER_DISMISS_REGION
+}
+
+pub(super) fn popover_dismissed_note(
+    before: &Read,
+    after: &Read,
+    targeted_dismiss_region: bool,
+) -> Option<&'static str> {
+    if targeted_dismiss_region || before.app != after.app {
+        return None;
+    }
+    let had_popover = before.elements.iter().any(is_popover_dismiss_region);
+    let still_has_popover = after.elements.iter().any(is_popover_dismiss_region);
+    (had_popover && !still_has_popover).then_some(
+        "This tap dismissed an iPadOS popover overlay (PopoverDismissRegion) and likely did not activate the target underneath; tap again to trigger it.",
+    )
+}
+
 /// The element `name` labels or identifies. An exact label or identifier wins
 /// over a partial label, and more than one equally good match is an error, so a
 /// tap never lands on an element the agent did not mean.
+#[cfg(test)]
 pub(super) fn labelled(elements: &[Numbered], name: &str) -> Result<(f64, f64), String> {
+    labelled_element(elements, name).map(|element| element.center)
+}
+
+fn labelled_element<'a>(elements: &'a [Numbered], name: &str) -> Result<&'a Element, String> {
     let exact = |(_, element): &&Numbered| element.label == name || element.identifier == name;
     let partial =
         |(_, element): &&Numbered| element.label.to_lowercase().contains(&name.to_lowercase());
@@ -1843,7 +1893,7 @@ pub(super) fn labelled(elements: &[Numbered], name: &str) -> Result<(f64, f64), 
         .filter(|(_, element)| !element.offscreen)
         .collect();
     match reachable.as_slice() {
-        [(_, element)] => Ok(element.center),
+        [(_, element)] => Ok(element),
         [] if !matches.is_empty() => Err(format!(
             "\"{name}\" is off the screen; scroll it into view, then tap it"
         )),
@@ -1862,12 +1912,22 @@ pub(super) fn labelled(elements: &[Numbered], name: &str) -> Result<(f64, f64), 
 }
 
 /// Where to tap: an element by its number, or a point.
+#[cfg(test)]
 pub(super) fn tap_point(
     elements: &[Numbered],
     index: Option<u64>,
     x: Option<f64>,
     y: Option<f64>,
 ) -> Result<(f64, f64), String> {
+    tap_target(elements, index, x, y).map(|(point, _)| point)
+}
+
+fn tap_target(
+    elements: &[Numbered],
+    index: Option<u64>,
+    x: Option<f64>,
+    y: Option<f64>,
+) -> Result<((f64, f64), Option<&Element>), String> {
     if let Some(index) = index {
         let (_, element) = elements
             .iter()
@@ -1880,10 +1940,10 @@ pub(super) fn tap_point(
                 "element {index} is off the screen; scroll it into view, then read again"
             ));
         }
-        return Ok(element.center);
+        return Ok((element.center, Some(element)));
     }
     match (x, y) {
-        (Some(x), Some(y)) => Ok((x, y)),
+        (Some(x), Some(y)) => Ok(((x, y), None)),
         _ => Err("give an element number, a label, or both x and y".into()),
     }
 }
