@@ -155,3 +155,83 @@ fn letting_go_outside_the_transcript_ends_the_drag(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(top_row(&transcript, cx), after_up);
 }
+
+#[gpui::test]
+fn plain_click_and_shift_click_without_move_keep_press_position(cx: &mut TestAppContext) {
+    let (transcript, cx) = transcript(cx);
+    scroll_up(cx);
+    let top = top_row(&transcript, cx);
+
+    cx.simulate_mouse_down(
+        point(px(40.), px(200.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.run_until_parked();
+    cx.simulate_mouse_up(
+        point(px(40.), px(200.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.run_until_parked();
+    assert_eq!(
+        cx.update(|window, cx| transcript.read(cx).focused_selection(window)),
+        None,
+        "a plain click that paints before mouse-up must not select to stale pointer (0, 0)"
+    );
+
+    cx.simulate_mouse_down(
+        point(px(40.), px(280.)),
+        MouseButton::Left,
+        Modifiers::shift(),
+    );
+    cx.run_until_parked();
+    cx.simulate_mouse_up(
+        point(px(40.), px(280.)),
+        MouseButton::Left,
+        Modifiers::shift(),
+    );
+    cx.run_until_parked();
+    let shifted = cx
+        .update(|window, cx| transcript.read(cx).focused_selection(window))
+        .expect("shift-click should select between the two clicked spots");
+    assert!(
+        !shifted.contains(&format!("line {top}")),
+        "shift-click should not snap to the top of the viewport: {shifted:?}"
+    );
+
+    cx.simulate_mouse_down(
+        point(px(40.), px(40.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.simulate_mouse_move(
+        point(px(40.), px(100.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.simulate_mouse_up(
+        point(px(40.), px(100.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.run_until_parked();
+
+    cx.simulate_mouse_down(
+        point(px(40.), px(240.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.run_until_parked();
+    cx.simulate_mouse_up(
+        point(px(40.), px(240.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    cx.run_until_parked();
+    assert_eq!(
+        cx.update(|window, cx| transcript.read(cx).focused_selection(window)),
+        None,
+        "a plain click after a drag must not select back to the previous drag endpoint"
+    );
+}

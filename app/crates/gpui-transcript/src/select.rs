@@ -278,8 +278,10 @@ impl DocSelect {
         if step != Pixels::ZERO {
             let (was, room) = (scroll.offset(), scroll.max_offset());
             let y = (was.y - step).clamp(-room.y, Pixels::ZERO);
-            scroll.set_offset(Point::new(was.x, y));
-            window.request_animation_frame();
+            if y != was.y {
+                scroll.set_offset(Point::new(was.x, y));
+                window.request_animation_frame();
+            }
         }
         let inside = Point::new(
             pointer.x,

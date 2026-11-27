@@ -947,6 +947,7 @@ impl<R: Row> Transcript<R> {
             Some((anchor, _)) if event.modifiers.shift => Some((anchor, spot)),
             _ => Some((spot.clone(), spot)),
         };
+        self.pointer = event.position;
         self.dragging = true;
         cx.notify();
     }
