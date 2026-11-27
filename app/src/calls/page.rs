@@ -7,13 +7,18 @@ use super::*;
 use crate::chat::composer::{self, Act};
 use crate::ui::selectable;
 use crate::ui::Clicks;
-use gpui_kit::StatefulInteractiveElement;
+use gpui_kit::{
+    canvas, ClipboardItem, FocusHandle, KeyBinding, MouseButton, ScrollHandle,
+    StatefulInteractiveElement,
+};
+use gpui_transcript::{Copy, DocSelect, LinkIcon, Markdown, OnLink, Pen, Style};
 use sikemux_view::calls::{
     CallChange, CallChangedFile, CallLink, CallOpened, CallOption, DO_NOT_DOING,
 };
 use std::path::Path;
 use std::rc::Rc;
 
+const CONTEXT: &str = "CallsPage";
 const COLUMN: f32 = 720.;
 const SIDE: f32 = 24.;
 const PROSE: f32 = 620.;
@@ -21,6 +26,15 @@ const ATTACHMENT_HEIGHT: f32 = 240.;
 const OPTION_PICTURE_HEIGHT: f32 = 176.;
 /// The hover group of a call's row in a chat, which offers Open in Asks while hovered.
 const CHAT_ROW: &str = "call-chat-row";
+
+pub(crate) fn install(cx: &mut App) {
+    let copy = if cfg!(target_os = "macos") {
+        "cmd-c"
+    } else {
+        "ctrl-c"
+    };
+    cx.bind_keys([KeyBinding::new(copy, Copy, Some(CONTEXT))]);
+}
 
 /// The project path of agent `agent`'s desk.
 pub(crate) fn project_of(bench: &Workbench, agent: &str) -> Option<String> {
@@ -42,6 +56,70 @@ pub(crate) fn on_desk(bench: &Workbench, agent: &str) -> Vec<PersonCall> {
         .collect()
 }
 
+struct RenderedCall {
+    id: String,
+    headline_src: String,
+    body_src: Option<String>,
+    context_src: Option<String>,
+    evidence_src: Vec<String>,
+    against_src: Option<String>,
+    headline: Rc<Markdown>,
+    body: Option<Rc<Markdown>>,
+    context: Option<Rc<Markdown>>,
+    evidence: Vec<Rc<Markdown>>,
+    against: Option<Rc<Markdown>>,
+}
+
+impl RenderedCall {
+    fn sync<'a>(slot: &'a mut Option<Self>, call: &PersonCall) -> (&'a Self, bool) {
+        let (headline_src, body_src) = question_parts(call);
+        let context_src = context_words(call);
+        let evidence_src: Vec<String> = (call.evidence.iter())
+            .filter(|evidence| evidence.picture.is_none())
+            .map(|evidence| evidence.what.clone())
+            .collect();
+        let against_src = call.against.clone();
+        let unchanged = slot.as_ref().is_some_and(|kept| {
+            kept.id == call.id
+                && kept.headline_src == headline_src
+                && kept.body_src == body_src
+                && kept.context_src == context_src
+                && kept.evidence_src == evidence_src
+                && kept.against_src == against_src
+        });
+        if !unchanged {
+            *slot = None;
+        }
+        let rendered = slot.get_or_insert_with(|| {
+            let render = |text: &str| Rc::new(crate::reading::render(text));
+            Self {
+                id: call.id.clone(),
+                headline: render(&headline_src),
+                body: body_src.as_deref().map(render),
+                context: context_src.as_deref().map(render),
+                evidence: evidence_src.iter().map(|what| render(what)).collect(),
+                against: against_src.as_deref().map(render),
+                headline_src,
+                body_src,
+                context_src,
+                evidence_src,
+                against_src,
+            }
+        });
+        (rendered, !unchanged)
+    }
+
+    fn docs(&self) -> Vec<Rc<Markdown>> {
+        let mut docs = Vec::with_capacity(3 + self.evidence.len());
+        docs.push(self.headline.clone());
+        docs.extend(self.body.clone());
+        docs.extend(self.context.clone());
+        docs.extend(self.evidence.iter().cloned());
+        docs.extend(self.against.clone());
+        docs
+    }
+}
+
 /// The Calls page of one agent's desk, over the calls its chat lists.
 pub struct Page {
     bench: WeakEntity<Workbench>,
@@ -49,6 +127,10 @@ pub struct Page {
     agent: String,
     /// The call shown last, so the one after it opens once it is answered.
     last: Option<(String, u64)>,
+    scroll: ScrollHandle,
+    focus: FocusHandle,
+    select: DocSelect,
+    rendered: Option<RenderedCall>,
     _cards: Subscription,
 }
 
@@ -64,6 +146,10 @@ impl Page {
                 cards,
                 agent,
                 last: None,
+                scroll: ScrollHandle::new(),
+                focus: cx.focus_handle(),
+                select: DocSelect::default(),
+                rendered: None,
                 _cards: observed,
             }
         })
@@ -102,6 +188,8 @@ impl Render for Page {
         let shown = self.shown(&calls, cx).cloned();
         self.last = shown.as_ref().map(|call| (call.id.clone(), call.raised_at));
         let Some(open) = shown else {
+            self.rendered = None;
+            self.select.clear();
             return div()
                 .size_full()
                 .flex()
@@ -130,13 +218,47 @@ impl Render for Page {
             .nth(1)
             .filter(|call| call.id != open.id)
             .map(|call| call.id.clone());
-        let question = question(&open, through, cx);
-        let answering = Answering::new(&open, next, through, window, cx);
+        let (rendered, changed) = RenderedCall::sync(&mut self.rendered, &open);
+        if changed {
+            self.select.clear();
+        }
+        let docs: Rc<[Rc<Markdown>]> = rendered.docs().into();
+        let doc_refs: Vec<&Markdown> = docs.iter().map(Rc::as_ref).collect();
+        let styles = ProseStyles::new(&open, through, cx);
+        let pen = self.select.pen_many(styles.body.clone(), &doc_refs, None);
+        let prose = Prose {
+            pen: &pen,
+            rendered,
+            styles: &styles,
+            select: &self.select,
+            focus: &self.focus,
+            docs: &docs,
+        };
+        let question = question(&open, through, &prose, window, cx);
+        let answering = Answering::new(&open, next, through, &prose, window, cx);
+        let copied = self.select.clone();
+        let copying = docs.clone();
+        let followed = self.select.clone();
+        let scroll = self.scroll.clone();
         let shown = div()
             .id(SharedString::from(format!("calls-page-{}", open.id)))
-            .flex_1()
-            .min_h_0()
+            .key_context(CONTEXT)
+            .size_full()
             .overflow_y_scroll()
+            .track_scroll(&self.scroll)
+            .track_focus(&self.focus)
+            .on_action(move |_: &Copy, window, cx| {
+                if !gpui_kit::base::TextSelection::selected_text(window, cx).is_empty() {
+                    cx.propagate();
+                    return;
+                }
+                let refs: Vec<&Markdown> = copying.iter().map(Rc::as_ref).collect();
+                if let Some(text) = copied.selected_text_many(&refs) {
+                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                } else {
+                    cx.propagate();
+                }
+            })
             .child(
                 div()
                     .w_full()
@@ -149,8 +271,16 @@ impl Render for Page {
                     .flex_col()
                     .child(ui::pinned_foot(question, answering.choices)),
             );
+        let body = div().relative().flex_1().min_h_0().child(shown).child(
+            canvas(
+                |_, _, _| (),
+                move |bounds, _, window, _| followed.follow(bounds, &scroll, window),
+            )
+            .absolute()
+            .inset_0(),
+        );
         let page = div().size_full().relative().flex().flex_col();
-        let page = page.child(shown);
+        let page = page.child(body);
         match answering.with {
             With::Composer(composer) => {
                 let words = t!("Drop files to send with your answer");
@@ -273,6 +403,7 @@ impl Answering {
         open: &PersonCall,
         next: Option<String>,
         through: Through,
+        prose: &Prose<'_>,
         window: &mut Window,
         cx: &mut App,
     ) -> Self {
@@ -305,7 +436,7 @@ impl Answering {
                     .flatten()
             }
         };
-        let choices = choices(open, next, through, cx).pb(SPACE_3_PX);
+        let choices = choices(open, next, through, prose, window, cx).pb(SPACE_3_PX);
         let with = match reply {
             Some(view) => With::Composer(view.into_element().isolated().into_any_element()),
             None => match &field {
@@ -374,53 +505,190 @@ fn not_doing(chosen: &[String]) -> bool {
     chosen.iter().any(|id| id == DO_NOT_DOING)
 }
 
-/// The line that says what `call` asks, and the lines under it.
-fn question_lines(call: &PersonCall) -> (String, Vec<String>) {
-    let mut lines = (call.question.lines().map(str::trim))
-        .filter(|line| !line.is_empty())
-        .map(str::to_owned);
+struct ProseStyles {
+    headline: Rc<Style>,
+    body: Rc<Style>,
+    evidence: Rc<Style>,
+    against: Rc<Style>,
+}
+
+impl ProseStyles {
+    fn new(call: &PersonCall, through: Through, cx: &App) -> Self {
+        let t = Tokens::get(cx);
+        let bench = through.bench.clone();
+        let place = through.target.place().clone();
+        let held = call.clone();
+        let on_link: OnLink = Rc::new(move |href: &str, window: &mut Window, cx: &mut App| {
+            let desk = (bench.read_with(cx, |bench, _| bench.desk_showing(&place, &held)))
+                .unwrap_or_else(|_| held.desk().to_owned());
+            crate::chat::link::open(href, &desk, &bench, window, cx);
+        });
+        let link_icon: LinkIcon = Rc::new(|href: &str, size, cx: &mut App| {
+            let mark = crate::chat::link::service_mark(href)?;
+            Some(ui::picture(
+                mark,
+                f32::from(size),
+                Tokens::get(cx).text_primary,
+            ))
+        });
+        let body = Style {
+            line_height: 1.6,
+            gap: px(10.),
+            ink: t.text_secondary,
+            strong_ink: Some(t.text_primary),
+            on_link: Some(on_link.clone()),
+            link_icon: Some(link_icon.clone()),
+            ..crate::reading::reading_style(13.5, cx)
+        };
+        let headline = Style {
+            line_height: 1.3,
+            gap: px(8.),
+            ink: t.text_primary,
+            strong_ink: None,
+            on_link: Some(on_link.clone()),
+            link_icon: Some(link_icon.clone()),
+            ..crate::reading::reading_style(21., cx)
+        };
+        let evidence = Style {
+            ink: t.text_tertiary,
+            strong_ink: Some(t.text_secondary),
+            ..body.clone()
+        };
+        let against = Style {
+            line_height: 1.5,
+            gap: px(8.),
+            ink: t.text_secondary,
+            strong_ink: Some(t.text_primary),
+            on_link: Some(on_link),
+            link_icon: Some(link_icon),
+            ..crate::reading::reading_style(12.5, cx)
+        };
+        Self {
+            headline: Rc::new(headline),
+            body: Rc::new(body),
+            evidence: Rc::new(evidence),
+            against: Rc::new(against),
+        }
+    }
+}
+
+struct Prose<'a> {
+    pen: &'a Pen,
+    rendered: &'a RenderedCall,
+    styles: &'a ProseStyles,
+    select: &'a DocSelect,
+    focus: &'a FocusHandle,
+    docs: &'a Rc<[Rc<Markdown>]>,
+}
+
+impl Prose<'_> {
+    fn selectable(&self, area: gpui_kit::Div) -> gpui_kit::Div {
+        let (focus, pressed, docs) = (self.focus.clone(), self.select.clone(), self.docs.clone());
+        area.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+            focus.focus(window, cx);
+            let refs: Vec<&Markdown> = docs.iter().map(Rc::as_ref).collect();
+            pressed.press_many(event, &refs);
+            window.refresh();
+        })
+    }
+}
+
+fn trim_blank_lines(text: &str) -> &str {
+    let mut start = 0;
+    let mut rest = text;
+    while let Some(newline) = rest.find('\n') {
+        let line = rest.get(..newline).unwrap_or_default();
+        if !line.trim().is_empty() {
+            break;
+        }
+        start += newline + 1;
+        rest = rest.get(newline + 1..).unwrap_or_default();
+    }
+    text.get(start..).unwrap_or_default().trim_end()
+}
+
+fn strip_heading_prefix(line: &str) -> &str {
+    let hashes = line.bytes().take_while(|byte| *byte == b'#').count();
+    if !(1..=6).contains(&hashes) {
+        return line;
+    }
+    match line.get(hashes..) {
+        Some("") => "",
+        Some(rest) if rest.starts_with([' ', '\t']) => rest.trim_start(),
+        _ => line,
+    }
+}
+
+/// The headline that says what `call` asks, and the markdown body under it.
+fn question_parts(call: &PersonCall) -> (String, Option<String>) {
     let formed = matches!(call.kind, CallKind::Do | CallKind::Look);
-    let first = match call.title.as_ref().filter(|_| formed) {
-        Some(title) => title.clone(),
-        None => lines.next().unwrap_or_default(),
-    };
-    (first, lines.collect())
+    if let Some(title) = call.title.as_ref().filter(|_| formed) {
+        let body = trim_blank_lines(&call.question);
+        let body = (!body.is_empty()).then(|| body.to_owned());
+        return (title.clone(), body);
+    }
+    let mut offset = 0;
+    while let Some(rest) = call.question.get(offset..) {
+        let (line, next) = match rest.find('\n') {
+            Some(end) => (rest.get(..end).unwrap_or_default(), offset + end + 1),
+            None => (rest, call.question.len()),
+        };
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            let headline = strip_heading_prefix(trimmed).to_owned();
+            let body = trim_blank_lines(call.question.get(next..).unwrap_or_default());
+            let body = (!body.is_empty()).then(|| body.to_owned());
+            return (headline, body);
+        }
+        if next == offset {
+            break;
+        }
+        offset = next;
+    }
+    (String::new(), None)
 }
 
-/// All of what `call` asks: the line that says it, and the lines under it.
-fn question_text(call: &PersonCall, t: &Tokens) -> gpui_kit::Div {
-    let (headline, lines) = question_lines(call);
+/// All of what `call` asks: the headline, and the markdown body under it.
+fn question_text(
+    call: &PersonCall,
+    prose: &Prose<'_>,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui_kit::Div {
     let headline = div()
-        .text_size(theme::ui_text(21.))
         .font_weight(FontWeight::SEMIBOLD)
-        .line_height(relative(1.3))
-        .text_color(t.text_primary)
-        .child(selectable::plain(
+        .child(prose.pen.markdown_with(
+            &prose.styles.headline,
             SharedString::from(format!("call-page-question-{}", call.id)),
-            headline,
+            &prose.rendered.headline,
+            window,
+            cx,
         ));
-    let lines = (lines.into_iter()).enumerate().map(|(ix, line)| {
-        let part = format!("call-page-line-{ix}");
-        prose(call, &part, line, t).mt(px(10.))
+    let body = prose.rendered.body.as_ref().map(|body| {
+        markdown_block(prose.pen.markdown(
+            SharedString::from(format!("call-page-body-{}", call.id)),
+            body,
+            window,
+            cx,
+        ))
+        .mt(px(10.))
     });
-    div().flex().flex_col().child(headline).children(lines)
+    prose.selectable(div().flex().flex_col().child(headline).children(body))
 }
 
-fn prose(call: &PersonCall, part: &str, text: String, t: &Tokens) -> gpui_kit::Div {
-    div()
-        .max_w(px(PROSE))
-        .text_size(theme::ui_text(13.5))
-        .line_height(relative(1.6))
-        .text_color(t.text_secondary)
-        .child(selectable::plain(
-            SharedString::from(format!("{part}-{}", call.id)),
-            text,
-        ))
+fn markdown_block(drawn: AnyElement) -> gpui_kit::Div {
+    div().max_w(px(PROSE)).min_w_0().child(drawn)
 }
 
 /// What the open call asks: who asks, the question, what it links, why it came up and what its
 /// asker opened.
-fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div {
+fn question(
+    call: &PersonCall,
+    through: Through,
+    prose: &Prose<'_>,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui_kit::Div {
     let t = Tokens::get(cx).clone();
     let open_chat = {
         let (bench, agent) = (through.bench.clone(), call.desk().to_owned());
@@ -449,34 +717,42 @@ fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div 
     let pages = SharedString::from(format!("call-page-pages-{}", call.id));
     let page =
         linked_page(pages, call, None, through, cx).map(|page| div().mt(px(16.)).child(page));
-    let context = context_words(call).map(|words| prose(call, "call-page-context", words, &t));
-    let why: Vec<gpui_kit::Div> = (context.into_iter())
-        .chain(
-            (call.evidence.iter())
-                .enumerate()
-                .filter(|(_, evidence)| evidence.picture.is_none())
-                .map(|(ix, evidence)| {
-                    prose(
-                        call,
-                        &format!("call-page-evidence-{ix}"),
-                        evidence.what.clone(),
-                        &t,
-                    )
-                    .text_color(t.text_tertiary)
-                }),
-        )
-        .collect();
+    let context = prose.rendered.context.as_ref().map(|context| {
+        markdown_block(prose.pen.markdown(
+            SharedString::from(format!("call-page-context-{}", call.id)),
+            context,
+            window,
+            cx,
+        ))
+    });
+    let evidence = prose
+        .rendered
+        .evidence
+        .iter()
+        .enumerate()
+        .map(|(ix, evidence)| {
+            markdown_block(prose.pen.markdown_with(
+                &prose.styles.evidence,
+                SharedString::from(format!("call-page-evidence-{ix}-{}", call.id)),
+                evidence,
+                window,
+                cx,
+            ))
+        });
+    let why: Vec<gpui_kit::Div> = context.into_iter().chain(evidence).collect();
     let why = (!why.is_empty()).then(|| {
         div()
             .mt(px(28.))
             .child(section(t!("Why it came up"), None, &t, cx))
             .child(
-                div()
-                    .mt(px(10.))
-                    .flex()
-                    .flex_col()
-                    .gap(SPACE_2)
-                    .children(why),
+                prose.selectable(
+                    div()
+                        .mt(px(10.))
+                        .flex()
+                        .flex_col()
+                        .gap(SPACE_2)
+                        .children(why),
+                ),
             )
     });
     let opened = opened_by(call, through, &t, cx);
@@ -486,7 +762,7 @@ fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div 
         .flex()
         .flex_col()
         .child(who)
-        .child(question_text(call, &t).mt(px(14.)))
+        .child(question_text(call, prose, window, cx).mt(px(14.)))
         .children(link)
         .children(page)
         .children(why)
@@ -494,7 +770,14 @@ fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div 
 }
 
 /// What answers the open call: its choices, the point against its pick, what a yes runs, and Go.
-fn choices(call: &PersonCall, next: Option<String>, through: Through, cx: &App) -> gpui_kit::Div {
+fn choices(
+    call: &PersonCall,
+    next: Option<String>,
+    through: Through,
+    prose: &Prose<'_>,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui_kit::Div {
     let t = Tokens::get(cx).clone();
     let (chosen, sending) = {
         let cards = through.cards.read(cx);
@@ -503,7 +786,30 @@ fn choices(call: &PersonCall, next: Option<String>, through: Through, cx: &App) 
     let noted = (through.bench.upgrade()).is_some_and(|bench| bench.read(cx).noted(&call.id, cx));
     let tiles = (!call.options.is_empty() && call.kind != CallKind::Look)
         .then(|| tiles(call, &chosen, sending, through, &t));
-    let against = against_line(call, &t);
+    let against = prose.rendered.against.as_ref().map(|against| {
+        prose.selectable(
+            div()
+                .max_w(px(PROSE))
+                .flex()
+                .items_start()
+                .gap(SPACE_1)
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(theme::ui_text(12.5))
+                        .line_height(relative(1.5))
+                        .text_color(t.text_tertiary)
+                        .child(t!("Against it:")),
+                )
+                .child(div().flex_1().min_w_0().child(prose.pen.markdown_with(
+                    &prose.styles.against,
+                    SharedString::from(format!("call-page-against-{}", call.id)),
+                    against,
+                    window,
+                    cx,
+                ))),
+        )
+    });
     let runs = (call.kind == CallKind::Production)
         .then_some(call.action.as_deref())
         .flatten()

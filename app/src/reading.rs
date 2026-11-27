@@ -35,20 +35,28 @@ pub(crate) fn render(text: &str) -> Markdown {
 /// shrinking with the person's choice as the rest of the interface's text does.
 pub(crate) fn reading_style(text_size: f32, cx: &App) -> Style {
     let t = Tokens::get(cx);
+    let scale = theme::text_scale(cx);
     let mono = theme::mono();
+    let link = theme::mix(t.accent, t.text_primary, 0.5);
     Style {
         font: theme::ui_font(),
         mono,
-        text_size: px(text_size * theme::text_scale(cx)),
+        text_size: px(text_size * scale),
+        code_size: px((text_size - 1.).max(11.5) * scale),
+        table_size: px((text_size - 0.5).max(12.) * scale),
         line_height: 1.72,
         ink: t.text_primary,
         ink_dim: t.text_tertiary,
         ink_faint: t.text_disabled,
         accent: t.accent,
+        code_ink: t.accent,
+        link,
+        link_underline: Some(Hsla { a: 0.4, ..link }),
         line: Hsla { a: 0.8, ..t.line },
         line_soft: t.line_soft,
         selection: Hsla { a: 0.3, ..t.accent },
         mark_ground: Hsla { a: 0.1, ..t.accent },
+        table_head: t.surface_hover,
         table_ground: Hsla {
             a: 0.72,
             ..t.line_soft

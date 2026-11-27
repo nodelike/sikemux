@@ -33,7 +33,7 @@ use crate::workbench::Workbench;
 
 mod page;
 pub(crate) mod reply;
-pub(crate) use page::{on_desk, project_of, waiting_on_desk, Foot, Page};
+pub(crate) use page::{install, on_desk, project_of, waiting_on_desk, Foot, Page};
 
 /// Whether agent `agent`'s chat lists `call`, as the core places it.
 pub(crate) fn listed_in(call: &PersonCall, agent: &str) -> bool {

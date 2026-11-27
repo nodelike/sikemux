@@ -204,6 +204,11 @@ pub struct DocSelect {
 }
 
 impl DocSelect {
+    pub fn clear(&self) {
+        self.ends.borrow_mut().take();
+        self.dragging.set(false);
+    }
+
     fn span(&self) -> Option<Span> {
         let ends = self.ends.borrow();
         let (anchor, head) = ends.as_ref()?;
@@ -214,6 +219,11 @@ impl DocSelect {
 
     /// A pen that draws `doc` with the selection, and every place `found` found marked.
     pub fn pen(&self, style: Rc<Style>, doc: &Markdown, found: Option<&DocFind>) -> Pen {
+        self.pen_many(style, &[doc], found)
+    }
+
+    /// A pen that draws any of `docs` with one shared selection, and every place `found` marked.
+    pub fn pen_many(&self, style: Rc<Style>, docs: &[&Markdown], found: Option<&DocFind>) -> Pen {
         self.shown.borrow_mut().clear();
         self.budget.reset();
         Pen::selecting(
@@ -221,7 +231,7 @@ impl DocSelect {
             Some(Selecting {
                 row: SharedString::default(),
                 ix: 0,
-                docs: vec![doc as *const Markdown],
+                docs: docs.iter().map(|doc| *doc as *const Markdown).collect(),
                 span: self.span(),
                 shown: self.shown.clone(),
                 hits: found.map(DocFind::row_hits).unwrap_or_default(),
@@ -232,13 +242,19 @@ impl DocSelect {
 
     /// Starts a selection at the press, or picks the word or text under a double or triple click.
     pub fn press(&self, event: &MouseDownEvent, doc: &Markdown) {
+        self.press_many(event, &[doc]);
+    }
+
+    /// Starts a selection across `docs` at the press, or picks the word or text under a double
+    /// or triple click.
+    pub fn press_many(&self, event: &MouseDownEvent, docs: &[&Markdown]) {
         let Some(spot) = spot_at(&self.shown.borrow(), event.position) else {
             return;
         };
-        let (_, _, block, n) = spot.key;
-        let text = (doc.texts(block))
-            .get((n as usize).wrapping_sub(1))
-            .cloned();
+        let (_, doc_ix, block, n) = spot.key;
+        let text = docs
+            .get(doc_ix)
+            .and_then(|doc| doc.texts(block).get((n as usize).wrapping_sub(1)).cloned());
         let mut ends = self.ends.borrow_mut();
         if let (true, Some(text)) = (event.click_count > 1, text) {
             let range = match event.click_count {
@@ -310,7 +326,16 @@ impl DocSelect {
     }
 
     pub fn selected_text(&self, doc: &Markdown) -> Option<String> {
-        let blocks = picked(doc, self.span()?, 0, 0);
+        self.selected_text_many(&[doc])
+    }
+
+    pub fn selected_text_many(&self, docs: &[&Markdown]) -> Option<String> {
+        let span = self.span()?;
+        let blocks: Vec<String> = docs
+            .iter()
+            .enumerate()
+            .flat_map(|(ix, doc)| picked(doc, span, 0, ix))
+            .collect();
         (!blocks.is_empty()).then(|| blocks.join("\n\n"))
     }
 }

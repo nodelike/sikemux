@@ -192,6 +192,7 @@ pub struct Style {
     pub table_size: Pixels,
     pub gap: Pixels,
     pub ink: Hsla,
+    pub strong_ink: Option<Hsla>,
     pub ink_dim: Hsla,
     pub ink_faint: Hsla,
     pub accent: Hsla,
@@ -262,6 +263,7 @@ impl Default for Style {
             table_size: px(13.5),
             gap: px(10.),
             ink: rgb(0xe7e5ef).into(),
+            strong_ink: None,
             ink_dim: rgb(0x8b8898).into(),
             ink_faint: rgb(0x736f80).into(),
             accent: rgb(0xa277ff).into(),
@@ -2298,6 +2300,9 @@ fn highlight(marks: Marks, style: &Style) -> HighlightStyle {
     let mut highlight = HighlightStyle::default();
     if marks.has(Marks::STRONG) {
         highlight.font_weight = Some(FontWeight::SEMIBOLD);
+        if let Some(ink) = style.strong_ink {
+            highlight.color = Some(ink);
+        }
     }
     if marks.has(Marks::EMPHASIS) {
         highlight.font_style = Some(FontStyle::Italic);

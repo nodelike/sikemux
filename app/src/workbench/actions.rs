@@ -274,6 +274,7 @@ pub(super) fn install(asks: mpsc::UnboundedSender<Ask>, cx: &mut App) {
     crate::screens::welcome::install(cx);
     crate::keymap::install(asks, cx);
     crate::chat::install(cx);
+    crate::calls::install(cx);
     crate::terminal::install(cx);
     crate::files::install(cx);
     crate::ui::keyed::install(cx);
