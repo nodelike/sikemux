@@ -341,6 +341,12 @@ fn production_fact(ship: &Ship, addresses: &str, found_in: Option<String>) -> Op
             };
             Some(place(name, words))
         }
+        Target::Rerun { of, .. } => Some(place(
+            format!("The workflow of {of} on GitHub"),
+            Recognise::Command {
+                words: format!("gh run rerun {of}"),
+            },
+        )),
         _ => None,
     }
 }

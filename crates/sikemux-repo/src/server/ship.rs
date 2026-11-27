@@ -428,9 +428,13 @@ struct Reads {
 impl Reads {
     /// What its yes is kept under at the place that decided, and whether that covers it once.
     fn key(&self) -> Option<(String, bool)> {
-        // A pull request's commits needn't be the checkout's, so a yes to a merge is kept for
-        // that merge rather than for the work in the checkout.
-        let work = (!self.merging && !self.exact).then(|| work::of(&self.cwd));
+        let again = matches!(
+            self.ship.target.as_ref().map(Target::bare),
+            Some(Target::Workflow { rerun: Some(_), .. } | Target::Rerun { .. })
+        );
+        // A pull request's commits needn't be the checkout's, nor a past run's, so a yes to
+        // either is kept for it rather than for the work in the checkout.
+        let work = (!self.merging && !self.exact && !again).then(|| work::of(&self.cwd));
         Some(key_of(
             self.judged.place.as_ref()?,
             &self.ship,

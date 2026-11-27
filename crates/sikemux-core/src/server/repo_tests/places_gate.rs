@@ -567,6 +567,7 @@ jobs:
             file: "release.yml".into(),
             environments: vec!["release".into()],
             inputs: vec!["sha=14ef39ced".into()],
+            rerun: None,
         }),
     };
     let refused = run(&core, by_hand, dir.path()).err().unwrap_or_default();

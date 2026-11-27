@@ -100,6 +100,15 @@ pub enum Target {
         file: String,
         environments: Vec<String>,
         inputs: Vec<String>,
+        /// The past run or job it starts again, as `run 123`, when it isn't a new run.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rerun: Option<String>,
+    },
+    /// A past workflow run started again whose workflow couldn't be read, by the `owner/name`
+    /// of its repository, `{owner}/{repo}` included, and the run or job it names.
+    Rerun {
+        repo: String,
+        of: String,
     },
     /// A write through GitHub's API, by the `owner/name` of the repository it changes, as the
     /// command spells it, `{owner}/{repo}` included; empty when it names none, as a GraphQL call.
@@ -409,6 +418,18 @@ pub(crate) fn target_of(
             .map(|address| Target::Site {
                 origin: address.origin().ascii_serialization(),
             }),
+        "gh" if gh_args(args).starts_with(&["run".to_owned(), "rerun".to_owned()]) => {
+            let args = gh_args(args);
+            let repo = (flag_value(&args, &["-R", "--repo"]).or_else(|| env("GH_REPO")))
+                .unwrap_or_else(|| "{owner}/{repo}".to_owned());
+            let named = match flag_value(&args, &["--job", "-j"]) {
+                Some(job) => Rerun::Job(job),
+                None => {
+                    Rerun::Run(run_named(args.get(2..).unwrap_or_default()).unwrap_or_default())
+                }
+            };
+            Some(rerun(&repo, named, env, cwd))
+        }
         "gh" if gh_args(args).starts_with(&["workflow".to_owned(), "run".to_owned()]) => {
             Some(workflow(&gh_args(args), env, cwd))
         }
@@ -421,7 +442,11 @@ pub(crate) fn target_of(
                     file,
                     environments: Vec::new(),
                     inputs: args.to_vec(),
+                    rerun: None,
                 });
+            }
+            if let Some(named) = call.as_ref().and_then(ApiCall::reruns) {
+                return Some(rerun(&repo, named, env, cwd));
             }
             let lands = call.and_then(|call| call.lands(cwd));
             Some(Target::GitHub { repo, lands })
@@ -936,6 +961,91 @@ pub fn called_workflows(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// What a rerun starts again: a past run, or one job of it, by its id.
+enum Rerun {
+    Run(String),
+    Job(String),
+}
+
+/// The run id among `gh run rerun`'s words past the subcommand.
+fn run_named(words: &[String]) -> Option<String> {
+    let mut words = words.iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            "-R" | "--repo" | "-j" | "--job" => {
+                words.next();
+            }
+            word if word.starts_with('-') => {}
+            word => return Some(word.to_owned()),
+        }
+    }
+    None
+}
+
+/// The workflow a past run of `repo` is of, as GitHub runs it again: its file at the commit
+/// the run was of, asked of GitHub as the person's `gh`. A run whose file, or whose
+/// environments, can't be read that way stays a rerun by its id.
+fn rerun(repo: &str, named: Rerun, env: &dyn Fn(&str) -> Option<String>, cwd: &Path) -> Target {
+    let gh = |endpoint: &str, jq: Option<&str>| -> Option<String> {
+        let mut command = sikemux_process::user_environment::command("gh");
+        command
+            .current_dir(cwd)
+            .env("GH_PROMPT_DISABLED", "1")
+            .args(["api", endpoint]);
+        match jq {
+            Some(jq) => command.args(["--jq", jq]),
+            None => command.args(["-H", "Accept: application/vnd.github.raw"]),
+        };
+        for name in ["GH_HOST", "GH_REPO"] {
+            match env(name) {
+                Some(value) => command.env(name, value),
+                None => command.env_remove(name),
+            };
+        }
+        let output = (command.output().ok()).filter(|output| output.status.success())?;
+        String::from_utf8(output.stdout).ok()
+    };
+    let of = match &named {
+        Rerun::Run(run) => format!("run {run}"),
+        Rerun::Job(job) => format!("job {job}"),
+    };
+    let read = || {
+        let run = match named {
+            Rerun::Run(run) => run,
+            Rerun::Job(job) => gh(&format!("repos/{repo}/actions/jobs/{job}"), Some(".run_id"))?
+                .trim()
+                .to_owned(),
+        };
+        let found = gh(
+            &format!("repos/{repo}/actions/runs/{run}"),
+            Some(r#".path + " " + .head_sha"#),
+        )?;
+        let (path, sha) = found.trim().split_once(' ')?;
+        let path = path.split('@').next()?;
+        let file = path.strip_prefix(".github/workflows/")?;
+        let at = |path: &str| gh(&format!("repos/{repo}/contents/{path}?ref={sha}"), None);
+        let mut text = at(path)?;
+        for called in called_workflows(&text.clone()) {
+            text.push('\n');
+            text.push_str(&at(&called)?);
+        }
+        let environments = read_workflow(&text).environments;
+        if environments.iter().any(|name| name.contains("${{")) {
+            return None;
+        }
+        Some(Target::Workflow {
+            file: file.to_owned(),
+            environments,
+            inputs: Vec::new(),
+            rerun: Some(of.clone()),
+        })
+    };
+    read().unwrap_or_else(|| Target::Rerun {
+        repo: repo.to_owned(),
+        of,
+    })
+}
+
 /// The workflow `gh workflow run` starts, read as GitHub will run it: from the ref `--ref`
 /// names, or the default branch, as the remote last showed it. Read is false when it names
 /// another repository or its file can't be read that way.
@@ -965,6 +1075,7 @@ fn workflow(args: &[String], env: &dyn Fn(&str) -> Option<String>, cwd: &Path) -
         file,
         environments: Vec::new(),
         inputs: inputs.clone(),
+        rerun: None,
     };
     let elsewhere = has_flag(args, &["-R", "--repo"]) || env("GH_REPO").is_some();
     let Some(named) = named.filter(|_| !elsewhere) else {
@@ -1007,6 +1118,7 @@ fn workflow(args: &[String], env: &dyn Fn(&str) -> Option<String>, cwd: &Path) -
         file,
         environments: read.environments,
         inputs,
+        rerun: None,
     }
 }
 
@@ -1103,6 +1215,7 @@ const RULES: &[Rule] = &[
         Needs::Nothing,
         ShipKind::Deploy,
     ),
+    rule(&["gh"], &["run", "rerun"], Needs::Nothing, ShipKind::Deploy),
     rule(
         &["gh"],
         &["release", "create"],
@@ -1496,6 +1609,17 @@ impl ApiCall {
         match parts.as_slice() {
             ["repos", _, _, rest @ ..] | ["repositories", _, rest @ ..] => rest.to_vec(),
             _ => Vec::new(),
+        }
+    }
+
+    /// The past run, or job of one, it starts again.
+    fn reruns(&self) -> Option<Rerun> {
+        match self.under_repo().as_slice() {
+            ["actions", "runs", run, "rerun" | "rerun-failed-jobs"] => {
+                Some(Rerun::Run((*run).to_owned()))
+            }
+            ["actions", "jobs", job, "rerun"] => Some(Rerun::Job((*job).to_owned())),
+            _ => None,
         }
     }
 
