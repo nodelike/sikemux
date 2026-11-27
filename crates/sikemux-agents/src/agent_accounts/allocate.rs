@@ -88,7 +88,7 @@ fn cap(window: &UsageWindow, chat: Chat, now_ms: u64) -> f64 {
 
 /// Whether the account can take no more of `chat` before a window over its model refills.
 pub fn full(usage: &Usage, chat: Chat, now_ms: u64) -> bool {
-    (usage.windows.iter()).any(|window| {
+    (usage.deciding()).any(|window| {
         governs(window, chat.model) && window.used_at(now_ms) >= cap(window, chat, now_ms)
     })
 }
@@ -102,7 +102,7 @@ fn resets_over<'a>(
     (usage.resets.iter().flat_map(|resets| &resets.kinds))
         .filter(move |kind| kind.left > 0 && kind.use_by.is_none_or(|by| by > now_ms))
         .filter_map(move |kind| {
-            let window = (usage.windows.iter()).find(|window| {
+            let window = (usage.deciding()).find(|window| {
                 Some(&window.label) == kind.window.as_ref()
                     && weekly(window)
                     && governs(window, model)
@@ -142,15 +142,15 @@ fn standing<'a>(
     now_ms: u64,
 ) -> Option<Standing<'a>> {
     let usage = candidate.usage?;
-    let governing: Vec<&UsageWindow> = (usage.windows.iter())
+    let governing: Vec<&UsageWindow> = (usage.deciding())
         .filter(|window| governs(window, chat.model))
         .collect();
     let expiring_for: Vec<&UsageWindow> = resets_over(usage, chat.model, now_ms)
         .filter(|(kind, _)| expiring(kind, now_ms))
         .map(|(_, window)| window)
         .collect();
-    let unknown_models = (usage.windows.iter())
-        .filter(|window| wary && chat.model.is_none() && window.scope.is_some());
+    let unknown_models =
+        (usage.deciding()).filter(|window| wary && chat.model.is_none() && window.scope.is_some());
     let room = (governing.iter().copied().chain(unknown_models)).all(|window| {
         let used = window.used_at(now_ms);
         match weekly(window) {
@@ -260,7 +260,7 @@ fn worth_spending_after(candidates: &[Candidate]) -> u64 {
 
 /// When an account full for `chat` takes chats again: once every full window over it refills.
 fn back_at(usage: &Usage, chat: Chat, now_ms: u64) -> Option<u64> {
-    (usage.windows.iter())
+    (usage.deciding())
         .filter(|window| governs(window, chat.model) && window.used_at(now_ms) >= 100.0)
         .map(|window| refill_at(window, now_ms))
         .try_fold(0, |latest, at| Some(latest.max(at?)))

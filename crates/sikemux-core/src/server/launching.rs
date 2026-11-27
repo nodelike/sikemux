@@ -538,9 +538,6 @@ async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
         return None;
     }
     let kind = named.kind.to_owned();
-    if by_hand(&kind) {
-        return None;
-    }
     let book = core.workspaces().accounts().unwrap_or_default();
     let accounts = (book.clone().with_built_ins().profiles.iter())
         .filter(|profile| profile.provider == kind)
@@ -566,6 +563,8 @@ async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
                 .then(|| super::agent_accounts::with_quota(&book, &kind, &chat))
                 .flatten()
         })
+    } else if by_hand(&kind) {
+        None
     } else {
         let chosen_id = book.chosen(&kind);
         super::agent_accounts::is_full(&book, &kind, &chosen_id, model.as_deref())

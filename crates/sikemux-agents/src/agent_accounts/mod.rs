@@ -109,8 +109,7 @@ impl Default for Book {
     }
 }
 
-/// Whether only the person ever moves `provider`'s chats between its accounts: its maker does not
-/// support a program choosing among them.
+/// Whether only the person ever moves `provider`'s running chats between its accounts.
 pub fn by_hand(provider: &str) -> bool {
     crate::agent_catalog::agent(provider).is_some_and(|agent| agent.accounts_by_hand)
 }
@@ -119,8 +118,13 @@ pub fn by_hand(provider: &str) -> bool {
 pub const BUILT_IN: &str = "builtin-";
 
 impl Book {
-    /// Whether smart accounts picks among `provider`'s accounts.
-    pub fn smart_for(&self, provider: &str) -> bool {
+    /// Whether smart accounts picks among `provider`'s accounts at chat start.
+    pub fn smart_for(&self, _provider: &str) -> bool {
+        self.smart
+    }
+
+    /// Whether a running chat of `provider` switches accounts by itself at a usage limit.
+    pub fn auto_switches(&self, provider: &str) -> bool {
         self.smart && !by_hand(provider)
     }
 

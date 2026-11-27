@@ -634,7 +634,7 @@ fn account_here(core: &Core, cli: &str) -> Result<Option<String>, String> {
     }
     let book = core.workspaces().accounts().unwrap_or_default();
     let chosen = LauncherId::on(cli, &book.chosen(cli)).to_string();
-    if by_hand(cli) {
+    if by_hand(cli) && !book.smart {
         return match startable.iter().any(|launcher| launcher.id == chosen) {
             true => Ok(Some(chosen)),
             false => Err(format!(

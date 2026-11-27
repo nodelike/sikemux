@@ -109,7 +109,10 @@ impl Workspaces {
                     "Sikemux cannot tell which {provider} account you run on, so it will not start one on another; pick another cli or ask the person to start it"
                 ));
             }
-            let launcher = wanted.or_else(|| offered.first()).ok_or_else(|| {
+            let launcher = wanted
+                .or_else(|| offered.iter().find(|launcher| launcher.refusal().is_none()))
+                .or_else(|| offered.first())
+                .ok_or_else(|| {
                 let mut known: Vec<&str> = launchers
                     .iter()
                     .map(|launcher| launcher.agent.provider.as_str())
@@ -150,9 +153,11 @@ impl Workspaces {
         Ok((launch, Some(launcher.id)))
     }
 
-    /// The account the person chose for `provider`'s agents, when only they choose among them.
+    /// The account the person chose for `provider`'s agents, when smart accounts is off and
+    /// only they choose among them.
     fn chosen_by_hand(&self, provider: &str) -> Option<String> {
-        by_hand(provider).then(|| self.accounts().unwrap_or_default().chosen(provider))
+        let book = self.accounts().unwrap_or_default();
+        (by_hand(provider) && !book.smart).then(|| book.chosen(provider))
     }
 
     /// How the board starts an agent of its own in `cwd`: with the launcher
@@ -175,6 +180,7 @@ impl Workspaces {
                 let kind = &launcher.agent.provider;
                 launcher.refusal().is_none()
                     && (!by_hand(kind)
+                        || book.smart
                         || launcher.id == LauncherId::on(kind, &book.chosen(kind)).to_string())
             };
             match launcher {

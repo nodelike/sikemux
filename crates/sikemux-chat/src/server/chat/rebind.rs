@@ -136,7 +136,7 @@ pub fn name_accounts(core: &Core, launch: &mut ChatLaunch) {
 pub fn switches_at_limit(chat: &Chat) -> bool {
     chat.core.upgrade().is_none_or(|core| {
         let book = core.workspaces().accounts().unwrap_or_default();
-        book.smart_for(chat.provider())
+        book.auto_switches(chat.provider())
     })
 }
 

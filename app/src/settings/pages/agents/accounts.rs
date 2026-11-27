@@ -25,7 +25,7 @@ use sikemux_agents::agent_accounts::BUILT_IN;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
-    crate::settings::index::section(crate::settings::index::Page::Agents, "Accounts", "move between accounts smart rotation rotate switch limit week sign in login logout subscription max pro plus chatgpt add second work personal claude codex"),
+    crate::settings::index::section(crate::settings::index::Page::Agents, "Accounts", "move between accounts smart rotation rotate switch limit week sign in login logout subscription max pro plus chatgpt add second work personal claude codex antigravity"),
 ];
 
 fn plan(plan: &str) -> String {

@@ -27,7 +27,7 @@ use sikemux_view::workspace::WorkspaceAgent;
 use crate::acp::failure::{out_of_usage, PAUSED_FOR_AGENTS};
 use crate::cli::protocol::HarnessRequest;
 use crate::launch::PermissionMode;
-use sikemux_wire::protocol::Event;
+use sikemux_wire::protocol::{ChatLaunch, Event};
 
 use super::caller::text_param;
 use super::chat;
@@ -500,6 +500,9 @@ fn start(
         (launch, launcher) =
             (core.workspaces()).worker_launch(&lead, &provider, &cwd, None, Paid::By(None))?;
     }
+    if resume.is_none() && launch.model_provider.is_none() {
+        smart_place_worker(core, &provider, &cwd, &mut launch, &mut launcher);
+    }
     if let Some(was) = &was {
         launch.effort = was.effort.clone();
         launch.permission_mode = was.permission_mode.min(launch.permission_mode);
@@ -599,6 +602,66 @@ fn start(
     }))
 }
 
+fn smart_place_worker(
+    core: &Core,
+    provider: &str,
+    cwd: &Path,
+    launch: &mut ChatLaunch,
+    launcher: &mut Option<String>,
+) {
+    let book = core.workspaces().accounts().unwrap_or_default();
+    if !book.smart_for(provider) {
+        return;
+    }
+    let accounts = (book.clone().with_built_ins().profiles.iter())
+        .filter(|profile| profile.provider == provider)
+        .count();
+    if accounts < 2 {
+        return;
+    }
+    let model = launching::model_of(core, &book, provider, launch.model.clone());
+    let placing = super::agent_accounts::Placing {
+        model: model.clone(),
+        person: false,
+        cwd: Some(cwd.to_path_buf()),
+    };
+    let current = (launcher.as_deref())
+        .and_then(|id| LauncherId::parse(id).account.map(str::to_owned))
+        .or_else(|| launch.account.as_ref().map(|account| account.id.clone()))
+        .unwrap_or_else(|| book.chosen(provider));
+    let Some(placed) = super::agent_accounts::placement(&book, provider, &placing, |_| true)
+        .or_else(|| {
+            super::agent_accounts::is_full(&book, provider, &current, model.as_deref())
+                .then(|| super::agent_accounts::with_quota(&book, provider, &placing))
+                .flatten()
+        })
+    else {
+        return;
+    };
+    let id = LauncherId::on(provider, &placed.id).to_string();
+    if launcher.as_deref() == Some(id.as_str()) {
+        return;
+    }
+    let Ok(picked) = core.workspaces().launcher(&id) else {
+        return;
+    };
+    if picked.id != id || picked.refusal().is_some() {
+        return;
+    }
+    let Ok(program) = super::workspace::still_there(&picked) else {
+        return;
+    };
+    let Ok(mut rebuilt) =
+        core.workspaces()
+            .chat_launch(&picked, program, cwd, None, launch.model.clone())
+    else {
+        return;
+    };
+    rebuilt.permission_mode = launch.permission_mode;
+    *launch = rebuilt;
+    *launcher = Some(id);
+}
+
 pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let prompt = match request.params.get("prompt") {
         Some(Value::String(prompt)) if !prompt.trim().is_empty() && prompt.len() <= MAX_PROMPT_BYTES => {
@@ -656,7 +719,7 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
             return reopen_own_lead(core, request, saved, returning, prompt).await;
         }
     }
-    let hired = match (&saved, &request.agent_id) {
+    let (hired, freshen_provider) = match (&saved, &request.agent_id) {
         (None, Some(lead)) => {
             let provider = text_param(&request.params, "cli", 64)?
                 .map(|cli| cli.trim().to_lowercase())
@@ -667,7 +730,7 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
                 })
                 .unwrap_or_default();
             let reports = reports_back(&request.params)?;
-            match elsewhere::hire_elsewhere(core, lead, &provider, reports).await? {
+            let hired = match elsewhere::hire_elsewhere(core, lead, &provider, reports).await? {
                 Some(hired) => Some(hired),
                 None => Some(hire_here(
                     core,
@@ -676,10 +739,17 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
                     reports,
                     &task_title(&request.params)?,
                 )?),
-            }
+            };
+            (hired, Some(provider))
         }
-        _ => None,
+        _ => (None, None),
     };
+    if let Some(provider) = freshen_provider.filter(|provider| !provider.is_empty()) {
+        let book = core.workspaces().accounts().unwrap_or_default();
+        if book.smart_for(&provider) {
+            super::agent_accounts::freshen(core.clone(), book, provider).await;
+        }
+    }
     if let Some(lead) = &request.agent_id {
         rename_in(core, lead);
     }

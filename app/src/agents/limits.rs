@@ -14,7 +14,6 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, SharedString, Stateful,
     StatefulInteractiveElement, Styled, Task, Transformation, WeakEntity, Window,
 };
-use sikemux_agents::agent_accounts::by_hand;
 use sikemux_agents::agent_accounts::usage::ResetKind;
 use sikemux_agents::agent_accounts::usage::ResetOutcome;
 use sikemux_agents::agent_accounts::usage::UsageWindow;
@@ -1023,7 +1022,7 @@ fn account_line(
                     ))
             })),
     };
-    let smart = view.smart && agent.accounts.len() > 1 && !by_hand(agent.provider);
+    let smart = view.smart && agent.accounts.len() > 1;
     let target = shown.profile.filter(|_| !smart && !in_use).cloned();
     let pickable = target.is_some();
     let names = line(NAME_LINE)

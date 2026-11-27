@@ -122,7 +122,7 @@ pub struct Launcher {
 
 impl Launcher {
     /// Why it cannot be started now, as the core last checked.
-    fn refusal(&self) -> Option<String> {
+    pub fn refusal(&self) -> Option<String> {
         self.status.as_ref()?.refusal(&self.label)
     }
 }

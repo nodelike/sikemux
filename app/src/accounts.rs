@@ -257,9 +257,11 @@ impl Accounts {
         self.book.as_ref().is_none_or(|book| book.smart)
     }
 
-    /// Whether smart accounts picks among `provider`'s accounts.
+    /// Whether smart accounts picks among `provider`'s accounts at chat start.
     pub fn smart_for(&self, provider: &str) -> bool {
-        self.smart() && !by_hand(provider)
+        self.book
+            .as_ref()
+            .is_none_or(|book| book.smart_for(provider))
     }
 }
 

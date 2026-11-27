@@ -406,7 +406,7 @@ fn has_room(core: &Core, agent_id: &str, since: u64, now: u64) -> bool {
         .as_ref()
         .map_or_else(BTreeMap::new, |account| account.env.clone());
     roomy(&own)
-        || (book.smart_for(&agent.provider)
+        || (book.auto_switches(&agent.provider)
             && (takers.others.iter())
                 .filter(|other| book.allowed_in(&agent.cwd, &other.id))
                 .any(|other| roomy(&other.env)))
@@ -474,7 +474,7 @@ async fn reset_from_usage(core: &Core, launch: &ChatLaunch) -> Option<u64> {
 fn reset_elsewhere(core: &Core, launch: &ChatLaunch) -> Option<u64> {
     let book = core.workspaces().accounts().unwrap_or_default();
     let provider = launch.provider.as_str();
-    if !book.smart_for(provider) {
+    if !book.auto_switches(provider) {
         return None;
     }
     (launch.fallbacks.iter())

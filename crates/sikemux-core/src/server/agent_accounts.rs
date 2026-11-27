@@ -390,7 +390,11 @@ pub(crate) fn other_agent_with_room(
         let readings: Vec<(Profile, Option<usage::Reading>)> = (signed_in(book, agent.kind)
             .into_iter())
         .filter(|profile| book.allowed_in(cwd, &profile.id))
-        .filter(|profile| !by_hand(agent.kind) || profile.id == book.chosen(agent.kind))
+        .filter(|profile| {
+            book.smart_for(agent.kind)
+                || !by_hand(agent.kind)
+                || profile.id == book.chosen(agent.kind)
+        })
         .map(|profile| {
             let reading = usage::last_reading(agent.kind, profile.config_path.as_deref());
             (profile, reading)
