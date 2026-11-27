@@ -215,10 +215,12 @@ struct WorktreeSwitch: View {
     }
 }
 
-/// An issue, pull request or other item handed over with a message, by its number and title rather than its whole
-/// text.
+/// An issue, pull request, call, skill or other item handed over with a message, by its number and title rather than
+/// its whole text.
 struct ContextChips: View {
     private static let artifactUri = "sikemux://artifact/"
+    private static let callUri = "sikemux://call/"
+    private static let skillUri = "sikemux://skill/"
     @Environment(\.palette) private var palette
     let items: [SentContext]
 
@@ -226,15 +228,14 @@ struct ContextChips: View {
         FlowRight(spacing: 6) {
             ForEach(items, id: \.uri) { item in
                 let tracked = item.tracked
-                let issue = tracked?.kind == .issue
-                let artifact = item.uri.hasPrefix(Self.artifactUri)
+                let look = look(item)
                 HStack(spacing: 6) {
-                    IconView(icon: icon(tracked, artifact: artifact), size: 14)
+                    IconView(icon: look.icon, size: 14)
                         .foregroundStyle(tracked == nil ? palette.inkFaint : palette.live)
                     if let number = tracked?.number {
                         Text("#\(number)").font(Theme.ui(12, .medium)).foregroundStyle(palette.ink)
                     }
-                    Text(tracked?.title ?? item.title).font(Theme.ui(12)).foregroundStyle(palette.inkDim).lineLimit(1)
+                    Text(look.title).font(Theme.ui(12)).foregroundStyle(palette.inkDim).lineLimit(1)
                 }
                 .padding(.vertical, 7)
                 .padding(.horizontal, 10)
@@ -244,22 +245,32 @@ struct ContextChips: View {
                     RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(palette.border, lineWidth: 1)
                 )
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(
-                    tracked.map {
-                        issue
-                            ? String(localized: "Issue #\($0.number) \($0.title)")
-                            : String(localized: "Pull request #\($0.number) \($0.title)")
-                    }
-                        ?? (artifact
-                            ? String(localized: "Artifact \(item.title)") : String(localized: "Context \(item.title)")))
+                .accessibilityLabel(look.spoken)
             }
         }
         .padding(.bottom, 6)
     }
 
-    private func icon(_ tracked: Tracked?, artifact: Bool) -> IconDef {
-        guard let tracked else { return artifact ? Icons.presentation : Icons.file }
-        return tracked.kind == .issue ? Icons.issue : Icons.pullRequest
+    private func look(_ item: SentContext) -> (icon: IconDef, title: String, spoken: String) {
+        if let tracked = item.tracked {
+            return tracked.kind == .issue
+                ? (Icons.issue, tracked.title, String(localized: "Issue #\(tracked.number) \(tracked.title)"))
+                : (
+                    Icons.pullRequest, tracked.title,
+                    String(localized: "Pull request #\(tracked.number) \(tracked.title)")
+                )
+        }
+        if item.uri.hasPrefix(Self.skillUri) {
+            let name = String(item.uri.dropFirst(Self.skillUri.count))
+            return (Icons.book, name, String(localized: "Skill \(name)"))
+        }
+        if item.uri.hasPrefix(Self.callUri) {
+            return (Icons.bell, item.title, String(localized: "Call \(item.title)"))
+        }
+        if item.uri.hasPrefix(Self.artifactUri) {
+            return (Icons.presentation, item.title, String(localized: "Artifact \(item.title)"))
+        }
+        return (Icons.file, item.title, String(localized: "Context \(item.title)"))
     }
 }
 

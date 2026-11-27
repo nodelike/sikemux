@@ -362,6 +362,7 @@ const PHONE_ICONS = [
   "IconArrowDown",
   "IconArrowUp",
   "IconAws",
+  "IconBell",
   "IconBoard",
   "IconBook",
   "IconBolt",

@@ -11,10 +11,12 @@ const CHIP_LOOKS: Record<NonNullable<ContextChip['kind']> | 'other', { label: st
   issue: { label: 'Issue', icon: 'IconIssue' },
   pull: { label: 'Pull request', icon: 'IconPullRequest' },
   artifact: { label: 'Artifact', icon: 'IconPresentation' },
+  call: { label: 'Call', icon: 'IconBell' },
+  skill: { label: 'Skill', icon: 'IconBook' },
   other: { label: 'Context', icon: 'IconFile' },
 };
 
-/** An issue, pull request or other item handed over with a message, by its number and title rather than its whole text. */
+/** An issue, pull request, call, skill or other item handed over with a message, by its number and title rather than its whole text. */
 export function ContextChips({ items }: { items: SentContext[] }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
