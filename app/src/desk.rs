@@ -3358,7 +3358,7 @@ fn navigation(
     }))
 }
 
-/// Quiet inline Browser Profile pill inside the address bar (Option A).
+/// Compact inline Browser Profile pill inside the address bar with flat row-action popover.
 fn profile_pill(
     bench: &Workbench,
     agent: &str,
@@ -3368,11 +3368,13 @@ fn profile_pill(
     use sikemux_view::browser_profiles::ProfileSource;
 
     let t = Tokens::get(cx).clone();
+    let profiles = bench.browser_profiles();
     let (effective, inherited) = bench.resolved_tab_profile(agent, tab);
     let is_override = matches!(
         effective.source,
         ProfileSource::TabOverride | ProfileSource::AgentOverride
     );
+    let compact_icon_only = profiles.len() <= 1 && !is_override;
     let glyph = if effective.source == ProfileSource::AgentOverride {
         Icon::Agent
     } else {
@@ -3383,10 +3385,15 @@ fn profile_pill(
     } else {
         t.text_tertiary
     };
-    let tip = format!(
-        "Profile · {}",
-        crate::browser_profiles::source_hint(&effective)
-    );
+    let tip = if is_override || effective.source != ProfileSource::Global {
+        format!(
+            "{} · {}",
+            effective.profile.name,
+            crate::browser_profiles::source_hint(&effective)
+        )
+    } else {
+        format!("{} profile", effective.profile.name)
+    };
     let bench_weak = cx.weak_entity();
     let agent_id = agent.to_owned();
     let tab_id = tab.id.clone();
@@ -3397,57 +3404,155 @@ fn profile_pill(
         .ghost()
         .compact()
         .h(px(20.))
-        .px(px(6.))
+        .px(px(if compact_icon_only { 5. } else { 6. }))
         .rounded(crate::theme::radius_1())
+        .when(is_override, |btn| btn.bg(t.accent.opacity(0.10)))
         .tooltip(tip)
         .child(
             div()
                 .flex()
                 .items_center()
-                .gap(px(4.))
-                .text_size(crate::theme::ui_text(crate::theme::TEXT_3XS_H))
+                .gap(px(5.))
+                .text_size(crate::theme::ui_text(crate::theme::TEXT_2XS))
                 .text_color(ink)
-                .child(ui::icon(glyph, 11.).text_color(ink))
-                .child(
-                    div()
-                        .max_w(px(110.))
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .child(effective.profile.name),
-                ),
+                .child(ui::icon(glyph, 11.5).text_color(ink))
+                .when(!compact_icon_only, |row| {
+                    row.child(
+                        div()
+                            .max_w(px(110.))
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(effective.profile.name),
+                    )
+                }),
         )
         .dropdown_menu_with_anchor(
             Anchor::TopLeft,
-            ui::menu(move |mut menu, window, cx| {
+            ui::menu(move |mut menu, _window, cx| {
                 let Some(bench_entity) = bench_weak.upgrade() else {
                     return menu;
                 };
+                let menu_weak = cx.entity().downgrade();
                 let profiles = bench_entity.read(cx).browser_profiles();
-                let header = format!(
-                    "This tab · {}",
-                    crate::browser_profiles::source_hint(&effective_clone)
-                );
-                menu = menu.item(PopupMenuItem::label(header));
+                menu = menu.min_w(px(224.));
 
                 for profile in &profiles {
                     let chosen = effective_clone.profile.id == profile.id;
-                    let hint = if chosen && is_override {
-                        Some(crate::browser_profiles::source_short(&effective_clone))
-                    } else if inherited_clone.profile.id == profile.id {
-                        Some(crate::browser_profiles::source_short(&inherited_clone))
-                    } else {
-                        None
-                    };
+                    let show_inherited = is_override && inherited_clone.profile.id == profile.id;
                     let (bench_pick, aid, tid, pid) = (
                         bench_weak.clone(),
                         agent_id.clone(),
                         tab_id.clone(),
                         profile.id.clone(),
                     );
-                    let row = ui::MenuRow::new(profile.name.clone())
-                        .chosen(chosen)
-                        .when_some(hint, |row, hint| row.hint(hint));
-                    menu = menu.item(row.item(cx).on_click(move |_, _, cx| {
+                    let (bench_new, aid_new, pid_new, menu_dismiss) = (
+                        bench_weak.clone(),
+                        agent_id.clone(),
+                        profile.id.clone(),
+                        menu_weak.clone(),
+                    );
+                    let name: SharedString = profile.name.clone().into();
+                    let new_tab_tip: SharedString = format!("New tab in {}", profile.name).into();
+                    let row_group: SharedString = format!("desk-bp-row-{}", profile.id).into();
+                    let row_id: SharedString = format!("desk-bp-item-{}", profile.id).into();
+                    let btn_id: SharedString = format!("desk-bp-newtab-{}", profile.id).into();
+
+                    let row = PopupMenuItem::element(move |_, cx| {
+                        let t = Tokens::get(cx).clone();
+                        let side = px(8.);
+                        let bench_new = bench_new.clone();
+                        let aid_new = aid_new.clone();
+                        let pid_new = pid_new.clone();
+                        let menu_dismiss = menu_dismiss.clone();
+                        div()
+                            .id(row_id.clone())
+                            .group(row_group.clone())
+                            .relative()
+                            .flex_1()
+                            .min_w_0()
+                            .h(px(crate::theme::dense(28.)))
+                            .flex()
+                            .items_center()
+                            .gap(SPACE_2)
+                            .when(chosen, |row| {
+                                row.child(
+                                    div()
+                                        .absolute()
+                                        .top_0()
+                                        .bottom_0()
+                                        .left(-side)
+                                        .right(-side)
+                                        .rounded(radius_2())
+                                        .bg(t.surface_chosen),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_color(t.text_primary)
+                                    .child(name.clone()),
+                            )
+                            .when(show_inherited, |row| {
+                                row.child(
+                                    div()
+                                        .flex_none()
+                                        .whitespace_nowrap()
+                                        .text_size(crate::theme::ui_text(crate::theme::TEXT_2XS))
+                                        .text_color(t.text_tertiary)
+                                        .child(t!("inherited")),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .id(btn_id.clone())
+                                    .flex_none()
+                                    .size(px(22.))
+                                    .rounded(crate::theme::radius_1())
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .opacity(0.)
+                                    .group_hover(row_group.clone(), |btn| btn.opacity(1.))
+                                    .text_color(t.text_tertiary)
+                                    .hover(move |btn| {
+                                        btn.bg(t.surface_chosen).text_color(t.text_primary)
+                                    })
+                                    .tooltip(ui::tooltip(new_tab_tip.clone()))
+                                    .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation();
+                                    })
+                                    .clicks(move |_, _, cx| {
+                                        cx.stop_propagation();
+                                        let _ = bench_new.update(cx, |bench, cx| {
+                                            bench.open_tab_in_named_profile(
+                                                aid_new.clone(),
+                                                pid_new.clone(),
+                                                cx,
+                                            );
+                                        });
+                                        let _ = menu_dismiss.update(cx, |_, cx| {
+                                            cx.emit(gpui_kit::DismissEvent);
+                                        });
+                                    })
+                                    .child(ui::icon(Icon::SquarePlus, 13.)),
+                            )
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .w(px(13.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .when(chosen, |slot| {
+                                        slot.child(
+                                            ui::icon(Icon::Check, 13.).text_color(t.text_primary),
+                                        )
+                                    }),
+                            )
+                    })
+                    .on_click(move |_, _, cx| {
                         let _ = bench_pick.update(cx, |bench, cx| {
                             bench.switch_tab_to_profile(
                                 aid.clone(),
@@ -3456,62 +3561,46 @@ fn profile_pill(
                                 cx,
                             );
                         });
-                    }));
+                    });
+
+                    menu = menu.item(row);
                 }
 
-                menu = menu.separator();
-
-                if is_override {
-                    let (bench_reset, aid, tid) =
-                        (bench_weak.clone(), agent_id.clone(), tab_id.clone());
-                    let reset_label = format!("Back to {}", inherited_clone.profile.name);
-                    let reset_hint = crate::browser_profiles::source_short(&inherited_clone);
-                    menu = menu.item(
-                        ui::MenuRow::new(reset_label)
-                            .icon(Icon::Restore)
-                            .hint(reset_hint)
-                            .item(cx)
-                            .on_click(move |_, _, cx| {
-                                let _ = bench_reset.update(cx, |bench, cx| {
-                                    bench.switch_tab_to_profile(aid.clone(), tid.clone(), None, cx);
-                                });
-                            }),
-                    );
-                }
-
-                let new_tab_profiles = profiles.clone();
-                let (bench_new, aid_new) = (bench_weak.clone(), agent_id.clone());
-                menu = menu.submenu_with_icon(
-                    Some(Icon::Plus.into()),
-                    t!("New tab in profile"),
-                    window,
-                    cx,
-                    ui::menu(move |mut sub, _, _| {
-                        for profile in &new_tab_profiles {
-                            let (bench_open, aid, pid) =
-                                (bench_new.clone(), aid_new.clone(), profile.id.clone());
-                            sub = sub.item(
-                                PopupMenuItem::new(profile.name.clone())
-                                    .icon(Icon::User)
-                                    .on_click(move |_, _, cx| {
-                                        let _ = bench_open.update(cx, |bench, cx| {
-                                            bench.open_tab_in_named_profile(
-                                                aid.clone(),
-                                                pid.clone(),
-                                                cx,
-                                            );
-                                        });
-                                    }),
-                            );
-                        }
-                        sub
-                    }),
-                );
-
+                let bench_add = bench_weak.clone();
                 let bench_manage = bench_weak.clone();
-                menu.separator().item(
-                    PopupMenuItem::new(t!("Manage profiles…"))
-                        .icon(Icon::Settings)
+                menu.separator()
+                    .item(
+                        PopupMenuItem::element(|_, cx| {
+                            let t = Tokens::get(cx);
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .items_center()
+                                .gap(px(9.))
+                                .text_color(t.text_primary)
+                                .child(ui::icon(Icon::Plus, 13.).text_color(t.text_tertiary))
+                                .child(t!("Add profile…"))
+                        })
+                        .on_click(move |_, window, cx| {
+                            let _ = bench_add.update(cx, |bench, cx| {
+                                crate::settings::open_add_browser_profile(bench, window, cx);
+                            });
+                        }),
+                    )
+                    .item(
+                        PopupMenuItem::element(|_, cx| {
+                            let t = Tokens::get(cx);
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .items_center()
+                                .gap(px(9.))
+                                .text_color(t.text_primary)
+                                .child(ui::icon(Icon::Settings, 13.).text_color(t.text_tertiary))
+                                .child(t!("Manage profiles…"))
+                        })
                         .on_click(move |_, window, cx| {
                             let _ = bench_manage.update(cx, |bench, cx| {
                                 crate::settings::open(
@@ -3522,7 +3611,7 @@ fn profile_pill(
                                 );
                             });
                         }),
-                )
+                    )
             }),
         )
 }

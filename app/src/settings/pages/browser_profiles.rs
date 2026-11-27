@@ -212,6 +212,9 @@ fn start_rename(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
+    if super::state(bench, cx).is_some_and(|pages| pages.browser_profiles.is_none()) {
+        make(bench, window, cx);
+    }
     let current_name = bench
         .browser_profile_by_id(&profile_id)
         .map(|p| p.name)
@@ -263,6 +266,36 @@ fn start_rename(
         fields.renaming = Some(profile_id);
         fields.rename_input = Some((input, sub));
     });
+}
+
+pub(in crate::settings) fn create_profile(
+    bench: &mut Workbench,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    let this = cx.entity();
+    let window_handle = window.window_handle();
+    let count = bench.browser_profiles().len();
+    let name = format!("Profile {}", count + 1);
+    bench.upsert_browser_profile(
+        BrowserProfileUpsertParams {
+            id: None,
+            name,
+            slug: None,
+            description: Some(String::new()),
+            access: Some(ProfileAccess::Standard),
+            link_space_id: None,
+        },
+        Some(t!("New browser profile created").to_owned()),
+        Some(Box::new(move |_bench, created, cx| {
+            let _ = window_handle.update(cx, |_, window, cx| {
+                this.update(cx, |bench, cx| {
+                    start_rename(bench, created.id.clone(), window, cx);
+                });
+            });
+        })),
+        cx,
+    );
 }
 
 fn change_fields<R>(
@@ -820,32 +853,7 @@ pub fn render(
             .icon(Icon::Plus)
             .sized(26., 8., TEXT_XS)
             .on_click(move |_, window, cx| {
-                let this = new_this.clone();
-                let window_handle = window.window_handle();
-                new_this.update(cx, |bench, cx| {
-                    let count = bench.browser_profiles().len();
-                    let name = format!("Profile {}", count + 1);
-                    bench.upsert_browser_profile(
-                        BrowserProfileUpsertParams {
-                            id: None,
-                            name,
-                            slug: None,
-                            description: Some(String::new()),
-                            access: Some(ProfileAccess::Standard),
-                            link_space_id: None,
-                        },
-                        Some(t!("New browser profile created").to_owned()),
-                        Some(Box::new(move |bench, created, cx| {
-                            let _ = window_handle.update(cx, |_, window, cx| {
-                                this.update(cx, |bench, cx| {
-                                    start_rename(bench, created.id.clone(), window, cx);
-                                });
-                            });
-                            let _ = bench;
-                        })),
-                        cx,
-                    );
-                });
+                new_this.update(cx, |bench, cx| create_profile(bench, window, cx));
             }),
     );
 

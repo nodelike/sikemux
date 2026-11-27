@@ -402,7 +402,10 @@ impl RenderOnce for Button {
             .focusable(!self.mouse_only)
             .tab_stop(!self.mouse_only)
             .on_hover(keep_over)
-            .when(self.disabled, |button| button.opacity(0.5))
+            .when(
+                self.disabled && !matches!(self.variant, Variant::Primary | Variant::Outline),
+                |button| button.opacity(0.5),
+            )
             .when(!self.disabled, |button| button.cursor_pointer())
             .group(GROUP)
             .accessibility_label(self.label.clone())
@@ -428,7 +431,9 @@ impl RenderOnce for Button {
                 .text_size(crate::theme::ui_text(TEXT_2XS_H))
                 .text_color(fade(
                     "ink",
-                    if lit {
+                    if self.disabled && self.variant == Variant::Outline {
+                        t.text_disabled
+                    } else if lit {
                         t.text_primary
                     } else {
                         t.text_secondary
@@ -442,15 +447,24 @@ impl RenderOnce for Button {
                         (false, false) => t.surface_hover.opacity(0.),
                     },
                 )),
-            Variant::Primary => base
-                .h(px(28.))
-                .px(SPACE_3)
-                .justify_center()
-                .gap(SPACE_1H)
-                .bg(t.accent)
-                .text_size(crate::theme::ui_text(TEXT_SM))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(t.on_accent),
+            Variant::Primary => {
+                let primary = base
+                    .h(px(28.))
+                    .px(SPACE_3)
+                    .justify_center()
+                    .gap(SPACE_1H)
+                    .text_size(crate::theme::ui_text(TEXT_SM))
+                    .font_weight(FontWeight::SEMIBOLD);
+                if self.disabled {
+                    primary
+                        .border(crate::theme::border())
+                        .border_color(t.border)
+                        .bg(t.surface_hover)
+                        .text_color(t.text_disabled)
+                } else {
+                    primary.bg(t.accent).text_color(t.on_accent)
+                }
+            }
             Variant::Dashed => base
                 .h(px(22.))
                 .px(SPACE_2)
@@ -491,13 +505,17 @@ impl RenderOnce for Button {
                     button.font_weight(FontWeight::SEMIBOLD).gap(SPACE_3)
                 })
         });
-        let (glyph, rest) = match self.variant {
-            Variant::Primary => (13., t.on_accent),
-            Variant::Outline | Variant::Ghost => (11., t.text_secondary),
-            Variant::Dashed => (11., t.text_tertiary),
+        let (glyph, rest) = match (self.variant, self.disabled) {
+            (Variant::Primary, true) => (13., t.text_disabled),
+            (Variant::Primary, false) => (13., t.on_accent),
+            (Variant::Outline, true) => (11., t.text_disabled),
+            (Variant::Outline | Variant::Ghost, _) => (11., t.text_secondary),
+            (Variant::Dashed, _) => (11., t.text_tertiary),
         };
-        let hover = if self.variant == Variant::Primary {
+        let hover = if self.variant == Variant::Primary && !self.disabled {
             t.on_accent
+        } else if self.disabled {
+            rest
         } else {
             t.text_primary
         };

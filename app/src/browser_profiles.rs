@@ -37,19 +37,6 @@ pub fn source_hint(resolved: &ResolvedBrowserProfile) -> SharedString {
     }
 }
 
-pub fn source_short(resolved: &ResolvedBrowserProfile) -> SharedString {
-    match resolved.source {
-        ProfileSource::AgentOverride => match resolved.source_label.as_deref() {
-            Some(who) if !who.is_empty() => format!("{who} override").into(),
-            _ => t!("agent override").into(),
-        },
-        ProfileSource::TabOverride => t!("tab override").into(),
-        ProfileSource::Playbook => t!("Playbook").into(),
-        ProfileSource::Space => t!("from Space").into(),
-        ProfileSource::Global => t!("global default").into(),
-    }
-}
-
 pub type OnProfileSaved = Box<dyn FnOnce(&mut Workbench, BrowserProfile, &mut Context<Workbench>)>;
 
 pub fn tab_profile_for(

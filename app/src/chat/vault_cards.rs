@@ -9,8 +9,8 @@ use gpui_kit::component::switch::Switch;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, PathPromptOptions, SharedString, Styled, Subscription, WeakEntity,
-    Window,
+    IntoElement, ParentElement, PathPromptOptions, SharedString, StatefulInteractiveElement,
+    Styled, Subscription, WeakEntity, Window,
 };
 use sikemux_calls::call;
 use sikemux_calls::vault::{
@@ -21,8 +21,8 @@ use sikemux_calls::vault::{
 
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS, TEXT_3XS,
-    TEXT_SM, TEXT_XS,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, TEXT_2XS,
+    TEXT_2XS_H, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::toast;
 use crate::ui::{self, Clicks};
@@ -59,8 +59,22 @@ struct CardField {
     kind: VaultFieldKind,
     required: bool,
     sensitive: bool,
+    maskable: bool,
     masked: bool,
     input: Entity<InputState>,
+}
+
+fn field_uses_mask(category: VaultCategory, kind: VaultFieldKind, sensitive: bool) -> bool {
+    match kind {
+        VaultFieldKind::Secret
+        | VaultFieldKind::Password
+        | VaultFieldKind::Totp
+        | VaultFieldKind::CardNumber
+        | VaultFieldKind::Cvc
+        | VaultFieldKind::AccountNumber => true,
+        VaultFieldKind::TaxId | VaultFieldKind::Expiry | VaultFieldKind::Document => false,
+        _ => sensitive && matches!(category, VaultCategory::Secrets | VaultCategory::Payments),
+    }
 }
 
 struct RequestForm {
@@ -125,6 +139,13 @@ pub fn sync(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workben
         let mut subs = Vec::new();
         let op_ref =
             cx.new(|cx| InputState::new(window, cx).placeholder("op://Personal/Item/credential"));
+        if req.category == VaultCategory::Secrets {
+            subs.push(cx.subscribe(&op_ref, |bench, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    bench.vault_cards.notify(cx);
+                }
+            }));
+        }
         let mut fields = Vec::with_capacity(req.fields.len());
         let is_payment = req.category == VaultCategory::Payments;
         for f in &req.fields {
@@ -132,12 +153,14 @@ pub fn sync(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workben
                 continue;
             }
             let prefill = f.value.as_deref().map(str::trim).filter(|v| !v.is_empty());
-            let masked = (f.sensitive || f.kind.is_inherently_sensitive()) && prefill.is_none();
+            let maskable = field_uses_mask(req.category, f.kind, f.sensitive) && prefill.is_none();
+            let masked = maskable;
             let ph = f.placeholder.clone().unwrap_or_else(|| match f.kind {
                 VaultFieldKind::CardNumber => "4242 4242 4242 4242".to_owned(),
                 VaultFieldKind::Expiry => "MM/YY".to_owned(),
                 VaultFieldKind::Cvc => "CVC".to_owned(),
                 VaultFieldKind::Totp => "Base32 2FA seed".to_owned(),
+                VaultFieldKind::TaxId if !f.required => t!("Not needed for most files").to_owned(),
                 _ => f.label.clone(),
             });
             let input = cx.new(|cx| {
@@ -150,7 +173,7 @@ pub fn sync(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workben
                 }
                 state
             });
-            if is_payment {
+            if is_payment || f.required {
                 subs.push(cx.subscribe(&input, |bench, _, event: &InputEvent, cx| {
                     if matches!(event, InputEvent::Change) {
                         bench.vault_cards.notify(cx);
@@ -163,6 +186,7 @@ pub fn sync(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workben
                 kind: f.kind,
                 required: f.required,
                 sensitive: f.sensitive,
+                maskable,
                 masked,
                 input,
             });
@@ -570,6 +594,49 @@ fn card_frame(child: impl IntoElement, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
+fn can_submit_request(req: &VaultPendingRequest, form: &RequestForm, cx: &App) -> bool {
+    if form.busy {
+        return false;
+    }
+    if req.category == VaultCategory::Documents && form.doc_path.is_none() {
+        return false;
+    }
+    if req.category == VaultCategory::Secrets && form.source_onepassword {
+        return !form.op_ref.read(cx).value().trim().is_empty();
+    }
+    form.fields
+        .iter()
+        .all(|f| !f.required || !f.input.read(cx).value().trim().is_empty())
+}
+
+fn file_ext_badge(filename: &str, t: &Tokens) -> Option<AnyElement> {
+    let ext = std::path::Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::trim)
+        .filter(|e| !e.is_empty() && e.len() <= 5)?
+        .to_ascii_uppercase();
+    let (bg, fg) = match ext.as_str() {
+        "PDF" => (t.danger.opacity(0.14), t.danger),
+        "JPG" | "JPEG" | "PNG" | "WEBP" | "HEIC" => (t.cmd.opacity(0.14), t.cmd),
+        _ => (t.surface_chosen, t.text_secondary),
+    };
+    Some(
+        div()
+            .flex_none()
+            .px(px(4.))
+            .py(px(1.))
+            .rounded(px(3.))
+            .bg(bg)
+            .text_size(theme::ui_text(9.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .letter_spacing(0.04)
+            .text_color(fg)
+            .child(ext)
+            .into_any_element(),
+    )
+}
+
 fn render_request_card(
     req: &VaultPendingRequest,
     form: &RequestForm,
@@ -580,80 +647,99 @@ fn render_request_card(
     let color = vault_ui::category_color(req.category, &t);
     let who = vault_ui::format_actor(&req.agent_name);
     let req_id = req.id.clone();
+    let ready_to_submit = can_submit_request(req, form, cx);
 
-    let bar = div()
-        .px(SPACE_3)
-        .py(SPACE_2)
-        .border_b(theme::border())
-        .border_color(t.border)
-        .bg(t.surface_sunken.opacity(0.6))
+    let title_icon = match req.category {
+        VaultCategory::Secrets => Icon::Key,
+        VaultCategory::Payments => Icon::CreditCard,
+        VaultCategory::Documents | VaultCategory::Details => Icon::ShieldCheck,
+    };
+
+    let subtitle = req
+        .reason
+        .clone()
+        .unwrap_or_else(|| t!("Requested by {who}", who = who));
+
+    let head = div()
         .flex()
-        .items_center()
-        .gap(SPACE_2)
+        .items_start()
+        .gap(SPACE_2H)
         .child(
             div()
+                .flex_none()
+                .pt(px(2.))
+                .child(ui::icon(title_icon, 14.).text_color(color)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
                 .flex()
-                .items_center()
-                .gap(SPACE_1H)
-                .text_size(theme::ui_text(TEXT_2XS))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(t.text_primary)
-                .child(ui::icon(Icon::ShieldCheck, 12.).text_color(color))
-                .child(t!("Sikemux Vault")),
+                .flex_col()
+                .gap(SPACE_0)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .flex_wrap()
+                        .gap(SPACE_2)
+                        .child(
+                            div()
+                                .text_size(theme::ui_text(TEXT_SM))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(t.text_primary)
+                                .child(req.title.clone()),
+                        )
+                        .child(vault_ui::pill(
+                            vault_ui::category_label(req.category),
+                            color,
+                            None,
+                            cx,
+                        )),
+                )
+                .child(
+                    div()
+                        .text_size(theme::ui_text(TEXT_XS))
+                        .text_color(t.text_secondary)
+                        .child(subtitle),
+                ),
         )
-        .child(
+        .children(req.domain.as_deref().map(|d| {
             div()
+                .flex_none()
+                .pt(px(2.))
+                .font_family(theme::mono_font())
                 .text_size(theme::ui_text(TEXT_2XS))
-                .text_color(t.text_tertiary)
-                .child(t!("Native host form")),
-        )
-        .child(vault_ui::pill(
-            vault_ui::category_label(req.category),
-            color,
-            None,
-            cx,
-        ))
-        .child(div().flex_1())
-        .children(req.domain.as_deref().map(|d| vault_ui::domain_chip(d, cx)));
+                .text_color(t.text_secondary)
+                .child(d.to_owned())
+        }));
 
     let source_toggle = (req.category == VaultCategory::Secrets).then(|| {
         let id = req_id.clone();
         let selected = usize::from(form.source_onepassword);
-        let source_now = if form.source_onepassword {
-            VaultSource::OnePassword {
-                reference: String::new(),
-            }
-        } else {
-            VaultSource::Sikemux
-        };
         let bench = handle.clone();
-        div()
-            .flex()
-            .flex_col()
-            .gap(SPACE_2)
-            .child(
-                ui::Segmented::words(
-                    SharedString::from(format!("vreq-src-{id}")),
-                    vec![
-                        (SharedString::from(t!("Sikemux Vault")), None),
-                        (SharedString::from("1Password (op://)"), None),
-                    ],
-                    selected,
-                )
-                .glyph(0, Icon::Lock)
-                .glyph(1, Icon::OnePassword)
-                .on_select(move |ix, _, cx| {
-                    let is_op = *ix == 1;
-                    let _ = bench.update(cx, |bench, cx| {
-                        if let Some(form) = bench.vault_cards.requests.get_mut(&id) {
-                            form.source_onepassword = is_op;
-                            form.error = None;
-                        }
-                        bench.vault_cards.notify(cx);
-                    });
-                }),
+        div().flex().child(
+            ui::Segmented::words(
+                SharedString::from(format!("vreq-src-{id}")),
+                vec![
+                    (SharedString::from(t!("Vault")), None),
+                    (SharedString::from("1Password"), None),
+                ],
+                selected,
             )
-            .child(vault_ui::honest_privacy_badge(&source_now, cx))
+            .glyph(0, Icon::Lock)
+            .glyph(1, Icon::OnePassword)
+            .on_select(move |ix, _, cx| {
+                let is_op = *ix == 1;
+                let _ = bench.update(cx, |bench, cx| {
+                    if let Some(form) = bench.vault_cards.requests.get_mut(&id) {
+                        form.source_onepassword = is_op;
+                        form.error = None;
+                    }
+                    bench.vault_cards.notify(cx);
+                });
+            }),
+        )
     });
 
     let payment_preview = (req.category == VaultCategory::Payments).then(|| {
@@ -685,24 +771,19 @@ fn render_request_card(
         )
     });
 
-    let doc_dropzone = (req.category == VaultCategory::Documents).then(|| {
+    let doc_slot = (req.category == VaultCategory::Documents).then(|| {
         let id = req_id.clone();
         let bench_pick = handle.clone();
-        let (name, sub, ready) = if let Some(path) = &form.doc_path {
+        let file_info = form.doc_path.as_ref().map(|path| {
             if let Some(proposed) = req
                 .proposed_document
                 .as_ref()
                 .filter(|doc| path.to_string_lossy() == doc.source_path)
             {
-                let sz = vault_ui::format_bytes(proposed.byte_len);
                 (
                     proposed.filename.clone(),
-                    format!(
-                        "{} · {sz} · {}",
-                        proposed.display_path,
-                        t!("Click to change")
-                    ),
-                    true,
+                    vault_ui::format_bytes(proposed.byte_len),
+                    Some(proposed.display_path.clone()),
                 )
             } else {
                 let fname = path
@@ -711,71 +792,101 @@ fn render_request_card(
                     .unwrap_or_else(|| path.to_string_lossy().into_owned());
                 let sz = std::fs::metadata(path)
                     .map(|m| vault_ui::format_bytes(m.len()))
-                    .unwrap_or_else(|_| t!("Ready").to_owned());
-                (
-                    fname,
-                    format!(
-                        "{sz} · {} · {}",
-                        t!("encrypted locally"),
-                        t!("Click to change")
-                    ),
-                    true,
-                )
+                    .unwrap_or_default();
+                (fname, sz, None)
             }
-        } else {
-            (
-                t!("Choose a file to encrypt & upload blind").to_owned(),
-                t!("PDF, image, or ID · agents never read the file").to_owned(),
-                false,
-            )
-        };
-        div()
+        });
+
+        let slot = div()
             .id(SharedString::from(format!("vreq-doc-{id}")))
             .w_full()
-            .px(SPACE_3)
-            .py(SPACE_2)
+            .h(px(40.))
+            .pl(SPACE_2H)
+            .pr(SPACE_1H)
             .rounded(theme::radius_2())
             .border(theme::border())
-            .when(!ready, |b| b.border_dashed().border_color(t.border_strong))
-            .when(ready, |b| b.border_color(t.live.opacity(0.45)))
+            .border_color(t.border)
             .bg(t.surface)
-            .hover(move |s| s.bg(t.surface_hover))
+            .hover(move |s| s.border_color(t.border_strong).bg(t.surface_hover))
             .cursor_pointer()
             .flex()
             .items_center()
-            .gap(SPACE_3)
+            .gap(SPACE_2)
             .clicks(move |_, window, cx| {
                 let _ = bench_pick.update(cx, |bench, cx| {
                     pick_request_doc(bench, id.clone(), window, cx)
                 });
-            })
-            .child(ui::icon(Icon::File, 16.).text_color(if ready { t.live } else { color }))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(SPACE_0)
-                    .child(
+            });
+
+        if let Some((filename, size_text, display_path)) = file_info {
+            let ext_badge = file_ext_badge(&filename, &t);
+            slot.when_some(display_path, |s, path| s.tooltip(ui::tooltip(path)))
+                .when_some(ext_badge, |s, badge| s.child(badge))
+                .when(std::path::Path::new(&filename).extension().is_none(), |s| {
+                    s.child(ui::icon(Icon::File, 14.).text_color(t.text_tertiary))
+                })
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(theme::ui_text(TEXT_XS_H))
+                        .text_color(t.text_primary)
+                        .child(filename),
+                )
+                .when(!size_text.is_empty(), |s| {
+                    s.child(
                         div()
-                            .truncate()
-                            .text_size(theme::ui_text(TEXT_XS))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(t.text_primary)
-                            .child(name),
-                    )
-                    .child(
-                        div()
-                            .truncate()
-                            .text_size(theme::ui_text(TEXT_3XS))
+                            .flex_none()
+                            .whitespace_nowrap()
+                            .text_size(theme::ui_text(TEXT_2XS))
                             .text_color(t.text_tertiary)
-                            .child(sub),
-                    ),
-            )
-            .when(ready, |b| {
-                b.child(vault_ui::pill(t!("Ready"), t.live, Some(Icon::Check), cx))
-            })
+                            .child(size_text),
+                    )
+                })
+                .child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(3.))
+                        .text_size(theme::ui_text(TEXT_2XS))
+                        .text_color(t.live)
+                        .child(ui::icon(Icon::Check, 10.5).text_color(t.live))
+                        .child(t!("Ready")),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .px(px(7.))
+                        .py(px(3.))
+                        .rounded(theme::radius_1())
+                        .text_size(theme::ui_text(TEXT_XS))
+                        .text_color(t.text_tertiary)
+                        .hover(move |s| s.bg(t.surface_chosen).text_color(t.text_primary))
+                        .child(t!("Change")),
+                )
+        } else {
+            slot.child(ui::icon(Icon::File, 15.).text_color(t.text_tertiary))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(theme::ui_text(TEXT_XS_H))
+                        .text_color(t.text_primary)
+                        .child(t!("Choose a file")),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .pr(SPACE_1)
+                        .whitespace_nowrap()
+                        .text_size(theme::ui_text(TEXT_2XS))
+                        .text_color(t.text_tertiary)
+                        .child(t!("PDF or image")),
+                )
+        }
     });
 
     let inputs: Vec<AnyElement> =
@@ -783,12 +894,8 @@ fn render_request_card(
             vec![div()
                 .flex()
                 .flex_col()
-                .gap(SPACE_1)
-                .child(vault_ui::field_label(
-                    t!("1Password reference"),
-                    Some(t!("Resolved on demand on host")),
-                    cx,
-                ))
+                .gap(SPACE_1H)
+                .child(vault_ui::field_label(t!("1Password reference"), None, cx))
                 .child(ui::Field::new(&form.op_ref).mono().small())
                 .into_any_element()]
         } else {
@@ -796,25 +903,20 @@ fn render_request_card(
                 .iter()
                 .enumerate()
                 .map(|(ix, f)| {
-                    let is_mono = f.sensitive
-                        || f.kind.is_inherently_sensitive()
+                    let is_mono = f.maskable
                         || matches!(
                             f.kind,
                             VaultFieldKind::CardNumber
                                 | VaultFieldKind::Expiry
                                 | VaultFieldKind::Cvc
                                 | VaultFieldKind::Totp
+                                | VaultFieldKind::TaxId
+                                | VaultFieldKind::AccountNumber
+                                | VaultFieldKind::Secret
+                                | VaultFieldKind::Password
                         );
-                    let hint = if !f.required {
-                        Some(t!("Optional"))
-                    } else if f.kind == VaultFieldKind::Totp {
-                        Some(t!("Codes generated on host"))
-                    } else if f.kind == VaultFieldKind::Cvc {
-                        Some(t!("Never exposed to agents"))
-                    } else {
-                        None
-                    };
-                    let eye = f.sensitive.then(|| {
+                    let hint = (!f.required).then_some(t!("Optional"));
+                    let eye = f.maskable.then(|| {
                         let id = req_id.clone();
                         let masked = f.masked;
                         let bench = handle.clone();
@@ -853,7 +955,7 @@ fn render_request_card(
                     div()
                         .flex()
                         .flex_col()
-                        .gap(SPACE_1)
+                        .gap(SPACE_1H)
                         .child(vault_ui::field_label(f.label.clone(), hint, cx))
                         .child(
                             div()
@@ -868,57 +970,24 @@ fn render_request_card(
                 .collect()
         };
 
-    let subtitle = req.reason.clone().unwrap_or_else(|| {
-        t!(
-            "{who} asked for this to fill the page blind. Entered values never enter the chat transcript.",
-            who = who
-        )
-    });
-
     let body = div()
-        .px(SPACE_4)
-        .py(SPACE_3)
+        .p(SPACE_3H)
         .flex()
         .flex_col()
-        .gap(SPACE_2)
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(SPACE_0)
-                .child(
-                    div()
-                        .text_size(theme::ui_text(TEXT_SM))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(t.text_primary)
-                        .child(req.title.clone()),
-                )
-                .child(
-                    div()
-                        .text_size(theme::ui_text(TEXT_XS))
-                        .text_color(t.text_tertiary)
-                        .child(subtitle),
-                ),
-        )
+        .gap(SPACE_3)
+        .child(head)
         .children(source_toggle)
         .children(payment_preview)
-        .children(doc_dropzone)
+        .children(doc_slot)
         .when(!inputs.is_empty(), |col| {
-            col.child(div().flex().flex_col().gap(SPACE_2).children(inputs))
+            col.child(div().flex().flex_col().gap(SPACE_2H).children(inputs))
         })
         .children(form.error.clone().map(|err| {
             div()
                 .text_size(theme::ui_text(TEXT_XS))
                 .text_color(t.danger)
                 .child(err)
-        }))
-        .child(vault_ui::whisper(
-            t!(
-                "Sealed locally · {who} only sees the vault reference, never raw values",
-                who = who
-            ),
-            cx,
-        ));
+        }));
 
     let decline_id = req_id.clone();
     let once_id = req_id.clone();
@@ -927,16 +996,20 @@ fn render_request_card(
     let bench_once = handle.clone();
     let bench_save = handle;
     let save_label = if req.domain.is_some() {
-        t!("Save to Vault & fill")
+        t!("Save & fill")
     } else {
         t!("Save to Vault")
     };
+    let trust_tip = t!(
+        "{who} gets only a vault reference, never the file or raw values",
+        who = who
+    );
     let foot = div()
-        .px(SPACE_4)
-        .py(SPACE_2)
+        .py(SPACE_2H)
+        .pl(SPACE_3H)
+        .pr(SPACE_2H)
         .border_t(theme::border())
-        .border_color(t.border)
-        .bg(t.surface_sunken.opacity(0.45))
+        .border_color(t.line)
         .flex()
         .flex_wrap()
         .items_center()
@@ -944,13 +1017,15 @@ fn render_request_card(
         .gap(SPACE_2)
         .child(
             div()
+                .id(SharedString::from(format!("vreq-trust-{req_id}")))
                 .flex()
                 .items_center()
                 .gap(SPACE_1H)
-                .text_size(theme::ui_text(TEXT_2XS))
+                .text_size(theme::ui_text(TEXT_2XS_H))
                 .text_color(t.text_tertiary)
-                .child(ui::icon(Icon::Lock, 11.).text_color(t.text_tertiary))
-                .child(vault_ui::protection_rule(req.category)),
+                .tooltip(ui::tooltip(trust_tip))
+                .child(ui::icon(Icon::Lock, 11.5).text_color(t.text_tertiary))
+                .child(t!("Sealed on this host")),
         )
         .child(
             div()
@@ -976,7 +1051,7 @@ fn render_request_card(
                         t!("Use once"),
                         ui::Variant::Outline,
                     )
-                    .disabled(form.busy)
+                    .disabled(!ready_to_submit)
                     .on_click(move |_, _, cx| {
                         let _ = bench_once.update(cx, |bench, cx| {
                             submit_request_card(bench, once_id.clone(), true, cx)
@@ -989,8 +1064,7 @@ fn render_request_card(
                         save_label,
                         ui::Variant::Primary,
                     )
-                    .icon(Icon::ShieldCheck)
-                    .disabled(form.busy)
+                    .disabled(!ready_to_submit)
                     .on_click(move |_, _, cx| {
                         let _ = bench_save.update(cx, |bench, cx| {
                             submit_request_card(bench, save_id.clone(), false, cx)
@@ -1004,12 +1078,10 @@ fn render_request_card(
         .rounded(theme::radius_3())
         .overflow_hidden()
         .border(theme::border())
-        .border_color(t.border_strong)
+        .border_color(t.border)
         .bg(t.surface_raised)
-        .shadow(theme::shadow_large())
         .flex()
         .flex_col()
-        .child(bar)
         .child(body)
         .child(foot);
 
@@ -1032,35 +1104,6 @@ fn render_approval_card(
         app.domain.clone()
     };
 
-    let bar = div()
-        .px(SPACE_3)
-        .py(SPACE_2)
-        .border_b(theme::border())
-        .border_color(t.border)
-        .bg(color.opacity(0.08))
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(SPACE_1H)
-                .text_size(theme::ui_text(TEXT_2XS))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(t.text_primary)
-                .child(ui::icon(vault_ui::category_icon(app.category), 12.).text_color(color))
-                .child(t!("Vault Fill Approval")),
-        )
-        .child(vault_ui::pill(
-            vault_ui::category_label(app.category),
-            color,
-            None,
-            cx,
-        ))
-        .child(div().flex_1())
-        .child(vault_ui::domain_chip(&domain, cx));
-
     let masked_hint = app.masked_summary.as_deref().unwrap_or("••••");
     let card_badge = (app.category == VaultCategory::Payments).then(|| {
         vault_ui::dark_glass_card(
@@ -1077,10 +1120,10 @@ fn render_approval_card(
         div()
             .flex()
             .flex_col()
-            .gap(SPACE_1)
+            .gap(SPACE_1H)
             .child(vault_ui::field_label(
                 t!("CVC / CVV"),
-                Some(t!("Used once for this fill · never saved")),
+                Some(t!("Optional")),
                 cx,
             ))
             .child(ui::Field::new(input).mono().small())
@@ -1124,23 +1167,42 @@ fn render_approval_card(
             .child(t!("Fields: {fields}", fields = app.field_keys.join(", ")))
     });
 
-    let body = div()
-        .px(SPACE_4)
-        .py(SPACE_3)
+    let head = div()
         .flex()
-        .flex_col()
-        .gap(SPACE_2)
+        .items_start()
+        .gap(SPACE_2H)
         .child(
             div()
+                .flex_none()
+                .pt(px(2.))
+                .child(ui::icon(vault_ui::category_icon(app.category), 14.).text_color(color)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
                 .flex()
                 .flex_col()
                 .gap(SPACE_0)
                 .child(
                     div()
-                        .text_size(theme::ui_text(TEXT_SM))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(t.text_primary)
-                        .child(app.entry_title.clone()),
+                        .flex()
+                        .items_center()
+                        .flex_wrap()
+                        .gap(SPACE_2)
+                        .child(
+                            div()
+                                .text_size(theme::ui_text(TEXT_SM))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(t.text_primary)
+                                .child(app.entry_title.clone()),
+                        )
+                        .child(vault_ui::pill(
+                            vault_ui::category_label(app.category),
+                            color,
+                            None,
+                            cx,
+                        )),
                 )
                 .child(
                     div()
@@ -1150,6 +1212,22 @@ fn render_approval_card(
                 )
                 .children(fields_line),
         )
+        .child(
+            div()
+                .flex_none()
+                .pt(px(2.))
+                .font_family(theme::mono_font())
+                .text_size(theme::ui_text(TEXT_2XS))
+                .text_color(t.text_secondary)
+                .child(domain.clone()),
+        );
+
+    let body = div()
+        .p(SPACE_3H)
+        .flex()
+        .flex_col()
+        .gap(SPACE_3)
+        .child(head)
         .children(card_badge)
         .children(cvc_row)
         .children(remember_row)
@@ -1158,15 +1236,7 @@ fn render_approval_card(
                 .text_size(theme::ui_text(TEXT_XS))
                 .text_color(t.danger)
                 .child(err)
-        }))
-        .child(vault_ui::whisper(
-            t!(
-                "Host injects directly into {domain} · {who} never sees the secret",
-                domain = domain,
-                who = who
-            ),
-            cx,
-        ));
+        }));
 
     let deny_id = app_id.clone();
     let approve_id = app_id.clone();
@@ -1182,22 +1252,34 @@ fn render_approval_card(
     } else {
         Icon::ShieldCheck
     };
+    let trust_tip = t!(
+        "Host injects directly into {domain} · {who} never sees the secret",
+        domain = domain,
+        who = who
+    );
 
     let foot = div()
-        .px(SPACE_4)
-        .py(SPACE_2)
+        .py(SPACE_2H)
+        .pl(SPACE_3H)
+        .pr(SPACE_2H)
         .border_t(theme::border())
-        .border_color(t.border)
-        .bg(t.surface_sunken.opacity(0.45))
+        .border_color(t.line)
         .flex()
+        .flex_wrap()
         .items_center()
         .justify_between()
         .gap(SPACE_2)
         .child(
             div()
-                .text_size(theme::ui_text(TEXT_2XS))
+                .id(SharedString::from(format!("vapp-trust-{app_id}")))
+                .flex()
+                .items_center()
+                .gap(SPACE_1H)
+                .text_size(theme::ui_text(TEXT_2XS_H))
                 .text_color(t.text_tertiary)
-                .child(t!("Requested by {who}", who = who)),
+                .tooltip(ui::tooltip(trust_tip))
+                .child(ui::icon(Icon::Lock, 11.5).text_color(t.text_tertiary))
+                .child(t!("Sealed on this host")),
         )
         .child(
             div()
@@ -1238,12 +1320,10 @@ fn render_approval_card(
         .rounded(theme::radius_3())
         .overflow_hidden()
         .border(theme::border())
-        .border_color(color.opacity(0.45))
+        .border_color(t.border)
         .bg(t.surface_raised)
-        .shadow(theme::shadow_large())
         .flex()
         .flex_col()
-        .child(bar)
         .child(body)
         .child(foot);
 

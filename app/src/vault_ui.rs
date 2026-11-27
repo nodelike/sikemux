@@ -511,25 +511,6 @@ pub fn field_label(label: impl Into<SharedString>, hint: Option<&'static str>, c
         }))
 }
 
-pub fn whisper(text: impl Into<SharedString>, cx: &App) -> Div {
-    let t = Tokens::get(cx);
-    div()
-        .w_full()
-        .px(SPACE_2)
-        .py(SPACE_1H)
-        .rounded(theme::radius_2())
-        .bg(t.surface_sunken)
-        .border(theme::border())
-        .border_color(t.border)
-        .flex()
-        .items_center()
-        .gap(SPACE_1H)
-        .text_size(theme::ui_text(TEXT_2XS))
-        .text_color(t.text_tertiary)
-        .child(ui::icon(Icon::EyeOff, 12.).text_color(t.text_tertiary))
-        .child(div().flex_1().min_w_0().truncate().child(text.into()))
-}
-
 pub fn empty_state(icon: Icon, title: &'static str, body: &'static str, cx: &App) -> Div {
     let t = Tokens::get(cx);
     div()

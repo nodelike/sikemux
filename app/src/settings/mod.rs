@@ -166,6 +166,16 @@ pub fn open(bench: &mut Workbench, page: Page, window: &mut Window, cx: &mut Con
     cx.notify();
 }
 
+/// Opens Settings on Browser Profiles and immediately creates a new profile ready to rename.
+pub fn open_add_browser_profile(
+    bench: &mut Workbench,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    open(bench, Page::BrowserProfiles, window, cx);
+    pages::browser_profiles::create_profile(bench, window, cx);
+}
+
 /// Scrolls the list of pages so the page shown is in it: to its end for a page in the
 /// lower half of the list, and to its start for the rest.
 fn reveal(settings: &Open) {

@@ -799,10 +799,10 @@ impl Render for Footer {
             (!cards.is_empty()).then(|| {
                 div()
                     .w_full()
-                    .pt(crate::theme::SPACE_2)
+                    .pt(crate::theme::SPACE_3)
                     .flex()
                     .flex_col()
-                    .gap(crate::theme::SPACE_2)
+                    .gap(crate::theme::SPACE_3)
                     .children(cards)
             })
         });
