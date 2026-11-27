@@ -419,7 +419,7 @@ fn a_graphql_read_is_not_a_write() {
             cwd,
             &[]
         ),
-        Goes::Unplaced
+        Goes::Asks
     );
     assert_eq!(
         judge_line(&[], "gh api repos/acme/web/issues -f title=x", cwd, &[]),

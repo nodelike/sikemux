@@ -2118,25 +2118,6 @@ impl ApiCall {
 
     fn graphql_lands(&self, cwd: &Path) -> Option<Lands> {
         const AUTO_MERGE: [&str; 2] = ["enablePullRequestAutoMerge", "enqueuePullRequest"];
-        const MUTATIONS: [&str; 17] = [
-            "mergePullRequest",
-            "createCommitOnBranch",
-            "createRef",
-            "updateRef",
-            "updateRefs",
-            "deleteRef",
-            "mergeBranch",
-            "revertPullRequest",
-            "createBranchProtectionRule",
-            "updateBranchProtectionRule",
-            "deleteBranchProtectionRule",
-            "createRepositoryRuleset",
-            "updateRepositoryRuleset",
-            "deleteRepositoryRuleset",
-            "updateRepository",
-            "deleteRepository",
-            "transferRepository",
-        ];
         let Ok(query) = self.said("query", cwd, &|file| {
             std::fs::read_to_string(cwd.join(file)).ok()
         }) else {
@@ -2147,9 +2128,7 @@ impl ApiCall {
         if words.clone().any(|word| AUTO_MERGE.contains(&word)) {
             return Some(Lands::AutoMerge);
         }
-        words
-            .any(|word| MUTATIONS.contains(&word))
-            .then_some(Lands::Any)
+        words.any(|word| word == "mutation").then_some(Lands::Any)
     }
 
     /// What it sends as the field `name`, none when it doesn't send it.
@@ -2254,20 +2233,36 @@ pub fn github_api(args: &[impl AsRef<str>]) -> Option<ApiCall> {
     })
 }
 
-/// A `gh api` endpoint as GitHub reads it: without its host, doubled slashes or escapes.
+/// A `gh api` endpoint as GitHub reads it: without its host, doubled slashes, dot segments or
+/// escapes.
 fn plain_endpoint(said: &str) -> String {
+    let has_host = said.contains("://");
     let path = match said.split_once("://") {
-        Some((_, rest)) => {
-            let path = rest.split_once('/').map_or("", |(_, path)| path);
-            path.strip_prefix("api/v3/").unwrap_or(path)
-        }
+        Some((_, rest)) => rest.split_once('/').map_or("", |(_, path)| path),
         None => said,
     };
     let (path, query) = path
         .find(['?', '#'])
         .map_or((path, ""), |at| path.split_at(at));
     let decoded = sikemux_base::http::percent_decode(path).unwrap_or_else(|| path.to_owned());
-    let parts: Vec<&str> = decoded.split('/').filter(|part| !part.is_empty()).collect();
+    let mut parts: Vec<&str> = Vec::new();
+    for part in decoded.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => match parts.last() {
+                Some(&"..") | None => parts.push(".."),
+                Some(_) => {
+                    parts.pop();
+                }
+            },
+            other => parts.push(other),
+        }
+    }
+    if has_host {
+        if let ["api", "v3", rest @ ..] = parts.as_slice() {
+            parts = rest.to_vec();
+        }
+    }
     format!("{}{query}", parts.join("/"))
 }
 
