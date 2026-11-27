@@ -69,13 +69,12 @@ impl Render for Bench {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = Tokens::get(cx).clone();
         window.set_ground(Some(t.surface_sunken));
-        let ground = grain::pane_ground(None, cx);
-        let rows = self.panes.chunks(COLUMNS).map(|row| {
-            div()
-                .flex()
-                .flex_1()
-                .gap(px(6.))
-                .children(row.iter().map(|lines| {
+        let mut rows = Vec::new();
+        for row in self.panes.chunks(COLUMNS) {
+            let mut cells = Vec::new();
+            for lines in row {
+                let ground = grain::pane_ground(None, 0., cx);
+                cells.push(
                     div()
                         .relative()
                         .flex_1()
@@ -83,7 +82,7 @@ impl Render for Bench {
                         .rounded(theme::radius_3())
                         .border_1()
                         .border_color(t.border)
-                        .child(ground(0.))
+                        .child(ground)
                         .child(
                             div()
                                 .p(px(8.))
@@ -91,9 +90,11 @@ impl Render for Bench {
                                 .text_size(px(11.))
                                 .text_color(t.text_secondary)
                                 .children(lines.iter().map(|line| div().child(line.clone()))),
-                        )
-                }))
-        });
+                        ),
+                );
+            }
+            rows.push(div().flex().flex_1().gap(px(6.)).children(cells));
+        }
         div()
             .size_full()
             .flex()
@@ -194,7 +195,7 @@ impl Render for WelcomeView {
             .relative()
             .size_full()
             .bg(t.surface_sunken)
-            .child(grain::pane_ground(None, cx)(1.))
+            .child(grain::pane_ground(None, 1., cx))
             .child(
                 div()
                     .size_full()
@@ -203,7 +204,7 @@ impl Render for WelcomeView {
                     .items_center()
                     .justify_center()
                     .gap(px(24.))
-                    .children(grain::welcome_mark(1., 116., cx))
+                    .child(grain::welcome_mark(116.))
                     .child(
                         div()
                             .relative()
@@ -339,6 +340,12 @@ fn offscreen(frames: usize) -> anyhow::Result<()> {
     cx.run_until_parked();
     let mut took = Vec::with_capacity(frames);
     for frame in 0..frames + 10 {
+        let angle = frame as f32 * 0.14;
+        let ptr = [
+            WINDOW_SIZE.0 * 0.5 + angle.cos() * 140.,
+            WINDOW_SIZE.1 * 0.38 + angle.sin() * 90.,
+        ];
+        cx.update(|cx| sikemux_gpui::ui::welcome_dots::bench_pointer_move(ptr, cx));
         let started = std::time::Instant::now();
         cx.update_window(window.into(), |_, window, cx| {
             window.refresh();
@@ -349,13 +356,15 @@ fn offscreen(frames: usize) -> anyhow::Result<()> {
             took.push(started.elapsed().as_secs_f64() * 1000.);
         }
     }
+    let (field_n, draw_n, awake, step_us, collect_us, emit_us) =
+        cx.update(|cx| sikemux_gpui::ui::welcome_dots::bench_stats(cx));
     took.sort_by(f64::total_cmp);
     let mean = took.iter().sum::<f64>() / took.len() as f64;
     let p95 = *took
         .get(took.len() * 95 / 100)
         .context("no frames were timed")?;
     println!(
-        "{:>8}: {mean:.3} ms a frame (p95 {p95:.3}), {:+.3} ms over no backdrop",
+        "{:>8}: {mean:.3} ms a frame (p95 {p95:.3}), {:+.3} ms over no backdrop ({field_n} field, {draw_n} drawn, awake={awake}, step={step_us}us, collect={collect_us}us, emit={emit_us}us)",
         "welcome",
         mean - empty
     );

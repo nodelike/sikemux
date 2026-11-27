@@ -173,17 +173,7 @@ fn under_header(
     ui::pane_frame(cx)
         .flex()
         .flex_col()
-        .when(glow > 0. && !cx.reduce_motion(), |frame| {
-            let bench = cx.weak_entity();
-            frame.on_mouse_move(move |event, _, cx| {
-                if crate::ui::grain::welcome_pointer_move(event.position, cx) {
-                    let _ = bench.update(cx, |bench, cx| {
-                        bench.parts.redraw(&bench.parts.stage, cx);
-                    });
-                }
-            })
-        })
-        .child(crate::ui::grain::pane_ground(agent, cx)(glow))
+        .child(crate::ui::grain::pane_ground(agent, glow, cx))
         .children(header)
         .child(
             div()
@@ -298,13 +288,8 @@ pub fn welcome_over(
         .child(div().w_full().child(under))
 }
 
-fn logo(shown: f32, cx: &App) -> AnyElement {
-    match crate::ui::grain::welcome_mark(shown, LOGO_SIZE, cx) {
-        Some(mark) => mark.into_any_element(),
-        None => ui::icon(Icon::Logo, LOGO_SIZE)
-            .text_color(Tokens::get(cx).accent)
-            .into_any_element(),
-    }
+fn logo(_shown: f32, _cx: &App) -> AnyElement {
+    crate::ui::grain::welcome_mark(LOGO_SIZE).into_any_element()
 }
 
 const LOGO_SIZE: f32 = 116.;

@@ -26,6 +26,7 @@ pub(crate) mod slice_state;
 mod state_mark;
 mod stepper;
 pub mod time;
+pub mod welcome_dots;
 pub mod yolo;
 
 pub use controls::{
