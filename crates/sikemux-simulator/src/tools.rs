@@ -24,6 +24,8 @@ pub(crate) const SCREEN_READY_READS: usize = 30;
 pub(crate) const SCREEN_READY_STEP: Duration = Duration::from_secs(1);
 /// Enough reads for an app to finish launching, about three and a half seconds.
 const SETTLE_READS: usize = 12;
+/// Bounded retries for a transient empty app tree (such as a modal fade-out): ~500 ms.
+const EMPTY_READS: usize = 5;
 /// Elements whose centre is above this are the status bar's: time, signal, battery.
 const STATUS_BAR_HEIGHT: f64 = 60.0;
 /// How many reads, a step apart, to wait for a launched app to come to the front: ten seconds.
@@ -49,18 +51,21 @@ const TURN_READS: usize = 20;
 pub(crate) struct Steps {
     pub settle: Duration,
     pub turn: Duration,
+    pub empty: Duration,
 }
 
 impl Steps {
     pub const DEVICE: Self = Self {
         settle: Duration::from_millis(300),
         turn: Duration::from_millis(150),
+        empty: Duration::from_millis(100),
     };
     /// For a stand-in helper in tests, whose screen never moves.
     #[cfg(all(test, unix))]
     pub const STAND_IN: Self = Self {
         settle: Duration::from_millis(10),
         turn: Duration::from_millis(10),
+        empty: Duration::from_millis(10),
     };
 }
 
@@ -1552,21 +1557,38 @@ async fn settled_state_with_read(
 ) -> Result<(Value, Read), String> {
     let device = attached(manager, agent_id)?;
     let mut latest = read_screen(manager, &device).await?;
-    if let Some(before) = before {
+    if let Some(before) = before.as_ref() {
         for _ in 0..CHANGE_READS {
-            if latest != before || near_deadline() {
+            if &latest != before || near_deadline() {
                 break;
             }
             pause(manager.steps().settle).await?;
             latest = read_screen(manager, &device).await?;
         }
     }
+    let retry_empty = |read: &Read| {
+        read.elements.is_empty()
+            && !is_launching(read)
+            && before
+                .as_ref()
+                .is_none_or(|before| !before.elements.is_empty() || before.app != read.app)
+    };
     let mut reads = 1;
+    let mut empty_reads = 0;
     while !near_deadline() {
-        pause(manager.steps().settle).await?;
+        let step = if retry_empty(&latest) && empty_reads < EMPTY_READS {
+            manager.steps().empty
+        } else {
+            manager.steps().settle
+        };
+        pause(step).await?;
         let next = read_screen(manager, &device).await?;
-        let opening = launching(&(next.app.clone(), next.elements.clone()));
-        let settled = next == latest && !opening;
+        let opening = is_launching(&next);
+        let waiting_empty = retry_empty(&next) && {
+            empty_reads += 1;
+            empty_reads < EMPTY_READS
+        };
+        let settled = next == latest && !opening && !waiting_empty;
         latest = next;
         reads += 1;
         if settled || (reads >= SETTLE_READS && !opening) {
@@ -1676,6 +1698,14 @@ pub(super) fn launching(screen: &(String, Vec<Element>)) -> bool {
     let (app, elements) = screen;
     app == SYSTEM
         && elements
+            .iter()
+            .all(|element| element.center.1 < STATUS_BAR_HEIGHT)
+}
+
+fn is_launching(read: &Read) -> bool {
+    read.app == SYSTEM
+        && read
+            .elements
             .iter()
             .all(|element| element.center.1 < STATUS_BAR_HEIGHT)
 }

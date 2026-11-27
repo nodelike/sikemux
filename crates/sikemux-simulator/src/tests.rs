@@ -1274,6 +1274,104 @@ done
         assert!(explicit.get("note").is_none(), "{explicit}");
     }
 
+    #[test]
+    fn sim_tap_waits_out_transient_empty_tree_and_bounds_genuinely_empty_screens() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("requests");
+        let mode = dir.path().join("mode");
+        let count = dir.path().join("empty-count");
+        std::fs::write(&mode, "modal").unwrap();
+        std::fs::write(&count, "0").unwrap();
+        let script = format!(
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> '{log}'
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+  case "$line" in
+    *'"type":"devices"'*) echo "{{\"id\":$id,\"type\":\"result\",\"devices\":[{{\"udid\":\"P1\",\"name\":\"iPad Pro 11-inch (M5)\",\"runtime\":\"iOS 27.0\",\"state\":\"booted\"}}]}}" ;;
+    *'"type":"screen"'*) echo "{{\"id\":$id,\"type\":\"result\",\"width\":834,\"height\":1194,\"scale\":2}}" ;;
+    *'"type":"tap"'*)
+      cur=$(cat '{mode}')
+      if [ "$cur" = "modal" ]; then
+        printf 'fade' > '{mode}'
+        printf '0' > '{count}'
+      elif [ "$cur" = "home" ]; then
+        printf 'blank' > '{mode}'
+      fi
+      echo "{{\"id\":$id,\"type\":\"result\"}}"
+      ;;
+    *'"type":"tree"'*)
+      cur=$(cat '{mode}')
+      if [ "$cur" = "modal" ]; then
+        echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}},\"children\":[{{\"type\":\"Button\",\"label\":\"Continue Watching\",\"enabled\":true,\"frame\":{{\"x\":200,\"y\":500,\"width\":400,\"height\":48}}}}]}}]}}"
+      elif [ "$cur" = "fade" ]; then
+        n=$(cat '{count}')
+        n=$((n + 1))
+        printf '%s' "$n" > '{count}'
+        if [ "$n" -le 3 ]; then
+          echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}},\"children\":[]}}]}}"
+        else
+          printf 'home' > '{mode}'
+          echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}},\"children\":[{{\"type\":\"StaticText\",\"label\":\"Course Home\",\"enabled\":true,\"frame\":{{\"x\":40,\"y\":120,\"width\":300,\"height\":32}}}},{{\"type\":\"Button\",\"label\":\"Open Canvas\",\"enabled\":true,\"frame\":{{\"x\":40,\"y\":220,\"width\":300,\"height\":48}}}}]}}]}}"
+        fi
+      elif [ "$cur" = "home" ]; then
+        echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}},\"children\":[{{\"type\":\"StaticText\",\"label\":\"Course Home\",\"enabled\":true,\"frame\":{{\"x\":40,\"y\":120,\"width\":300,\"height\":32}}}},{{\"type\":\"Button\",\"label\":\"Open Canvas\",\"enabled\":true,\"frame\":{{\"x\":40,\"y\":220,\"width\":300,\"height\":48}}}}]}}]}}"
+      else
+        echo "{{\"id\":$id,\"type\":\"result\",\"elements\":[{{\"type\":\"Application\",\"label\":\"Academy\",\"frame\":{{\"x\":0,\"y\":0,\"width\":834,\"height\":1194}},\"children\":[]}}]}}"
+      fi
+      ;;
+    *) echo "{{\"id\":$id,\"type\":\"result\"}}" ;;
+  esac
+done
+"#,
+            log = log.display(),
+            mode = mode.display(),
+            count = count.display(),
+        );
+        let (_dir, manager) = helper(&script);
+        let call = |method: &str, params: serde_json::Value| {
+            run_now(&manager, "agent-fade", "/tmp", method, &params)
+        };
+        let tree_reads = || {
+            std::fs::read_to_string(&log)
+                .unwrap()
+                .lines()
+                .filter(|line| line.contains(r#""type":"tree""#))
+                .count()
+        };
+
+        call("sim.attach", json!({ "device": "iPad Pro 11-inch (M5)" })).expect("attach");
+
+        // Dismissing a fading modal returns 3 transient empty trees before the underlying screen appears.
+        let dismissed = call(
+            "sim.tap",
+            json!({ "label": "Continue Watching", "report": "full" }),
+        )
+        .expect("dismiss modal");
+        let lines: Vec<&str> = dismissed["elements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| line.as_str().unwrap())
+            .collect();
+        assert!(
+            lines.iter().any(|line| line.contains("Course Home")),
+            "transient empty fade should settle onto the underlying screen: {dismissed}"
+        );
+
+        // Transitioning to a genuinely empty screen stops after a bounded number of empty retries.
+        let before_blank = tree_reads();
+        let blank = call(
+            "sim.tap",
+            json!({ "label": "Open Canvas", "report": "full" }),
+        )
+        .expect("open blank screen");
+        assert_eq!(blank["elements"], json!([]));
+        let blank_reads = tree_reads() - before_blank;
+        // 1 pre-tap read + 1 initial post-tap read + 5 bounded empty retries = 7 tree reads.
+        assert_eq!(blank_reads, 7, "genuinely empty screen must stop promptly");
+    }
+
     /// Drives the fixture app the way an agent would, through every kind of tool:
     /// `pnpm build:sim-fixture`, then
     /// `SIKEMUX_SIM_EXECUTABLE=… SIKEMUX_SIM_FIXTURE=…/SimFixture.app cargo test --lib simulator -- --ignored`.
