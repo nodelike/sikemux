@@ -13,7 +13,7 @@ use sikemux_process::user_environment;
 use sikemux_pty::user_shell::login_shell_environment;
 use tokio::sync::{Notify, Semaphore, SemaphorePermit};
 
-use crate::agent_catalog::{AgentEntry, AGENTS};
+use crate::agent_catalog::AgentEntry;
 use crate::flights::{shared, Flights};
 
 /* Two seconds is what a person waits for an agent binary to name its version
@@ -42,6 +42,11 @@ fn push_agent_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
 }
 
 fn automatic_candidates(def: &AgentEntry) -> Vec<PathBuf> {
+    if def.command.contains(['/', '\\']) || def.command.starts_with('~') {
+        let mut candidates = explicit_candidates(def.command);
+        candidates.retain(|candidate| candidate.is_file());
+        return candidates;
+    }
     let mut candidates = user_environment::find_agents(def.command);
     if user_environment::search_path_only() {
         return candidates;
@@ -303,10 +308,7 @@ pub fn candidates(def: &AgentEntry, explicit: Option<&str>) -> Vec<PathBuf> {
 /// The program to run as `agent`: the one `explicit` names, else the first found where its
 /// installers put it that works.
 pub async fn resolve(agent: &str, explicit: Option<&str>) -> Result<PathBuf, String> {
-    let def = AGENTS
-        .iter()
-        .find(|def| def.kind == agent)
-        .ok_or("Unknown agent provider")?;
+    let def = crate::agent_catalog::agent(agent).ok_or("Unknown agent provider")?;
     let (resolved, failures) = first_healthy(def, candidates(def, explicit)).await;
     resolved.ok_or_else(|| {
         if failures.is_empty() {

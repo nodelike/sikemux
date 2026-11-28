@@ -29,7 +29,7 @@ use tokio::sync::Notify;
 
 use crate::agent_accounts::status::{self, AgentStatus};
 use crate::agent_accounts::{by_hand, Book};
-use crate::agent_catalog::{AgentKind, AGENTS};
+use crate::agent_catalog::AgentKind;
 use crate::cli::protocol::is_tool_agent_id;
 use crate::launch::providers::{Helper, Providers, Wiring};
 use crate::launch::{skills, AgentSpec, PermissionMode};

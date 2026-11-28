@@ -1067,7 +1067,7 @@ pub(super) async fn installed(core: &Arc<Core>) -> CoreResult<Vec<Installed>> {
         .accounts()
         .unwrap_or_default()
         .with_built_ins();
-    let listed = AGENTS.iter().filter_map(|def| {
+    let listed = crate::agent_catalog::all().into_iter().filter_map(|def| {
         let profile = book.in_use(def.kind);
         let explicit = profile.and_then(|profile| profile.executable_path.as_deref());
         (def.accounts || !discovery::candidates(def, explicit).is_empty())
@@ -1135,8 +1135,10 @@ pub(super) async fn setup(core: &Arc<Core>) -> CoreResult<Vec<Installed>> {
 /// `found` with the installable agents it lacks, ready ones first, then the featured,
 /// each in the catalog's order.
 fn setup_list(mut agents: Vec<Installed>) -> Vec<Installed> {
-    let missing: Vec<&AgentEntry> = AGENTS
+    let catalog = crate::agent_catalog::all();
+    let missing: Vec<&AgentEntry> = catalog
         .iter()
+        .copied()
         .filter(|def| def.install.is_some() && !agents.iter().any(|agent| agent.kind == def.kind))
         .collect();
     agents.extend(missing.into_iter().map(|def| Installed {
@@ -1159,9 +1161,9 @@ fn setup_list(mut agents: Vec<Installed>) -> Vec<Installed> {
     }));
     agents.sort_by_key(|agent| {
         let ready = agent.available && agent.status != status::AgentStatus::SignedOut;
-        let at = AGENTS.iter().position(|def| def.kind == agent.kind);
+        let at = catalog.iter().position(|def| def.kind == agent.kind);
         let featured = at
-            .and_then(|at| AGENTS.get(at))
+            .and_then(|at| catalog.get(at))
             .is_some_and(|def| def.featured);
         (!ready, !featured, at)
     });

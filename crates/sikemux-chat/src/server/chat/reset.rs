@@ -498,10 +498,7 @@ fn say(feed: &Arc<Feed>, update: Value) {
 }
 
 fn resume_notice(provider: &str, at: u64) -> Value {
-    let agent = crate::agent_catalog::AGENTS
-        .iter()
-        .find(|agent| agent.kind == provider)
-        .map_or(provider, |agent| agent.label);
+    let agent = crate::agent_catalog::agent(provider).map_or(provider, |agent| agent.label);
     let mut update = notice(
         "info",
         &format!("Resumes {} when your {agent} limit resets", when(at)),

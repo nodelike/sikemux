@@ -18,7 +18,7 @@ use super::antigravity;
 use super::folders::{claude_config_file, link_shared, sessions_root};
 use super::usage::codex_app_server;
 use super::{cli, key};
-use crate::agent_catalog::{self, AgentKind, AGENTS};
+use crate::agent_catalog::{self, AgentKind};
 use crate::launch::{discovery, AgentSpec};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -209,7 +209,7 @@ fn sign_in_of(account: &Result<AccountStatus, String>) -> AgentStatus {
 
 /// Where `spec`'s program is, and why each program tried before it failed.
 pub async fn locate(spec: &AgentSpec) -> (Option<PathBuf>, Vec<String>) {
-    let Some(def) = AGENTS.iter().find(|def| def.kind == spec.provider) else {
+    let Some(def) = agent_catalog::agent(&spec.provider) else {
         return (None, Vec::new());
     };
     let candidates = discovery::candidates(def, spec.executable_path.as_deref());

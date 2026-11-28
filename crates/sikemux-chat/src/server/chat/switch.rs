@@ -1,6 +1,6 @@
 //! A lead switching a chat's model, or the agent it runs on, between messages.
 
-use crate::agent_catalog::{AgentEntry, AGENTS};
+use crate::agent_catalog::AgentEntry;
 use crate::server::chat_state::ChatParts;
 use crate::server::workspace::launcher_of;
 use crate::server::workspace_state::WorkspaceParts;
@@ -78,7 +78,7 @@ fn named(run_on: &str) -> (Option<&'static AgentEntry>, Option<&str>) {
 
 fn chat_agent(name: &str) -> Option<&'static AgentEntry> {
     let name = name.trim();
-    (AGENTS.iter())
+    (crate::agent_catalog::all().into_iter())
         .filter(|entry| entry.chat.is_some())
         .find(|entry| {
             entry.kind.eq_ignore_ascii_case(name) || entry.label.eq_ignore_ascii_case(name)

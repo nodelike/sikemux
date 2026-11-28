@@ -68,6 +68,7 @@ impl AgentSpec {
         let account = account_environment(&self.provider, self.config_path.as_deref());
         let account_dir = account.as_ref().map(|(_, dir)| PathBuf::from(dir));
         env.extend(account);
+        env.extend(crate::custom_agents::env_for(&self.provider));
         env.extend(providers);
         if let Some(path) = sikemux_process::user_environment::var("PATH") {
             env.insert("PATH".into(), path);
