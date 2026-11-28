@@ -1110,6 +1110,47 @@ async fn just_tell_me_covers_plain_pushes_and_nothing_else() {
     assert!(went.is_some());
 }
 
+/// Every plain push to the branch Vercel deploys from asked, on a confirmed list too: its ask
+/// offered "from now on just tell me" and never "always allow deploys there".
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_that_deploys_offers_to_always_allow_deploys_at_its_place() {
+    let dir = repo();
+    let (cwd, project) = work_of(&dir);
+    std::fs::write(cwd.join("vercel.json"), "{}").unwrap();
+    let core = core_at(None, &project, found::in_files(&cwd));
+    let push = |what: &str| Ship {
+        kind: ShipKind::Push,
+        what: what.to_owned(),
+        target: None,
+    };
+    let offered = |call: &PersonCall| (call.options.iter()).any(|o| o.id == ship::ALWAYS);
+    assert!(run(&core, push("git push origin HEAD:main"), &cwd).is_err());
+    let call = open_calls(&core).remove(0);
+    assert!(offered(&call));
+    answer(&core, &call.id, ship::ALWAYS).await;
+    std::fs::write(cwd.join("app.txt"), "three\n").unwrap();
+    git(&cwd, &["commit", "-am", "three"]);
+    let went = run(&core, push("git push origin HEAD:main"), &cwd).unwrap();
+    assert!(went.is_some());
+    for other in [
+        push("git push --force origin HEAD:main"),
+        push("git push origin :main"),
+        Ship {
+            kind: ShipKind::Merge,
+            what: "gh pr merge 5 --admin".to_owned(),
+            target: None,
+        },
+        deploy("vercel env add SECRET production"),
+    ] {
+        assert!(
+            run(&core, other.clone(), &cwd).is_err(),
+            "{} ran",
+            other.what
+        );
+        assert!(!open_calls(&core).iter().any(&offered), "{}", other.what);
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_yes_to_a_push_covers_that_push() {
     let dir = repo();
