@@ -281,15 +281,15 @@ pub fn just_tell(core: &Core, project: &str, place: Place, repository: &str, fro
 
 /// The person said on a call to let agents deploy to the place `id` from now on and tell them
 /// of each: a release, a push that does more than send commits, or a change that is no deploy
-/// still waits for their yes. Only once they confirmed the list, and only for a place that
-/// still asks; false when it set nothing.
+/// still waits for their yes. Only for a place that still asks; false when it set nothing. On
+/// a list they haven't confirmed it is their word on that place alone, and the rest still waits.
 pub fn always_tell(core: &Core, project: &str, id: &str, from: Option<String>) -> bool {
     let mut set = false;
     let stored = tapped(core, project, |kept| {
         let confirmed = kept.confirmed.is_some();
         let place = (kept.places.iter_mut())
             .find(|place| place.shown.id == id)
-            .filter(|place| confirmed && place.asks(confirmed));
+            .filter(|place| place.asks(confirmed));
         if let Some(place) = place {
             place.shown.was = Some(Level::Mine);
             place.shown.level = Level::TellMe;
