@@ -40,6 +40,9 @@ const STORAGE_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
 const PIDOF_TIMEOUT: Duration = Duration::from_secs(3);
 const PACKAGE_SIZES_TIMEOUT: Duration = Duration::from_secs(10);
 const PACKAGE_SIZES_CMD: &str = r#"pm list packages -3 -f | while IFS= read -r line; do p=${line#package:}; [ "$p" = "$line" ] && continue; pkg=${p##*=}; apk=${p%=*}; dir=${apk%/*}; set -- $(du -sk "$dir" 2>/dev/null); kb=$1; if [ -z "$kb" ]; then set -- $(du -sk "$apk" 2>/dev/null); kb=$1; fi; printf '%s %s\n' "${kb:-0}" "$pkg"; done"#;
+const DISPLAY_PROBE_CMD: &str = "wm size; echo '---'; wm density";
+const ATTACH_PROBE_CMD: &str =
+    "wm size; echo '---'; wm density; echo '---'; settings get system font_scale; echo '---'; getprop sys.boot_completed";
 const SWIPE_STEP: f64 = 1.0 / 60.0;
 
 /// Whether `udid` names an Android device rather than an iOS simulator.
@@ -403,34 +406,70 @@ impl Android {
         answer
     }
 
+    fn record_display(&self, serial: &str, display: Display, rotation: Option<u8>) {
+        self.displays.locked().insert(serial.to_owned(), display);
+        if let Some(rotation) = rotation {
+            self.rotations.locked().insert(serial.to_owned(), rotation);
+        }
+    }
+
     async fn display(&self, serial: &str) -> SimResult<Display> {
         if let Some(known) = self.displays.locked().get(serial) {
             return Ok(*known);
         }
-        let size = self.shell(serial, "wm size").await?;
-        let density = self.shell(serial, "wm density").await?;
-        let last = |text: &str, wanted: &str| {
-            text.lines()
-                .filter(|line| line.contains(wanted))
-                .filter_map(|line| line.rsplit(':').next().map(str::trim).map(str::to_owned))
-                .next_back()
-        };
-        let (width, height) = last(&size, "size")
-            .and_then(|size| {
-                let (width, height) = size.split_once('x')?;
-                Some((width.parse::<f64>().ok()?, height.parse::<f64>().ok()?))
-            })
+        self.refresh_display(serial).await
+    }
+
+    async fn refresh_display(&self, serial: &str) -> SimResult<Display> {
+        let output = self.shell(serial, DISPLAY_PROBE_CMD).await?;
+        let state = parse_display_probe(&output);
+        let display = state
+            .effective_display()
             .ok_or("the device did not say how large its screen is")?;
-        let density: f64 = last(&density, "density")
-            .and_then(|density| density.parse().ok())
-            .unwrap_or(160.);
-        let display = Display {
-            width,
-            height,
-            scale: density / 160.,
-        };
-        self.displays.locked().insert(serial.to_owned(), display);
+        self.record_display(serial, display, None);
         Ok(display)
+    }
+
+    pub(crate) async fn prepare_attach(
+        &self,
+        udid: &str,
+        reset_overrides: bool,
+    ) -> SimResult<Option<String>> {
+        let mut serial = self.serial(udid).await?;
+        let mut output = self.shell(&serial, ATTACH_PROBE_CMD).await?;
+        let mut parsed = parse_attach_probe(&output);
+        if !is_phone(udid) && parsed.boot_completed.is_some_and(|done| !done) {
+            let budget = crate::remaining().unwrap_or(Duration::from_secs(60));
+            self.boot(udid, budget).await?;
+            serial = self.serial(udid).await?;
+            output = self.shell(&serial, ATTACH_PROBE_CMD).await?;
+            parsed = parse_attach_probe(&output);
+        }
+        let state = parsed.display;
+        if let Some(display) = state.effective_display() {
+            self.record_display(&serial, display, None);
+        }
+        if !state.has_overrides() {
+            return Ok(None);
+        }
+        if reset_overrides && !is_phone(udid) {
+            let (commands, changes) = state.reset_plan();
+            if !commands.is_empty() {
+                self.shell(&serial, &commands.join("; ")).await?;
+                self.displays.locked().remove(&serial);
+                return Ok(Some(format!(
+                    "Reset display overrides from an earlier session ({}).",
+                    changes.join(", ")
+                )));
+            }
+        }
+        let active = state.describe_overrides();
+        Ok((!active.is_empty()).then(|| {
+            format!(
+                "Non-default display overrides active ({}).",
+                active.join(", ")
+            )
+        }))
     }
 
     /// The screen's corner radius as a share of its short side, as Android rounds the corners
@@ -497,7 +536,7 @@ impl Android {
             "mask" => Ok(json!({ "mask": null, "corner": self.corner(&udid).await })),
             "screen" => {
                 let serial = self.serial(&udid).await?;
-                let display = self.display(&serial).await?;
+                let display = self.refresh_display(&serial).await?;
                 let orientation = self.orientation_now(&serial).await;
                 let (width, height) = turned(display, &orientation);
                 Ok(json!({
@@ -509,8 +548,14 @@ impl Android {
             }
             "tree" => {
                 let serial = self.serial(&udid).await?;
-                let display = self.display(&serial).await?;
                 let read = self.device(&serial, "tree", Map::new(), limit).await?;
+                let display = match read.get("display").and_then(display_from_value) {
+                    Some((display, rotation)) => {
+                        self.record_display(&serial, display, rotation);
+                        display
+                    }
+                    None => self.display(&serial).await?,
+                };
                 let launcher = self.launcher(&serial).await;
                 let package = read
                     .get("package")
@@ -614,11 +659,18 @@ impl Android {
                 let point_size = fields.get("pointSize").and_then(Value::as_bool) == Some(true);
                 let mut asked = Map::new();
                 asked.insert("format".into(), if jpeg { "jpeg" } else { "png" }.into());
+                asked.insert("pointSize".into(), point_size.into());
                 asked.insert(
                     "scale".into(),
                     if point_size { 1. / display.scale } else { 1. }.into(),
                 );
-                let shot = self.device(&serial, "screenshot", asked, limit).await?;
+                let mut shot = self.device(&serial, "screenshot", asked, limit).await?;
+                if let Some((fresh, rotation)) = shot.get("display").and_then(display_from_value) {
+                    self.record_display(&serial, fresh, rotation);
+                }
+                if let Some(object) = shot.as_object_mut() {
+                    object.remove("display");
+                }
                 match saving {
                     Some(path) => save_screenshot(&shot, &path),
                     None => Ok(shot),
@@ -653,9 +705,8 @@ impl Android {
                 Ok(json!({}))
             }
             "install" => {
-                let serial = self.serial(&udid).await?;
                 let path = text("path").ok_or("path is required")?;
-                self.install(&serial, path).await
+                self.install(&udid, path).await
             }
             "uninstall" => {
                 let serial = self.serial(&udid).await?;
@@ -691,7 +742,15 @@ impl Android {
                 let limit = fields.get("limit").and_then(Value::as_u64).unwrap_or(200) as usize;
                 let after = fields.get("after").and_then(Value::as_u64).unwrap_or(0);
                 let generation = fields.get("generation").and_then(Value::as_i64);
-                Ok(tail.read(pids.as_deref(), after, limit.clamp(1, 2000), generation))
+                let filter = crate::tools::LogFilter::from_params(&Value::Object(fields))?;
+                Ok(tail.read(
+                    pids.as_deref(),
+                    after,
+                    limit.clamp(1, 2000),
+                    generation,
+                    &filter,
+                    Some(crate::tools::MAX_LOG_BYTES),
+                ))
             }
             "stopLogs" => {
                 if let Some(serial) = self.target(&udid).serial {
@@ -736,6 +795,48 @@ impl Android {
             return Err(output.trim().to_owned());
         }
         Ok(output)
+    }
+
+    async fn wait_for_transport_ready(&self, udid: &str) -> SimResult<String> {
+        let wait = if is_phone(udid) {
+            PHONE_READY_WAIT
+        } else {
+            AVD_READY_WAIT
+        };
+        let deadline = Instant::now() + wait;
+        loop {
+            let serial = self.serial(udid).await?;
+            match self
+                .adb(&["-s", &serial, "shell", "true"], SERIAL_PROBE_TIMEOUT)
+                .await
+            {
+                Ok(_) => return Ok(serial),
+                Err(error) if is_transient_adb_error(&error) && Instant::now() < deadline => {
+                    crate::pause(SERIAL_READY_STEP).await?;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    async fn run_install_with_retry(
+        &self,
+        udid: &str,
+        serial: &mut String,
+        flags: &[&str],
+        path: &str,
+    ) -> SimResult<String> {
+        let args = install_args(serial, flags, path);
+        match self.run_install(&args).await {
+            Ok(output) => Ok(output),
+            Err(error) if is_transient_adb_error(&error) => {
+                crate::pause(SERIAL_READY_STEP).await?;
+                *serial = self.wait_for_transport_ready(udid).await?;
+                let retry_args = install_args(serial, flags, path);
+                self.run_install(&retry_args).await
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn package_installed(&self, serial: &str, package: &str) -> bool {
@@ -855,57 +956,58 @@ impl Android {
         }))
     }
 
-    async fn install(&self, serial: &str, path: &str) -> SimResult<Value> {
+    async fn install(&self, udid: &str, path: &str) -> SimResult<Value> {
         if !path.ends_with(".apk") {
             return Err("give an .apk, such as the one ./gradlew assembleDebug builds into app/build/outputs/apk/debug; an .aab is for the Play Store and cannot be installed directly".into());
         }
+        let mut serial = self.serial(udid).await?;
         let overwrite = self
-            .run_install(&["-s", serial, "install", "-r", "-t", "-g", path])
+            .run_install_with_retry(udid, &mut serial, &["-r", "-t", "-g"], path)
             .await;
         match overwrite {
             Ok(answer) => {
                 let package = apk_package(self.sdk().as_deref(), path).await;
-                self.finish_install(serial, path, answer, package, true)
+                self.finish_install(&serial, path, answer, package, true)
                     .await
             }
             Err(error) if is_insufficient_storage(&error) => {
-                let _ = self.shell(serial, "pm trim-caches 1G").await;
+                let _ = self.shell(&serial, "pm trim-caches 1G").await;
                 if let Ok(answer) = self
-                    .run_install(&["-s", serial, "install", "-r", "-t", "-g", path])
+                    .run_install_with_retry(udid, &mut serial, &["-r", "-t", "-g"], path)
                     .await
                 {
                     let package = apk_package(self.sdk().as_deref(), path).await;
                     return self
-                        .finish_install(serial, path, answer, package, true)
+                        .finish_install(&serial, path, answer, package, true)
                         .await;
                 }
                 let package = apk_package(self.sdk().as_deref(), path).await;
                 let installed = match package.as_deref() {
-                    Some(package) => self.package_installed(serial, package).await,
+                    Some(package) => self.package_installed(&serial, package).await,
                     None => false,
                 };
                 if let Some(package) = package.filter(|_| installed) {
                     self.adb(
-                        &["-s", serial, "uninstall", &package],
+                        &["-s", &serial, "uninstall", &package],
                         Duration::from_secs(60),
                     )
                     .await?;
                     self.pids
                         .locked()
-                        .remove(&(serial.to_owned(), package.clone()));
+                        .remove(&(serial.clone(), package.clone()));
                     let answer = match self
-                        .run_install(&["-s", serial, "install", "-t", "-g", path])
+                        .run_install_with_retry(udid, &mut serial, &["-t", "-g"], path)
                         .await
                     {
                         Ok(answer) => answer,
-                        Err(fresh) => return Err(self.storage_error(serial, &fresh).await),
+                        Err(fresh) => return Err(self.storage_error(&serial, &fresh).await),
                     };
-                    if !self.wait_for_package(serial, &package).await {
+                    if !self.wait_for_package(&serial, &package).await {
                         return Err(format!(
                             "adb install reported success, but {package} is still not installed on the device"
                         ));
                     }
-                    self.flush_emulator_disk(serial).await;
+                    self.flush_emulator_disk(&serial).await;
                     return Ok(json!({
                         "installed": answer.trim(),
                         "bundleId": package,
@@ -915,7 +1017,7 @@ impl Android {
                         ),
                     }));
                 }
-                Err(self.storage_error(serial, &error).await)
+                Err(self.storage_error(&serial, &error).await)
             }
             Err(error) => Err(error),
         }
@@ -1300,6 +1402,258 @@ async fn watch_emulator(mut child: sikemux_process::command::AsyncChild) -> Stri
 }
 
 pub(crate) const NO_SDK: &str = "The Android emulator is not set up on this computer. Ask the person to set it up from the desk's device menu or in Settings, under Android Emulator.";
+
+fn display_from_value(value: &Value) -> Option<(Display, Option<u8>)> {
+    let width = value.get("width")?.as_f64()?;
+    let height = value.get("height")?.as_f64()?;
+    let density = value.get("density")?.as_f64()?;
+    if width <= 0. || height <= 0. || density <= 0. {
+        return None;
+    }
+    let rotation = value
+        .get("rotation")
+        .and_then(Value::as_u64)
+        .and_then(|r| u8::try_from(r).ok())
+        .filter(|r| *r <= 3);
+    Some((
+        Display {
+            width,
+            height,
+            scale: density / 160.,
+        },
+        rotation,
+    ))
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct DisplayState {
+    physical_size: Option<(f64, f64)>,
+    override_size: Option<(f64, f64)>,
+    physical_density: Option<f64>,
+    override_density: Option<f64>,
+    font_scale: Option<f64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct AttachProbe {
+    display: DisplayState,
+    boot_completed: Option<bool>,
+}
+
+impl DisplayState {
+    fn effective_display(&self) -> Option<Display> {
+        let (width, height) = self.override_size.or(self.physical_size)?;
+        let density = self
+            .override_density
+            .or(self.physical_density)
+            .unwrap_or(160.);
+        (width > 0. && height > 0. && density > 0.).then_some(Display {
+            width,
+            height,
+            scale: density / 160.,
+        })
+    }
+
+    fn size_overridden(&self) -> Option<(f64, f64)> {
+        self.override_size
+            .filter(|ov| self.physical_size != Some(*ov))
+    }
+
+    fn density_overridden(&self) -> Option<f64> {
+        self.override_density.filter(|ov| {
+            self.physical_density
+                .is_none_or(|phys| (*ov - phys).abs() > 0.5)
+        })
+    }
+
+    fn font_scale_overridden(&self) -> Option<f64> {
+        self.font_scale
+            .filter(|scale| scale.is_finite() && (*scale - 1.0).abs() > 0.001)
+    }
+
+    fn has_overrides(&self) -> bool {
+        self.size_overridden().is_some()
+            || self.density_overridden().is_some()
+            || self.font_scale_overridden().is_some()
+    }
+
+    fn reset_plan(&self) -> (Vec<&'static str>, Vec<String>) {
+        let mut commands = Vec::new();
+        let mut changes = Vec::new();
+        if let Some((w, h)) = self.size_overridden() {
+            commands.push("wm size reset");
+            match self.physical_size {
+                Some((pw, ph)) => {
+                    changes.push(format!(
+                        "size {}x{} -> {}x{}",
+                        w as u32, h as u32, pw as u32, ph as u32
+                    ));
+                }
+                None => changes.push(format!("size {}x{}", w as u32, h as u32)),
+            }
+        }
+        if let Some(density) = self.density_overridden() {
+            commands.push("wm density reset");
+            match self.physical_density {
+                Some(phys) => {
+                    changes.push(format!("density {} -> {}", density as u32, phys as u32))
+                }
+                None => changes.push(format!("density {}", density as u32)),
+            }
+        }
+        if let Some(scale) = self.font_scale_overridden() {
+            commands.push("settings put system font_scale 1.0");
+            changes.push(format!("font_scale {scale} -> 1.0"));
+        }
+        (commands, changes)
+    }
+
+    fn describe_overrides(&self) -> Vec<String> {
+        let mut items = Vec::new();
+        if let Some((w, h)) = self.size_overridden() {
+            items.push(format!("size {}x{}", w as u32, h as u32));
+        }
+        if let Some(density) = self.density_overridden() {
+            items.push(format!("density {}", density as u32));
+        }
+        if let Some(scale) = self.font_scale_overridden() {
+            items.push(format!("font_scale {scale}"));
+        }
+        items
+    }
+}
+
+type Size = (f64, f64);
+
+fn parse_size_pair(text: &str) -> Option<Size> {
+    let (width, height) = text.trim().split_once('x')?;
+    let width = width.trim().parse::<f64>().ok()?;
+    let height = height.trim().parse::<f64>().ok()?;
+    (width > 0. && height > 0.).then_some((width, height))
+}
+
+fn parse_wm_size(text: &str) -> (Option<Size>, Option<Size>) {
+    let mut physical = None;
+    let mut overridden = None;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        let Some((label, value)) = trimmed.split_once(':') else {
+            continue;
+        };
+        let lower = label.to_ascii_lowercase();
+        if !lower.contains("size") {
+            continue;
+        }
+        let Some(pair) = parse_size_pair(value) else {
+            continue;
+        };
+        if lower.contains("override") {
+            overridden = Some(pair);
+        } else {
+            physical = Some(pair);
+        }
+    }
+    (physical, overridden)
+}
+
+fn parse_wm_density(text: &str) -> (Option<f64>, Option<f64>) {
+    let mut physical = None;
+    let mut overridden = None;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        let Some((label, value)) = trimmed.split_once(':') else {
+            continue;
+        };
+        let lower = label.to_ascii_lowercase();
+        if !lower.contains("density") {
+            continue;
+        }
+        let Some(density) = value.trim().parse::<f64>().ok().filter(|d| *d > 0.) else {
+            continue;
+        };
+        if lower.contains("override") {
+            overridden = Some(density);
+        } else {
+            physical = Some(density);
+        }
+    }
+    (physical, overridden)
+}
+
+fn parse_font_scale(text: &str) -> Option<f64> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("null") {
+        return None;
+    }
+    trimmed
+        .parse::<f64>()
+        .ok()
+        .filter(|s| s.is_finite() && *s > 0.)
+}
+
+fn split_probe_sections(output: &str) -> Vec<String> {
+    let mut sections = vec![String::new()];
+    for line in output.lines() {
+        if line.trim() == "---" {
+            sections.push(String::new());
+        } else {
+            if let Some(current) = sections.last_mut() {
+                if !current.is_empty() {
+                    current.push('\n');
+                }
+                current.push_str(line);
+            }
+        }
+    }
+    sections
+}
+
+fn parse_display_probe(output: &str) -> DisplayState {
+    let sections = split_probe_sections(output);
+    let size_text = sections.first().map(String::as_str).unwrap_or_default();
+    let density_text = sections.get(1).map(String::as_str).unwrap_or(size_text);
+    let (physical_size, override_size) = parse_wm_size(size_text);
+    let (physical_density, override_density) = parse_wm_density(density_text);
+    DisplayState {
+        physical_size,
+        override_size,
+        physical_density,
+        override_density,
+        font_scale: None,
+    }
+}
+
+fn parse_attach_probe(output: &str) -> AttachProbe {
+    let sections = split_probe_sections(output);
+    let mut display = parse_display_probe(output);
+    display.font_scale = sections.get(2).and_then(|text| parse_font_scale(text));
+    let boot_completed = sections.get(3).map(|text| text.trim() == "1");
+    AttachProbe {
+        display,
+        boot_completed,
+    }
+}
+
+fn install_args<'a>(serial: &'a str, flags: &[&'a str], path: &'a str) -> Vec<&'a str> {
+    let mut args = Vec::with_capacity(flags.len() + 4);
+    args.push("-s");
+    args.push(serial);
+    args.push("install");
+    args.extend_from_slice(flags);
+    args.push(path);
+    args
+}
+
+fn is_transient_adb_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("device offline")
+        || lower.contains("failed to get feature set")
+        || lower.contains("protocol fault")
+        || lower.contains("broken pipe")
+        || lower.contains("error: closed")
+        || lower.contains("not found")
+        || lower.contains("no devices/emulators found")
+}
 
 fn turned(display: Display, orientation: &str) -> (f64, f64) {
     if orientation.starts_with("landscape") {
@@ -1833,6 +2187,11 @@ case "$1" in
     case "$*" in
       "wm size") echo "Physical size: 1080x2400" ;;
       "wm density") echo "Physical density: 480" ;;
+      *"wm size"*"wm density"*)
+        echo "Physical size: 1080x2400"
+        echo "---"
+        echo "Physical density: 480"
+        ;;
       *"resolve-activity"*"HOME"*) echo "com.android.launcher/.Launcher" ;;
       *"com.sikemux.device.Main"*)
         echo '{{"type":"ready"}}'
@@ -2641,5 +3000,284 @@ esac
             "1",
             "live logcat should not re-run adb get-state on subsequent calls"
         );
+    }
+
+    #[tokio::test]
+    async fn display_metrics_refresh_from_tree_and_screenshot_after_density_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let density = dir.path().join("density");
+        let wm_calls = dir.path().join("wm_calls");
+        let last_gesture = dir.path().join("last_gesture");
+        let last_shot_req = dir.path().join("last_shot_req");
+        std::fs::write(&density, "600").unwrap();
+        std::fs::write(&wm_calls, "0").unwrap();
+        let script = format!(
+            r#"#!/bin/sh
+if [ "$1" = "-s" ]; then shift 2; fi
+case "$1" in
+  get-state) echo "device" ;;
+  exec-in) cat >/dev/null ;;
+  shell)
+    shift
+    case "$*" in
+      *"wm size"*"wm density"*)
+        c=$(cat '{wm_calls}')
+        printf '%s' "$((c + 1))" > '{wm_calls}'
+        echo "Physical size: 1080x2400"
+        echo "---"
+        echo "Physical density: 420"
+        d=$(cat '{density}')
+        if [ "$d" != "420" ]; then
+          echo "Override density: $d"
+        fi
+        ;;
+      *"resolve-activity"*"HOME"*) echo "com.android.launcher/.Launcher" ;;
+      *"com.sikemux.device.Main"*)
+        echo '{{"type":"ready"}}'
+        while IFS= read -r line; do
+          id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+          d=$(cat '{density}')
+          case "$line" in
+            *'"type":"tree"'*)
+              echo "{{\"id\":$id,\"type\":\"result\",\"package\":\"com.swishx.academy\",\"bounds\":[0,0,1080,2400],\"nodes\":[],\"display\":{{\"width\":1080,\"height\":2400,\"density\":$d,\"rotation\":0}}}}"
+              ;;
+            *'"type":"screenshot"'*)
+              printf '%s\n' "$line" > '{last_shot_req}'
+              echo "{{\"id\":$id,\"type\":\"result\",\"jpeg\":\"AAAA\",\"width\":411,\"height\":914,\"display\":{{\"width\":1080,\"height\":2400,\"density\":$d,\"rotation\":0}}}}"
+              ;;
+            *'"type":"gesture"'*)
+              printf '%s\n' "$line" > '{last_gesture}'
+              echo "{{\"id\":$id,\"type\":\"result\"}}"
+              ;;
+            *) echo "{{\"id\":$id,\"type\":\"result\"}}" ;;
+          esac
+        done
+        ;;
+    esac
+    ;;
+esac
+"#,
+            density = density.display(),
+            wm_calls = wm_calls.display(),
+            last_gesture = last_gesture.display(),
+            last_shot_req = last_shot_req.display(),
+        );
+        let (_sdk, android) = fake_sdk(&script);
+
+        let initial = android
+            .request(
+                "screen",
+                fields(json!({ "udid": "adb:pixel" })),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("initial screen");
+        assert_eq!(initial["width"], json!(288.0));
+        assert_eq!(initial["height"], json!(640.0));
+        assert_eq!(std::fs::read_to_string(&wm_calls).unwrap(), "1");
+
+        // Simulate `wm density reset` (600 -> 420) mid-attachment.
+        std::fs::write(&density, "420").unwrap();
+        let tree = android
+            .request(
+                "tree",
+                fields(json!({ "udid": "adb:pixel" })),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("tree after density reset");
+        let app_width = tree["elements"][0]["frame"]["width"].as_f64().unwrap();
+        assert!(
+            (app_width - (1080.0 / (420.0 / 160.0))).abs() < 0.01,
+            "tree must immediately reflect 420 dpi (~411.4dp), got {app_width}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&wm_calls).unwrap(),
+            "1",
+            "tree must refresh display inline without extra wm shell calls"
+        );
+
+        android
+            .request(
+                "tap",
+                fields(json!({ "udid": "adb:pixel", "x": 100, "y": 200 })),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("tap");
+        let gesture: Value =
+            serde_json::from_str(&std::fs::read_to_string(&last_gesture).unwrap()).unwrap();
+        let px = gesture["frames"][0]["pointers"][0][0].as_f64().unwrap();
+        assert!(
+            (px - 262.5).abs() < 0.1,
+            "tap x=100dp at 420dpi should map to 262.5px, got {px}"
+        );
+
+        let shot = android
+            .request(
+                "screenshot",
+                fields(json!({ "udid": "adb:pixel", "format": "jpeg", "pointSize": true })),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("screenshot");
+        assert_eq!(shot["width"], json!(411));
+        assert!(shot.get("display").is_none());
+        let shot_req: Value =
+            serde_json::from_str(&std::fs::read_to_string(&last_shot_req).unwrap()).unwrap();
+        assert_eq!(shot_req["pointSize"], json!(true));
+        android.drain();
+    }
+
+    #[tokio::test]
+    async fn display_override_parsing_and_phone_preservation() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("adb.log");
+        let script = format!(
+            r#"#!/bin/sh
+printf '%s\n' "$*" >> '{log}'
+if [ "$1" = "-s" ]; then shift 2; fi
+case "$1" in
+  get-state) echo "device" ;;
+  shell)
+    shift
+    case "$*" in
+      *"settings get system font_scale"*)
+        echo "Physical size: 1080x2400"
+        echo "Override size: 720x1600"
+        echo "---"
+        echo "Physical density: 420"
+        echo "Override density: 600"
+        echo "---"
+        echo "2.0"
+        echo "---"
+        echo "1"
+        ;;
+    esac
+    ;;
+esac
+"#,
+            log = log.display(),
+        );
+        let (_sdk, android) = fake_sdk(&script);
+
+        // Physical phone (`adb:`): never mutates user settings, surfaces active overrides instead.
+        let phone_note = android
+            .prepare_attach("adb:pixel", true)
+            .await
+            .expect("phone prepare_attach")
+            .expect("should report active overrides");
+        assert!(
+            phone_note.contains("Non-default display overrides active")
+                && phone_note.contains("size 720x1600")
+                && phone_note.contains("density 600")
+                && phone_note.contains("font_scale 2"),
+            "{phone_note}"
+        );
+        let ran = std::fs::read_to_string(&log).unwrap();
+        assert!(
+            !ran.contains("wm size reset"),
+            "must not mutate phone: {ran}"
+        );
+        assert!(
+            !ran.contains("wm density reset"),
+            "must not mutate phone: {ran}"
+        );
+
+        // Emulator reset plan builds one batched reset command for all non-default overrides.
+        let parsed = parse_attach_probe(
+            "Physical size: 1080x2400\nOverride size: 720x1600\n---\n\
+             Physical density: 420\nOverride density: 600\n---\n2.0\n---\n1\n",
+        );
+        assert_eq!(parsed.boot_completed, Some(true));
+        let (commands, changes) = parsed.display.reset_plan();
+        assert_eq!(
+            commands,
+            vec![
+                "wm size reset",
+                "wm density reset",
+                "settings put system font_scale 1.0",
+            ]
+        );
+        assert_eq!(
+            changes,
+            vec![
+                "size 720x1600 -> 1080x2400",
+                "density 600 -> 420",
+                "font_scale 2 -> 1.0",
+            ]
+        );
+
+        let clean = parse_attach_probe(
+            "Physical size: 1080x2400\n---\nPhysical density: 420\n---\nnull\n---\n1\n",
+        );
+        assert!(!clean.display.has_overrides());
+        assert_eq!(clean.boot_completed, Some(true));
+    }
+
+    #[tokio::test]
+    async fn install_retries_once_on_transient_device_offline_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let tries = dir.path().join("tries");
+        let mode = dir.path().join("mode");
+        std::fs::write(&tries, "0").unwrap();
+        std::fs::write(&mode, "offline-once").unwrap();
+        let script = format!(
+            r#"#!/bin/sh
+if [ "$1" = "-s" ]; then shift 2; fi
+case "$1" in
+  get-state)
+    if [ "$(cat '{mode}')" = "unplugged" ]; then
+      echo "error: device 'pixel' not found" >&2
+      exit 1
+    fi
+    echo "device"
+    ;;
+  shell)
+    shift
+    case "$*" in
+      "true") ;;
+      *"pm path"*) echo "package:/data/app/com.swishx.academy/base.apk" ;;
+    esac
+    ;;
+  install)
+    t=$(cat '{tries}')
+    t=$((t + 1))
+    printf '%s' "$t" > '{tries}'
+    if [ "$t" -eq 1 ]; then
+      echo "adb: error: failed to get feature set: device offline" >&2
+      exit 1
+    fi
+    echo "Success"
+    ;;
+esac
+"#,
+            tries = tries.display(),
+            mode = mode.display(),
+        );
+        let (_sdk, android) = fake_sdk(&script);
+
+        let installed = android
+            .request(
+                "install",
+                fields(json!({ "udid": "adb:pixel", "path": "/tmp/app-debug.apk" })),
+                Duration::from_secs(10),
+            )
+            .await
+            .expect("install should recover from transient device offline");
+        assert_eq!(installed["bundleId"], json!("com.swishx.academy"));
+        assert_eq!(std::fs::read_to_string(&tries).unwrap(), "2");
+
+        // Unplugged device still fails fast without spinning.
+        std::fs::write(&mode, "unplugged").unwrap();
+        let err = android
+            .request(
+                "install",
+                fields(json!({ "udid": "adb:pixel", "path": "/tmp/app-debug.apk" })),
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("is not ready"), "{err}");
     }
 }

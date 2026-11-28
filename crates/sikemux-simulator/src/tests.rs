@@ -2143,6 +2143,52 @@ done
         call("sim.detach", json!({}));
     }
 
+    #[test]
+    fn ios_log_filter_applies_level_and_tag_before_limit_and_keeps_exact_cursor() {
+        let mut reply = json!({
+            "lines": [
+                "2026-10-06 14:00:00.100 Db My App[123:456] [com.example.app:net] debug noise",
+                "2026-10-06 14:00:00.101 Df My App[123:456] [com.example.app:net] info msg",
+                "2026-10-06 14:00:00.102 E  My App[123:456] [com.example.app:auth] wrong tag",
+                "2026-10-06 14:00:00.103 E  My App[123:456] [com.example.app:net] err 1",
+                "2026-10-06 14:00:00.104 F  My App[123:456] [com.example.app:net] err 2",
+                "2026-10-06 14:00:00.105 Df My App[123:456] [com.example.app:net] trailing info",
+            ],
+            "cursor": 16,
+            "more": false,
+            "dropped": 0,
+        });
+        let filter = crate::tools::LogFilter {
+            level: Some(crate::tools::LogLevel::Error),
+            tag: Some("net".into()),
+        };
+        crate::tools::filter_ios_logs(&mut reply, &filter, 1, 10_000);
+        assert_eq!(
+            reply["lines"],
+            json!(["2026-10-06 14:00:00.103 E  My App[123:456] [com.example.app:net] err 1"])
+        );
+        assert_eq!(reply["cursor"], json!(14));
+        assert_eq!(reply["more"], json!(true));
+
+        // Second page starting after cursor 14 scans the rest and advances cursor to end (16).
+        let mut page2 = json!({
+            "lines": [
+                "2026-10-06 14:00:00.104 F  My App[123:456] [com.example.app:net] err 2",
+                "2026-10-06 14:00:00.105 Df My App[123:456] [com.example.app:net] trailing info",
+            ],
+            "cursor": 16,
+            "more": false,
+            "dropped": 0,
+        });
+        crate::tools::filter_ios_logs(&mut page2, &filter, 10, 10_000);
+        assert_eq!(
+            page2["lines"],
+            json!(["2026-10-06 14:00:00.104 F  My App[123:456] [com.example.app:net] err 2"])
+        );
+        assert_eq!(page2["cursor"], json!(16));
+        assert_eq!(page2["more"], json!(false));
+    }
+
     /// An agent's whole round on a real simulator:
     /// `SIKEMUX_SIM_EXECUTABLE=… cargo test --lib simulator -- --ignored`.
     #[test]

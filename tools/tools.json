@@ -1236,12 +1236,27 @@
       "row": {"verb": "read", "kind": "read", "icon": "log-lines", "target": ["{process} logs", "the simulator log"]},
       "method": "sim.logs",
       "offered": "simulator",
-      "description": "Read the attached simulator's log by cursor and generation, all of it or one process's.",
+      "description": "Read the attached simulator's log by cursor and generation, optionally filtered by process, level or tag.",
       "properties": {
         "process": {
           "type": "string",
           "minLength": 1,
           "maxLength": 200
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "verbose",
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ]
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
         },
         "cursor": {
           "type": "integer",

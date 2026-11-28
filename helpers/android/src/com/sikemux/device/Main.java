@@ -21,7 +21,9 @@ import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -36,6 +38,13 @@ public final class Main {
     private final UiAutomation automation;
     private final PrintStream out;
     private long touchDown;
+    private boolean displayLookupTried;
+    private Object displayManager;
+    private Method getDisplayInfo;
+    private Field logicalWidthField;
+    private Field logicalHeightField;
+    private Field logicalDensityField;
+    private Field rotationField;
 
     private Main(UiAutomation automation, PrintStream out) {
         this.automation = automation;
@@ -136,7 +145,10 @@ public final class Main {
             case "text":
                 return text(request.getString("text"));
             case "screenshot":
-                return screenshot(request.optDouble("scale", 1), request.optString("format", "jpeg"));
+                return screenshot(
+                        request.optBoolean("pointSize", false),
+                        request.optDouble("scale", 1),
+                        request.optString("format", "jpeg"));
             case "rotate":
                 if (!automation.setRotation(request.getInt("rotation"))) {
                     throw new IllegalStateException("the device would not turn");
@@ -163,7 +175,56 @@ public final class Main {
             walk(root, nodes, 0);
         }
         reply.put("nodes", nodes);
+        int[] display = readDisplayInfo();
+        if (display != null) {
+            reply.put("display", displayJson(display));
+        }
         return reply;
+    }
+
+    private int[] readDisplayInfo() {
+        try {
+            if (!displayLookupTried) {
+                displayLookupTried = true;
+                Class<?> dmgClass = Class.forName("android.hardware.display.DisplayManagerGlobal");
+                displayManager = dmgClass.getDeclaredMethod("getInstance").invoke(null);
+                getDisplayInfo = dmgClass.getMethod("getDisplayInfo", int.class);
+            }
+            if (displayManager == null || getDisplayInfo == null) {
+                return null;
+            }
+            Object info = getDisplayInfo.invoke(displayManager, 0);
+            if (info == null) {
+                return null;
+            }
+            if (logicalWidthField == null) {
+                Class<?> infoClass = info.getClass();
+                logicalWidthField = infoClass.getField("logicalWidth");
+                logicalHeightField = infoClass.getField("logicalHeight");
+                logicalDensityField = infoClass.getField("logicalDensityDpi");
+                rotationField = infoClass.getField("rotation");
+            }
+            int w = logicalWidthField.getInt(info);
+            int h = logicalHeightField.getInt(info);
+            int density = logicalDensityField.getInt(info);
+            int rotation = rotationField.getInt(info);
+            if (w <= 0 || h <= 0 || density <= 0) {
+                return null;
+            }
+            int uprightW = (rotation == 1 || rotation == 3) ? h : w;
+            int uprightH = (rotation == 1 || rotation == 3) ? w : h;
+            return new int[] {uprightW, uprightH, density, rotation};
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static JSONObject displayJson(int[] info) throws Exception {
+        return new JSONObject()
+                .put("width", info[0])
+                .put("height", info[1])
+                .put("density", info[2])
+                .put("rotation", info[3]);
     }
 
     private void walk(AccessibilityNodeInfo node, JSONArray nodes, int depth) throws Exception {
@@ -360,7 +421,11 @@ public final class Main {
         return new JSONObject();
     }
 
-    private JSONObject screenshot(double scale, String format) throws Exception {
+    private JSONObject screenshot(boolean pointSize, double scale, String format) throws Exception {
+        int[] display = readDisplayInfo();
+        if (pointSize && display != null && display[2] > 0) {
+            scale = 160.0 / display[2];
+        }
         Bitmap shot = automation.takeScreenshot();
         if (shot == null) {
             throw new IllegalStateException("the screen could not be read");
@@ -379,6 +444,9 @@ public final class Main {
             reply.put(png ? "png" : "jpeg", Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP));
             reply.put("width", width);
             reply.put("height", height);
+            if (display != null) {
+                reply.put("display", displayJson(display));
+            }
             return reply;
         } finally {
             if (sized != shot) {

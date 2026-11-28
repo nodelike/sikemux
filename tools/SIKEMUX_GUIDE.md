@@ -656,11 +656,13 @@ Never use `pnpm android`, `expo run:android`,
 `react-native run-android`, `flutter run`, `./gradlew installDebug` or `adb
 install`: they may pick another agent's device or the person's phone.
 
-`sim logs` pages like `process_read` (`cursor` and `generation`); pass your
-executable name as `process` (the package name on Android). It keeps
-`Logger`, `os_log` and `NSLog` at default level and above: `print()` and debug
-messages never reach it, so log at `.info` or higher. `restarted` means the
-log started over; carry on with its new `cursor`.
+`sim logs` pages like `process_read` (`cursor` and `generation`); filter with
+`process` (executable name on iOS, package name on Android), minimum `level`
+(`verbose`–`error`), or `tag` (logcat tag on Android, subsystem/category on iOS)
+before `limit` applies. On iOS it keeps `Logger`, `os_log` and `NSLog` at
+default level and above (`print()` and debug never reach it, so log at `.info`
+or higher). `restarted` means the log started over; carry on with its new
+`cursor`.
 
 ## databases: Saved databases
 

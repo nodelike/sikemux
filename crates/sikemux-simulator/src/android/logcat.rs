@@ -10,6 +10,8 @@ use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+use crate::tools::{clip, LogFilter, MAX_LOG_LINE};
+
 const CAPACITY: usize = 2000;
 const PID_LIMIT: usize = 64;
 const BATCH_LIMIT: usize = 64;
@@ -55,31 +57,26 @@ impl Ring {
         cursor: u64,
         limit: usize,
         generation_mismatch: bool,
+        filter: &LogFilter,
+        max_bytes: Option<usize>,
     ) -> (Vec<Value>, u64, u64, bool, bool) {
         let reset = generation_mismatch || cursor > self.last;
         let after = if reset { 0 } else { cursor };
         let first = self.last + 1 - self.entries.len() as u64;
         let start = (after + 1).max(first);
-        let end = self
-            .last
-            .min(start.saturating_add(limit as u64).saturating_sub(1));
-        let picked = if start <= end {
-            let from = (start - first) as usize;
-            let to = (end - first) as usize;
-            self.entries
-                .range(from..=to)
-                .map(|line| Value::String(line.clone()))
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let at = if start <= end {
-            end
-        } else {
-            after.max(start.saturating_sub(1))
-        };
         let dropped = first.saturating_sub(after + 1);
-        (picked, at, dropped, end < self.last, reset)
+        let (picked, at, more) = if start <= self.last {
+            let from = (start - first) as usize;
+            let iter = self
+                .entries
+                .range(from..)
+                .enumerate()
+                .map(|(offset, line)| (start + offset as u64, line.as_str()));
+            pick_filtered(iter, self.last, after, limit, filter, max_bytes)
+        } else {
+            (Vec::new(), after.max(start.saturating_sub(1)), false)
+        };
+        (picked, at, dropped, more, reset)
     }
 }
 
@@ -98,32 +95,65 @@ impl PidRing {
         cursor: u64,
         limit: usize,
         generation_mismatch: bool,
+        filter: &LogFilter,
+        max_bytes: Option<usize>,
     ) -> (Vec<Value>, u64, u64, bool, bool) {
         let reset = generation_mismatch || cursor > self.last;
         let after = if reset { 0 } else { cursor };
         let first = self.last + 1 - self.entries.len() as u64;
         let start = (after + 1).max(first);
-        let end = self
-            .last
-            .min(start.saturating_add(limit as u64).saturating_sub(1));
-        let picked = if start <= end {
-            let from = (start - first) as usize;
-            let to = (end - first) as usize;
-            self.entries
-                .range(from..=to)
-                .map(|(_, line)| Value::String(line.clone()))
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let at = if start <= end {
-            end
-        } else {
-            after.max(start.saturating_sub(1))
-        };
         let dropped = first.saturating_sub(after + 1);
-        (picked, at, dropped, end < self.last, reset)
+        let (picked, at, more) = if start <= self.last {
+            let from = (start - first) as usize;
+            let iter = self
+                .entries
+                .range(from..)
+                .enumerate()
+                .map(|(offset, (_, line))| (start + offset as u64, line.as_str()));
+            pick_filtered(iter, self.last, after, limit, filter, max_bytes)
+        } else {
+            (Vec::new(), after.max(start.saturating_sub(1)), false)
+        };
+        (picked, at, dropped, more, reset)
     }
+}
+
+fn pick_filtered<'a>(
+    iter: impl Iterator<Item = (u64, &'a str)>,
+    last_scanned: u64,
+    after: u64,
+    limit: usize,
+    filter: &LogFilter,
+    max_bytes: Option<usize>,
+) -> (Vec<Value>, u64, bool) {
+    let mut picked = Vec::new();
+    let mut used = 0usize;
+    let mut last_picked = after;
+    let mut more = false;
+    for (seq, line) in iter {
+        if !filter.matches_android(line) {
+            continue;
+        }
+        if picked.len() >= limit {
+            more = true;
+            break;
+        }
+        let clipped = clip(line, MAX_LOG_LINE);
+        let cost = clipped.len() + 4;
+        if max_bytes.is_some_and(|budget| used + cost > budget) && !picked.is_empty() {
+            more = true;
+            break;
+        }
+        used += cost;
+        last_picked = seq;
+        picked.push(Value::String(clipped));
+    }
+    let at = if more {
+        last_picked
+    } else {
+        last_scanned.max(after)
+    };
+    (picked, at, more)
 }
 
 impl Lines {
@@ -156,6 +186,8 @@ impl Lines {
         cursor: u64,
         limit: usize,
         generation_mismatch: bool,
+        filter: &LogFilter,
+        max_bytes: Option<usize>,
     ) -> (Vec<Value>, u64, u64, bool, bool) {
         let mut max_seq = 0u64;
         for pid in pids {
@@ -191,17 +223,8 @@ impl Lines {
             }
         }
         merged.sort_unstable_by_key(|(seq, _)| *seq);
-        let more = merged.len() > limit;
-        let picked: Vec<Value> = merged
-            .iter()
-            .take(limit)
-            .map(|(_, line)| Value::String((*line).to_owned()))
-            .collect();
-        let at = merged
-            .iter()
-            .take(limit)
-            .next_back()
-            .map_or_else(|| max_seq.max(after), |(seq, _)| *seq);
+        let (picked, at, more) =
+            pick_filtered(merged.into_iter(), max_seq, after, limit, filter, max_bytes);
         (picked, at, dropped, more, reset)
     }
 }
@@ -277,13 +300,17 @@ impl Logcat {
         cursor: u64,
         limit: usize,
         generation: Option<i64>,
+        filter: &LogFilter,
+        max_bytes: Option<usize>,
     ) -> Value {
         let mut guard = self.lines.locked();
         let lines = &mut *guard;
         let generation_mismatch =
             generation.is_some_and(|generation| generation != self.generation);
         let (picked, at, dropped, more, reset) = match pids {
-            None => lines.all.read(cursor, limit, generation_mismatch),
+            None => lines
+                .all
+                .read(cursor, limit, generation_mismatch, filter, max_bytes),
             Some([]) => {
                 let reset = generation_mismatch || cursor > 0;
                 (Vec::new(), 0, 0, false, reset)
@@ -292,13 +319,15 @@ impl Logcat {
                 if let Some(ring) = lines.by_pid.get_mut(pid) {
                     lines.uses += 1;
                     ring.used = lines.uses;
-                    ring.read(cursor, limit, generation_mismatch)
+                    ring.read(cursor, limit, generation_mismatch, filter, max_bytes)
                 } else {
                     let reset = generation_mismatch || cursor > 0;
                     (Vec::new(), 0, 0, false, reset)
                 }
             }
-            Some(many) => lines.read_many(many, cursor, limit, generation_mismatch),
+            Some(many) => {
+                lines.read_many(many, cursor, limit, generation_mismatch, filter, max_bytes)
+            }
         };
         json!({
             "lines": picked,
@@ -347,21 +376,26 @@ mod tests {
         }
         lines.push_batch(&mut batch);
 
-        let all = lines.all.read(0, 50, false);
+        let none = LogFilter::default();
+        let all = lines.all.read(0, 50, false, &none, None);
         assert_eq!(all.2, 5008 - CAPACITY as u64);
 
         let app = lines
             .by_pid
             .get(&6484)
             .expect("app ring kept")
-            .read(0, 50, false);
+            .read(0, 50, false, &none, None);
         assert_eq!(app.0.len(), 8);
         assert_eq!(app.1, 8);
         assert_eq!(app.2, 0);
         assert!(!app.3);
         assert!(!app.4);
 
-        let next = lines.by_pid.get(&6484).unwrap().read(8, 50, false);
+        let next = lines
+            .by_pid
+            .get(&6484)
+            .unwrap()
+            .read(8, 50, false, &none, None);
         assert!(next.0.is_empty());
         assert_eq!(next.1, 8);
         assert_eq!(next.2, 0);
@@ -378,7 +412,8 @@ mod tests {
         ];
         lines.push_batch(&mut batch);
 
-        let first = lines.read_many(&[100, 200], 0, 2, false);
+        let none = LogFilter::default();
+        let first = lines.read_many(&[100, 200], 0, 2, false, &none, None);
         assert_eq!(
             first.0,
             vec![
@@ -390,7 +425,7 @@ mod tests {
         assert_eq!(first.2, 0);
         assert!(first.3);
 
-        let rest = lines.read_many(&[100, 200], first.1, 10, false);
+        let rest = lines.read_many(&[100, 200], first.1, 10, false, &none, None);
         assert_eq!(
             rest.0,
             vec![Value::String(
@@ -399,5 +434,74 @@ mod tests {
         );
         assert_eq!(rest.1, 4);
         assert!(!rest.3);
+    }
+
+    #[test]
+    fn level_and_tag_filter_before_limit_and_preserve_cursor_paging() {
+        use crate::tools::LogLevel;
+        let mut lines = Lines::default();
+        let mut batch = vec![
+            (-1, "--------- beginning of main".into()),
+            (
+                6484,
+                "11-28 01:28:00.001  6484  6484 D ReactNativeJS: verbose noise".into(),
+            ),
+            (
+                6484,
+                "11-28 01:28:00.002  6484  6484 I ReactNativeJS: info noise".into(),
+            ),
+            (
+                6484,
+                "11-28 01:28:00.003  6484  6484 W ReactNativeJS: first warn".into(),
+            ),
+            (
+                6484,
+                "11-28 01:28:00.004  6484  6484 E OtherTag: wrong tag".into(),
+            ),
+            (
+                6484,
+                "11-28 01:28:00.005  6484  6484 E ReactNativeJS: first err".into(),
+            ),
+            (
+                6484,
+                "11-28 01:28:00.006  6484  6484 F ReactNativeJS: fatal err".into(),
+            ),
+            (
+                6484,
+                "11-28 01:28:00.007  6484  6484 D ReactNativeJS: trailing noise".into(),
+            ),
+        ];
+        lines.push_batch(&mut batch);
+
+        let filter = LogFilter {
+            level: Some(LogLevel::Warn),
+            tag: Some("reactnativejs".into()),
+        };
+        let pid_ring = lines.by_pid.get(&6484).expect("pid ring");
+        let page1 = pid_ring.read(0, 2, false, &filter, None);
+        assert_eq!(
+            page1.0,
+            vec![
+                Value::String("11-28 01:28:00.003  6484  6484 W ReactNativeJS: first warn".into()),
+                Value::String("11-28 01:28:00.005  6484  6484 E ReactNativeJS: first err".into()),
+            ]
+        );
+        assert_eq!(page1.1, 5);
+        assert!(page1.3);
+
+        let page2 = pid_ring.read(page1.1, 2, false, &filter, None);
+        assert_eq!(
+            page2.0,
+            vec![Value::String(
+                "11-28 01:28:00.006  6484  6484 F ReactNativeJS: fatal err".into()
+            )]
+        );
+        assert_eq!(page2.1, 7);
+        assert!(!page2.3);
+
+        let page3 = pid_ring.read(page2.1, 2, false, &filter, None);
+        assert!(page3.0.is_empty());
+        assert_eq!(page3.1, 7);
+        assert!(!page3.3);
     }
 }

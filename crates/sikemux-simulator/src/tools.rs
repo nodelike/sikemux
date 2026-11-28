@@ -78,9 +78,10 @@ const MAX_REMOVED: usize = 50;
 const MAX_TEXT: usize = 200;
 const DEFAULT_LOG_LINES: usize = 200;
 const MAX_LOG_LINES: usize = 500;
-const MAX_LOG_LINE: usize = 2000;
+const IOS_LOG_CAPACITY: usize = 2000;
+pub(crate) const MAX_LOG_LINE: usize = 2000;
 /// Well under the 4 MB an answer may be.
-const MAX_LOG_BYTES: usize = 256 * 1024;
+pub(crate) const MAX_LOG_BYTES: usize = 256 * 1024;
 /// Typed text is sent this many characters at a time, so a cancelled call stops typing soon.
 const TEXT_CHUNK: usize = 40;
 /// Two reads' elements this close, in points, can be the same element when nothing else tells them apart.
@@ -936,6 +937,9 @@ async fn attach(
         }
     };
     drop(line);
+    let already_held = manager
+        .attached(agent_id)
+        .is_some_and(|current| current.udid == device.udid);
     manager.hold(agent_id, project, &device)?;
     if !device.booted {
         manager.note_booted(&device.udid);
@@ -963,6 +967,14 @@ async fn attach(
         }
     }
     drop(starting);
+    let attach_note = if is_android(&device.udid) {
+        manager
+            .android()
+            .prepare_attach(&device.udid, !already_held)
+            .await?
+    } else {
+        None
+    };
     let screen = manager
         .request("screen", json!({ "udid": device.udid }))
         .await?;
@@ -985,6 +997,9 @@ async fn attach(
     let mut state = settled_state(manager, agent_id, None, Report::Full).await?;
     if let Some(state) = state.as_object_mut() {
         state.insert("shown".to_owned(), SHOWN_ON_DESK.into());
+        if let Some(note) = attach_note {
+            state.insert("note".to_owned(), note.into());
+        }
         if is_android(&device.udid) {
             if let Some(warning) = manager.android().low_storage_warning(&device.udid).await {
                 state.insert("warning".to_owned(), warning.into());
@@ -1374,6 +1389,171 @@ pub(super) fn inside_project(project: &str, path: &str) -> Result<PathBuf, Strin
     })
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum LogLevel {
+    Verbose = 0,
+    Debug = 1,
+    Info = 2,
+    Warn = 3,
+    Error = 4,
+}
+
+impl LogLevel {
+    pub(crate) fn parse(text: &str) -> Result<Self, String> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "verbose" | "v" => Ok(Self::Verbose),
+            "debug" | "d" => Ok(Self::Debug),
+            "info" | "i" => Ok(Self::Info),
+            "warn" | "warning" | "w" => Ok(Self::Warn),
+            "error" | "e" => Ok(Self::Error),
+            other => Err(format!(
+                "level must be verbose, debug, info, warn or error, not {other}"
+            )),
+        }
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Verbose => "verbose",
+            Self::Debug => "debug",
+            Self::Info => "info",
+            Self::Warn => "warn",
+            Self::Error => "error",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct LogFilter {
+    pub level: Option<LogLevel>,
+    pub tag: Option<String>,
+}
+
+impl LogFilter {
+    pub(crate) fn from_params(params: &Value) -> Result<Self, String> {
+        let level = match params.get("level").and_then(Value::as_str) {
+            Some(text) => Some(LogLevel::parse(text)?),
+            None => None,
+        };
+        let tag = params
+            .get("tag")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|tag| !tag.is_empty())
+            .map(str::to_owned);
+        Ok(Self { level, tag })
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.level.is_none() && self.tag.is_none()
+    }
+
+    pub(crate) fn matches_android(&self, line: &str) -> bool {
+        if self.is_empty() {
+            return true;
+        }
+        let Some((level, tag)) = parse_android_log_meta(line) else {
+            return false;
+        };
+        self.level.is_none_or(|min| level >= min)
+            && self
+                .tag
+                .as_deref()
+                .is_none_or(|wanted| tag.eq_ignore_ascii_case(wanted))
+    }
+
+    pub(crate) fn matches_ios(&self, line: &str) -> bool {
+        if self.is_empty() {
+            return true;
+        }
+        let Some((level, tag)) = parse_ios_log_meta(line) else {
+            return false;
+        };
+        self.level.is_none_or(|min| level >= min)
+            && self
+                .tag
+                .as_deref()
+                .is_none_or(|wanted| ios_tag_matches(tag, wanted))
+    }
+}
+
+fn next_ascii_token<'a>(rest: &mut &'a str) -> Option<&'a str> {
+    let trimmed = rest.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    if trimmed.is_empty() {
+        *rest = trimmed;
+        return None;
+    }
+    match trimmed.find(|c: char| c.is_ascii_whitespace()) {
+        Some(end) => {
+            let token = trimmed.get(..end)?;
+            *rest = trimmed.get(end..).unwrap_or_default();
+            Some(token)
+        }
+        None => {
+            *rest = "";
+            Some(trimmed)
+        }
+    }
+}
+
+fn parse_android_log_meta(line: &str) -> Option<(LogLevel, &str)> {
+    let mut rest = line;
+    let _date = next_ascii_token(&mut rest)?;
+    let _time = next_ascii_token(&mut rest)?;
+    let pid = next_ascii_token(&mut rest)?;
+    let tid = next_ascii_token(&mut rest)?;
+    if !pid.bytes().all(|b| b.is_ascii_digit()) || !tid.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let level = match next_ascii_token(&mut rest)? {
+        "V" => LogLevel::Verbose,
+        "D" => LogLevel::Debug,
+        "I" => LogLevel::Info,
+        "W" => LogLevel::Warn,
+        "E" | "F" | "A" => LogLevel::Error,
+        _ => return None,
+    };
+    let tail = rest.trim_start();
+    let tag = tail.split_once(':').map_or(tail, |(tag, _)| tag).trim();
+    Some((level, tag))
+}
+
+fn parse_ios_log_meta(line: &str) -> Option<(LogLevel, Option<&str>)> {
+    let mut rest = line;
+    let date = next_ascii_token(&mut rest)?;
+    let time = next_ascii_token(&mut rest)?;
+    if !date.contains('-') || !time.contains(':') {
+        return None;
+    }
+    let level = match next_ascii_token(&mut rest)? {
+        "Db" => LogLevel::Debug,
+        "I" | "In" | "Df" => LogLevel::Info,
+        "E" | "Er" | "F" | "Ft" => LogLevel::Error,
+        _ => return None,
+    };
+    let tail = rest.trim_start();
+    let tag = tail.split_once(']').and_then(|(_, after)| {
+        let inner = after.trim_start().strip_prefix('[')?;
+        let (bracket, _) = inner.split_once(']')?;
+        (!bracket.is_empty()).then_some(bracket)
+    });
+    Some((level, tag))
+}
+
+fn ios_tag_matches(bracket: Option<&str>, wanted: &str) -> bool {
+    let Some(bracket) = bracket else {
+        return false;
+    };
+    if bracket.eq_ignore_ascii_case(wanted) {
+        return true;
+    }
+    bracket
+        .split_once(':')
+        .is_some_and(|(subsystem, category)| {
+            subsystem.eq_ignore_ascii_case(wanted) || category.eq_ignore_ascii_case(wanted)
+        })
+}
+
 async fn logs(manager: &SimulatorManager, agent_id: &str, params: &Value) -> Result<Value, String> {
     let device = attached(manager, agent_id)?;
     let cursor = params.get("cursor").and_then(Value::as_u64).unwrap_or(0);
@@ -1383,12 +1563,30 @@ async fn logs(manager: &SimulatorManager, agent_id: &str, params: &Value) -> Res
         .map_or(DEFAULT_LOG_LINES, |limit| limit as usize)
         .clamp(1, MAX_LOG_LINES);
     let process = params.get("process").and_then(Value::as_str);
+    let filter = LogFilter::from_params(params)?;
+    let android = is_android(&device.udid);
     let mut fields = Map::new();
     fields.insert("udid".to_owned(), device.udid.clone().into());
     fields.insert("after".to_owned(), cursor.into());
-    fields.insert("limit".to_owned(), limit.into());
+    fields.insert(
+        "limit".to_owned(),
+        if !android && !filter.is_empty() {
+            IOS_LOG_CAPACITY
+        } else {
+            limit
+        }
+        .into(),
+    );
     if let Some(process) = process {
         fields.insert("process".to_owned(), process.into());
+    }
+    if android {
+        if let Some(level) = filter.level {
+            fields.insert("level".to_owned(), level.as_str().into());
+        }
+        if let Some(tag) = &filter.tag {
+            fields.insert("tag".to_owned(), tag.as_str().into());
+        }
     }
     let generation = params
         .get("generation")
@@ -1409,8 +1607,55 @@ async fn logs(manager: &SimulatorManager, agent_id: &str, params: &Value) -> Res
             );
         }
     }
-    cap_logs(&mut reply, MAX_LOG_BYTES);
+    if !android && !filter.is_empty() {
+        filter_ios_logs(&mut reply, &filter, limit, MAX_LOG_BYTES);
+    } else {
+        cap_logs(&mut reply, MAX_LOG_BYTES);
+    }
     Ok(reply)
+}
+
+pub(super) fn filter_ios_logs(reply: &mut Value, filter: &LogFilter, limit: usize, budget: usize) {
+    let Some(lines) = reply["lines"].as_array().cloned() else {
+        return;
+    };
+    let end = reply["cursor"].as_u64().unwrap_or(0);
+    let underlying_more = reply["more"].as_bool().unwrap_or(false);
+    let first_seq = if lines.is_empty() {
+        end
+    } else {
+        end.saturating_sub((lines.len() - 1) as u64)
+    };
+    let mut kept = Vec::new();
+    let mut used = 0usize;
+    let mut last_kept = end;
+    let mut more = underlying_more;
+    for (idx, value) in lines.iter().enumerate() {
+        let raw = value.as_str().unwrap_or_default();
+        if !filter.matches_ios(raw) {
+            continue;
+        }
+        if kept.len() >= limit {
+            more = true;
+            break;
+        }
+        let clipped = clip(raw, MAX_LOG_LINE);
+        let cost = clipped.len() + 4;
+        if used + cost > budget && !kept.is_empty() {
+            more = true;
+            break;
+        }
+        used += cost;
+        last_kept = first_seq + idx as u64;
+        kept.push(Value::String(clipped));
+    }
+    reply["lines"] = kept.into();
+    if more && !underlying_more {
+        reply["cursor"] = last_kept.into();
+    } else if more {
+        reply["cursor"] = last_kept.min(end).into();
+    }
+    reply["more"] = more.into();
 }
 
 /// Keeps a log answer under `budget` bytes: long lines are cut, and lines past
@@ -1439,7 +1684,7 @@ pub(super) fn cap_logs(reply: &mut Value, budget: usize) {
     }
 }
 
-fn clip(text: &str, limit: usize) -> String {
+pub(crate) fn clip(text: &str, limit: usize) -> String {
     if text.chars().count() <= limit {
         return text.to_owned();
     }
