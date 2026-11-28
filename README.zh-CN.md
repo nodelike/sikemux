@@ -6,7 +6,7 @@
 
 `开源智能体基础设施 · MIT`
 
-[English](README.md) · 简体中文 · [日本語](README.ja.md)
+[English](README.md) · 简体中文 · [日本語](README.ja.md) · [Türkçe](README.tr.md)
 
 **智能体开发并交付，你来拍板。** 每个项目都有一位 Chief，把活派给笔记本和服务器上的 Claude Code、Codex 等编程智能体，你在手机上也能随时跟进。规则共用，互相审阅，在真实浏览器里测试，发布也有把关。
 
