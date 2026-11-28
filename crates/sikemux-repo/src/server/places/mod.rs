@@ -247,7 +247,7 @@ pub fn accepted(core: &Core, project: &str, proposed: Vec<Place>) -> Result<(), 
 }
 
 /// The person said on a call to just tell them of routine changes to `place` through
-/// `repository` from now on.
+/// `repository` from now on. A place that no longer asks for such a change is left as it is.
 pub fn just_tell(core: &Core, project: &str, place: Place, repository: &str, from: Option<String>) {
     let tell = |place: &mut Place| {
         place.shown.level = Level::TellMe;
@@ -260,14 +260,18 @@ pub fn just_tell(core: &Core, project: &str, place: Place, repository: &str, fro
         }
     };
     let _ = change(core, project, |kept| {
+        let confirmed = kept.confirmed.is_some();
         match kept
             .places
             .iter_mut()
             .find(|other| other.shown.id == place.shown.id)
         {
             Some(other) => {
-                other.shown.was = Some(other.shown.level);
-                tell(other);
+                let ordinary = !other.recognise.iter().any(judge::releases);
+                if other.level_for(confirmed, Some(repository), ordinary) == Level::Mine {
+                    other.shown.was = Some(other.shown.level);
+                    tell(other);
+                }
             }
             None => {
                 let mut place = place;
