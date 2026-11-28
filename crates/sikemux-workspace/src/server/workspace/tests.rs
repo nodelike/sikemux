@@ -399,6 +399,9 @@ fn each_chat_agent_is_offered_once_or_once_per_account_built_in_included_in_a_mo
     let offered = workspaces.offered();
     let ids: Vec<&str> = offered
         .iter()
+        .filter(|launcher| {
+            (crate::agent_catalog::AGENTS.iter()).any(|def| def.kind == launcher.agent.provider)
+        })
         .map(|launcher| launcher.id.as_str())
         .collect();
     assert_eq!(

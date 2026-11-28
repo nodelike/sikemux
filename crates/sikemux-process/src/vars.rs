@@ -13,6 +13,8 @@ pub const AGENT_TYPE: &str = "SIKEMUX_AGENT_TYPE";
 pub const TOOLS_AGENT_ID: &str = "SIKEMUX_TOOLS_AGENT_ID";
 pub const CLI_ENDPOINT: &str = "SIKEMUX_CLI_ENDPOINT";
 pub const CONFIG_DIR: &str = "SIKEMUX_CONFIG_DIR";
+/// The file listing the person's own ACP agents, in place of `custom-agents.json` in the config folder.
+pub const CUSTOM_AGENTS_PATH: &str = "SIKEMUX_CUSTOM_AGENTS_PATH";
 /// Set when the app opens, it opens its window without coming in front of the app in use.
 pub const LAUNCH_BEHIND: &str = "SIKEMUX_LAUNCH_BEHIND";
 pub const CLI_ENDPOINT_PUBLISH: &str = "SIKEMUX_CLI_ENDPOINT_PUBLISH";

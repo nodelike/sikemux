@@ -162,6 +162,8 @@ crate::calls! {
     "modelProviderDisconnect" ModelProviderDisconnect (crate::model_providers::ProviderParams) -> ();
     "modelProviderRead" ModelProviderRead (crate::model_providers::Entered) -> crate::model_providers::Reading;
     "modelProviderRemove" ModelProviderRemove (crate::model_providers::ProviderParams) -> ();
+    "customAgentAdd" CustomAgentAdd (sikemux_agents::custom_agents::CustomAgentConfig) -> sikemux_agents::custom_agents::CustomAgentConfig;
+    "customAgentRemove" CustomAgentRemove (crate::custom_agents::RemoveParams) -> bool;
     "setModelHelper" SetModelHelper (crate::model_providers::HelperParams) -> ();
     "agentAccounts" AgentAccounts (crate::params::NoParams) -> sikemux_agents::agent_accounts::Book;
     "firstRunStep" FirstRunStep (crate::usage::Step) -> ();

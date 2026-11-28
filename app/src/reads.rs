@@ -161,7 +161,7 @@ impl Read {
             Read::Questions => (call::Questions::METHOD, &[Topic::Questions]),
             Read::Shares => (call::Shares::METHOD, &[Topic::Shares]),
             Read::Stash => (call::Stash::METHOD, &[Topic::Stash, Topic::Account]),
-            Read::Catalog => (call::AgentCatalog::METHOD, &[]),
+            Read::Catalog => (call::AgentCatalog::METHOD, &[Topic::Catalog]),
             Read::Usage => (call::AgentUsages::METHOD, &[Topic::Usage]),
             Read::Skills => (call::SkillsOverview::METHOD, &[Topic::Skills]),
             Read::SkillsAdded => (call::SkillsAdded::METHOD, &[Topic::Skills]),

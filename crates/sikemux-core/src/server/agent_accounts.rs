@@ -4,6 +4,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
+use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::agent_accounts::Availability;
 pub use sikemux_calls::agent_accounts::{
@@ -16,7 +17,9 @@ pub use sikemux_calls::agent_accounts::{
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, Once};
+use std::time::Duration;
 
 use super::agent_sign_in;
 use super::changed::Topic;
@@ -31,6 +34,7 @@ use crate::agent_accounts::{
 use crate::agent_catalog::{AgentEntry, AgentKind, AGENTS};
 use crate::flights::{shared, Flights};
 use crate::launch::discovery;
+use sikemux_agents::custom_agents;
 use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::ChatAccount;
 
@@ -117,6 +121,108 @@ pub(super) async fn set(core: &Arc<Core>, book: Book) -> CoreResult<()> {
     core.workspaces().set_accounts(book)?;
     refresh_launchers(core.clone()).await;
     Ok(())
+}
+
+static CUSTOM_AGENTS_APPLIED: AtomicU64 = AtomicU64::new(0);
+const CUSTOM_AGENTS_SETTLE: Duration = Duration::from_millis(150);
+
+/// Tells every client that the agents it can pick from moved, and has the launchers follow.
+async fn custom_agents_moved(core: &Arc<Core>) {
+    refresh_launchers(core.clone()).await;
+    core.changed(What::Read(Topic::Catalog));
+    core.changed(What::Read(Topic::AgentAccounts));
+    core.changed(What::Read(Topic::AgentStatus));
+    core.changed(What::View);
+}
+
+async fn apply_custom_agents_change(core: &Arc<Core>) {
+    let generation = blocking(|| Ok(custom_agents::refresh()))
+        .await
+        .unwrap_or_else(|_| custom_agents::generation());
+    let previous = CUSTOM_AGENTS_APPLIED.swap(generation, Ordering::AcqRel);
+    if generation != previous {
+        custom_agents_moved(core).await;
+    }
+}
+
+/// Watches `custom-agents.json` on disk so edits outside the Settings UI refresh launchers
+/// and every connected client.
+pub(super) async fn follow_custom_agents(core: Arc<Core>) {
+    let Some(path) = custom_agents::file_path() else {
+        return;
+    };
+    let Some(folder) = path.parent().map(Path::to_path_buf) else {
+        return;
+    };
+    let _ = blocking(|| {
+        let _ = custom_agents::entries();
+        Ok(())
+    })
+    .await;
+    CUSTOM_AGENTS_APPLIED.store(custom_agents::generation(), Ordering::Release);
+    loop {
+        let watch_dir = if folder.is_dir() {
+            folder.clone()
+        } else {
+            let Some(ancestor) = folder.ancestors().find(|dir| dir.is_dir()) else {
+                return;
+            };
+            ancestor.to_path_buf()
+        };
+        let watching_target = watch_dir == folder;
+        let (sender, mut changes) = tokio::sync::mpsc::unbounded_channel();
+        let Ok(_watcher) =
+            core.watch_hub()
+                .watch(&watch_dir, notify::RecursiveMode::NonRecursive, move |_| {
+                    let _ = sender.send(());
+                })
+        else {
+            return;
+        };
+        apply_custom_agents_change(&core).await;
+        if !watching_target && folder.is_dir() {
+            continue;
+        }
+        let mut switch_to_target = false;
+        while changes.recv().await.is_some() {
+            tokio::time::sleep(CUSTOM_AGENTS_SETTLE).await;
+            while changes.try_recv().is_ok() {}
+            apply_custom_agents_change(&core).await;
+            if !watching_target && folder.is_dir() {
+                switch_to_target = true;
+                break;
+            }
+        }
+        if !switch_to_target {
+            return;
+        }
+    }
+}
+
+/// Adds an ACP agent of the person's own to `custom-agents.json`, whether or not its program
+/// is there yet; the agents page lists it either way, so a mistyped command can be removed.
+pub(super) async fn add_custom(
+    core: &Arc<Core>,
+    config: custom_agents::CustomAgentConfig,
+) -> CoreResult<custom_agents::CustomAgentConfig> {
+    let added = blocking(move || custom_agents::add(config).map_err(Into::into)).await?;
+    CUSTOM_AGENTS_APPLIED.store(custom_agents::generation(), Ordering::Release);
+    custom_agents_moved(core).await;
+    Ok(added)
+}
+
+/// Takes a custom agent out of `custom-agents.json`; whether it was listed is the answer.
+pub(super) async fn remove_custom(
+    core: &Arc<Core>,
+    params: sikemux_calls::custom_agents::RemoveParams,
+) -> CoreResult<bool> {
+    let kind = params.kind;
+    let removed = blocking(move || custom_agents::remove(&kind).map_err(Into::into)).await?;
+    if removed {
+        CUSTOM_AGENTS_APPLIED.store(custom_agents::generation(), Ordering::Release);
+        custom_agents_moved(core).await;
+    }
+    Ok(removed)
 }
 
 pub(super) async fn save(core: &Arc<Core>, saving: Saving) -> CoreResult<Book> {
@@ -1067,11 +1173,13 @@ pub(super) async fn installed(core: &Arc<Core>) -> CoreResult<Vec<Installed>> {
         .accounts()
         .unwrap_or_default()
         .with_built_ins();
-    let listed = AGENTS.iter().filter_map(|def| {
+    let listed = crate::agent_catalog::all().into_iter().filter_map(|def| {
         let profile = book.in_use(def.kind);
         let explicit = profile.and_then(|profile| profile.executable_path.as_deref());
-        (def.accounts || !discovery::candidates(def, explicit).is_empty())
-            .then_some((def, profile, explicit))
+        (def.accounts
+            || custom_agents::is_custom(def.kind)
+            || !discovery::candidates(def, explicit).is_empty())
+        .then_some((def, profile, explicit))
     });
     futures_util::future::try_join_all(listed.map(|(def, profile, explicit)| async move {
         let config_path = profile.and_then(|profile| profile.config_path.clone());
@@ -1135,8 +1243,10 @@ pub(super) async fn setup(core: &Arc<Core>) -> CoreResult<Vec<Installed>> {
 /// `found` with the installable agents it lacks, ready ones first, then the featured,
 /// each in the catalog's order.
 fn setup_list(mut agents: Vec<Installed>) -> Vec<Installed> {
-    let missing: Vec<&AgentEntry> = AGENTS
+    let catalog = crate::agent_catalog::all();
+    let missing: Vec<&AgentEntry> = catalog
         .iter()
+        .copied()
         .filter(|def| def.install.is_some() && !agents.iter().any(|agent| agent.kind == def.kind))
         .collect();
     agents.extend(missing.into_iter().map(|def| Installed {
@@ -1159,9 +1269,9 @@ fn setup_list(mut agents: Vec<Installed>) -> Vec<Installed> {
     }));
     agents.sort_by_key(|agent| {
         let ready = agent.available && agent.status != status::AgentStatus::SignedOut;
-        let at = AGENTS.iter().position(|def| def.kind == agent.kind);
+        let at = catalog.iter().position(|def| def.kind == agent.kind);
         let featured = at
-            .and_then(|at| AGENTS.get(at))
+            .and_then(|at| catalog.get(at))
             .is_some_and(|def| def.featured);
         (!ready, !featured, at)
     });

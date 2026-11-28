@@ -70,6 +70,12 @@ pub struct CatalogAgent {
     pub login: Option<Vec<String>>,
     /// The chat driver that runs it; none when it has no chat.
     pub chat: Option<ChatDriver>,
+    /// The person added it themselves, so they can take it away again.
+    #[serde(default)]
+    pub custom: bool,
+    /// The arguments its program starts its chat with, as an ACP agent.
+    #[serde(default)]
+    pub args: Vec<String>,
 }
 
 impl CatalogAgent {

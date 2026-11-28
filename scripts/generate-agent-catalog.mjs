@@ -722,7 +722,18 @@ ${agents.map((agent) => `        AgentKind::${pascal(agent.type)},`).join("\n")}
 }
 
 pub fn agent(name: &str) -> Option<&'static AgentEntry> {
-    AGENTS.iter().find(|entry| entry.kind == name)
+    AGENTS
+        .iter()
+        .find(|entry| entry.kind == name)
+        .or_else(|| crate::custom_agents::agent(name))
+}
+
+/// The built-in agents, then the ones the person added.
+pub fn all() -> Vec<&'static AgentEntry> {
+    AGENTS
+        .iter()
+        .chain(crate::custom_agents::entries())
+        .collect()
 }
 `),
 );

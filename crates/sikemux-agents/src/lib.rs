@@ -8,6 +8,7 @@ pub mod agent_catalog;
 pub mod agent_ops;
 pub mod agent_shell;
 pub mod callers;
+pub mod custom_agents;
 pub mod git;
 pub mod git_guard;
 pub mod harness;

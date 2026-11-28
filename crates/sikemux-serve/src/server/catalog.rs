@@ -2,11 +2,11 @@
 
 use sikemux_view::catalog::{CatalogAgent, ChatDriver as Driver};
 
-use crate::agent_catalog::{ChatDriver, AGENTS};
+use crate::agent_catalog::ChatDriver;
 
 pub fn view() -> Vec<CatalogAgent> {
-    AGENTS
-        .iter()
+    crate::agent_catalog::all()
+        .into_iter()
         .map(|agent| CatalogAgent {
             kind: agent.kind.to_owned(),
             label: agent.label.to_owned(),
@@ -51,6 +51,15 @@ pub fn view() -> Vec<CatalogAgent> {
                 ChatDriver::Opencode => Driver::Opencode,
                 ChatDriver::Acp { .. } => Driver::Acp,
             }),
+            custom: sikemux_agents::custom_agents::is_custom(agent.kind),
+            args: match &agent.chat {
+                Some(ChatDriver::Acp { args, .. })
+                    if sikemux_agents::custom_agents::is_custom(agent.kind) =>
+                {
+                    args.iter().map(|arg| (*arg).to_owned()).collect()
+                }
+                _ => Vec::new(),
+            },
         })
         .collect()
 }

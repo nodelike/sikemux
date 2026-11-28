@@ -957,6 +957,7 @@ pub(crate) async fn run_core(
         tokio::spawn(poll_sessions(core.clone())),
         tokio::spawn(sweep(core.clone())),
         tokio::spawn(network_watch::run(core.clone())),
+        tokio::spawn(agent_accounts::follow_custom_agents(core.clone())),
     ]);
     #[cfg(unix)]
     if let Some(starter) = config.ends_with {

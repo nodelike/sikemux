@@ -318,7 +318,7 @@ impl Workspaces {
             .map(|book| book.profiles.as_slice())
             .unwrap_or_default();
         let mut offered = Vec::new();
-        for def in AGENTS.iter() {
+        for def in crate::agent_catalog::all() {
             let permission_mode = match saved.permission_mode.unwrap_or(PermissionMode::Bypass) {
                 PermissionMode::Bypass if def.bypass => PermissionMode::Bypass,
                 PermissionMode::Auto if def.auto => PermissionMode::Auto,
