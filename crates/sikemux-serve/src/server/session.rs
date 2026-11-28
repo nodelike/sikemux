@@ -254,6 +254,13 @@ impl Session {
         self.killed.load(Ordering::Acquire)
     }
 
+    pub fn mark_killed(&self) {
+        self.killed.store(true, Ordering::Release);
+        if let Some(agent) = self.agent.as_ref() {
+            agent.silence();
+        }
+    }
+
     pub fn exit_reported(&self) -> bool {
         self.exit_reported.load(Ordering::Acquire)
     }
@@ -1271,10 +1278,7 @@ pub fn kill(core: &Core, session: &Session) {
         session.stop_reader.notify_one();
         return;
     }
-    session.killed.store(true, Ordering::Release);
-    if let Some(agent) = session.agent.as_ref() {
-        agent.silence();
-    }
+    session.mark_killed();
     let status = {
         let mut child = session.child.locked();
         let force_task_tree = sikemux_pty::task::task_process_needs_force_backstop(

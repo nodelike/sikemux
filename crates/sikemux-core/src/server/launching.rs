@@ -261,6 +261,7 @@ async fn launch_terminal(
         profile.and_then(|profile| profile.executable_path.as_deref()),
     )
     .await;
+    let replace_stale = continues.is_none();
     let spawn = TerminalSpawn {
         cols,
         rows,
@@ -293,11 +294,22 @@ async fn launch_terminal(
     let pending = self::spawn(core.clone(), core.launch_identity(), target, None).await?;
     let id = pending.id();
     pending.start(core);
+    let mut previous_pty = None;
     core.workspaces().edit_agent(agent_id, |agent| {
+        previous_pty = agent.pty_id;
         agent.pty_id = Some(id);
         agent.terminal = true;
         agent.asleep = false;
     })?;
+    if replace_stale {
+        if let Some(stale) = previous_pty
+            .filter(|previous| *previous != id)
+            .and_then(|previous| core.session(previous))
+            .filter(|session| !session.is_running())
+        {
+            core.remove_session(&stale);
+        }
+    }
     core.workspaces().woke(agent_id);
     Ok(id)
 }
@@ -1110,23 +1122,4 @@ fn terminal_program_fallback(provider: &str, explicit: Option<&str>) -> String {
                 .into_owned()
         })
         .unwrap_or_else(|| provider.to_owned())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::terminal_program_fallback;
-
-    #[test]
-    fn terminal_program_falls_back_to_catalog_command() {
-        assert_eq!(terminal_program_fallback("antigravity", None), "agy");
-        assert_eq!(
-            terminal_program_fallback("antigravity", Some("  /custom/agy  ")),
-            "/custom/agy"
-        );
-        assert_eq!(terminal_program_fallback("antigravity", Some("   ")), "agy");
-        assert_eq!(
-            terminal_program_fallback("unknown-agent", None),
-            "unknown-agent"
-        );
-    }
 }

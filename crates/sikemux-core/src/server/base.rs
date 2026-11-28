@@ -236,6 +236,7 @@ fn agents_gone(core: &Core, gone: &[&String]) {
         })
         .collect();
     for session in &sessions {
+        session.mark_killed();
         core.remove_session(session);
     }
     hosts::route::closed(core, gone);
@@ -635,10 +636,20 @@ fn agent_exited(
     let Some(agent) = session.agent.as_ref() else {
         return;
     };
+    let agent_id = agent.agent_id();
+    let current = core.workspaces().agent(agent_id);
+    if core.chats().get(agent_id).is_some()
+        || current
+            .as_ref()
+            .is_some_and(|record| record.pty_id != Some(session.id))
+        || (session.is_killed() && current.is_none())
+    {
+        return;
+    }
     lifecycle::terminal_exited(
         core,
         session.id,
-        agent.agent_id(),
+        agent_id,
         code,
         signal,
         session.is_killed(),
@@ -650,13 +661,13 @@ fn agent_exited(
     }
     .filter(|_| !session.is_killed());
     if let Some(reason) = &failed {
-        core.note_activity(agent.agent_id(), Activity::Problem(reason));
+        core.note_activity(agent_id, Activity::Problem(reason));
     }
-    core.note_agent_gone(agent.agent_id());
+    core.note_agent_gone(agent_id);
     if mid_turn || !session.is_killed() {
         spawn::terminal_turn_ended(
             core,
-            agent.agent_id(),
+            agent_id,
             Ending::Gone {
                 reason: failed,
                 mid_turn,

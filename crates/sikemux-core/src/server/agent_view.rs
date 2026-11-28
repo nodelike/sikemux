@@ -85,8 +85,14 @@ async fn to_chat(
         } else {
             String::new()
         };
+        terminal.mark_killed();
         core.remove_session(&terminal);
-        session::kill(core, &terminal);
+        let killing = core.clone();
+        let _ = super::connection::blocking(move || {
+            session::kill(&killing, &terminal);
+            Ok(())
+        })
+        .await;
         draft
     } else {
         String::new()
