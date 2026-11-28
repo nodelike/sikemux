@@ -8,11 +8,11 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · Türkçe
 
-**Ajanlar geliştirir ve yayınlar. Kararları siz verirsiniz.** Bir proje şefi; paylaşılan kurallar, eş değerlendirmesi, gerçek tarayıcı testleri ve sürüm kapılarıyla Claude Code, Codex ve daha fazlasını dizüstü bilgisayarlarınız, sunucularınız ve telefonunuz arasında yönetir ve yönlendirir.
+**Ajanlar geliştirir ve yayınlar. Kararları siz verirsiniz.** Bir proje şefi; paylaşılan kurallar, akran incelemesi, gerçek tarayıcı testleri ve sürüm kapılarıyla Claude Code, Codex ve daha fazlasını dizüstü bilgisayarlarınız, sunucularınız ve telefonunuz arasında görevlendirir ve yönlendirir.
 
 GPU üzerinde çalışan, yaklaşık 30 MB boyutunda, hâlihazırda ödediğiniz planları kullanan yerel Rust uygulaması. Apple Silicon Mac'ler, Windows ve Linux için ücretsiz ve MIT lisanslıdır.
 
-![Sikemux with a Claude Code agent and its browser tab](docs/screenshots/sikemux-hero.png)
+![Claude Code ajanı ve onun tarayıcı sekmesiyle Sikemux](docs/screenshots/sikemux-hero.png)
 
 [![Latest release](https://img.shields.io/github/v/release/nodelike/sikemux?display_name=tag)](https://github.com/nodelike/sikemux/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-a277ff)](LICENSE)
@@ -54,11 +54,11 @@ Apple Silicon üzerinde macOS 11+, x64 ve arm64 üzerinde Windows 10 22H2+ veya 
 ## Neden Sikemux
 
 - **Her ajan yan yana.** Claude, Codex, OpenCode, Hermes, Pi ve Muse; birden fazlası aynı anda ve her biri kendi tarayıcı sekmeleriyle.
-- **Claude kotanız mı bitti?** Sohbet Codex'te kesintisiz devam eder.
+- **Claude kotanız mı bitti?** Sohbet Codex'te devam eder.
 - **Çalışmanızı gören ajanlar.** `@` ile bir ajan, `#` ile bir sorun (issue), `!` ile bir PR, `+` ile bir dosya, `&` ile stash'ten bir öğe ekleyin; bir terminal seçimini veya günlüğü aktarın. Sohbete kendi worktree'sini verin.
 - **Araçlarınız zaten bağlı.** GitHub, GitLab, Jira, Linear, Slack, Vercel, AWS ve veritabanlarınız. Bir kez oturum açın; her ajan bunları kullanabilir.
 - **Siz çıktığınızda hiçbir şey durmaz.** Terminaller, ajanlar ve işlemler çalışmaya devam eder ve kaldığınız yerden geri gelir.
-- **Herhangi bir makine.** Hesabınızdaki herhangi bir ana bilgisayarda sohbetler ve terminaller çalıştırın. Bir SSH ana bilgisayarını tek tıkla bu listeye ekleyin.
+- **Herhangi bir makine.** Hesabınızdaki herhangi bir ana bilgisayarda sohbetler ve terminaller çalıştırın. Bir SSH ana bilgisayarını tek tıkla bunlardan birine dönüştürün.
 - **Etrafında gerçek bir düzenleyici.** 450'den fazla temayla kod düzenleyici, terminaller, Git ve arama.
 
 ## Ücretsiz mi?
@@ -78,6 +78,10 @@ make dev     # Sikemux Dev, kurulu uygulamanın yanında
 ```
 
 Dizin yapısı ve kontroller için [CONTRIBUTING.md](CONTRIBUTING.md) dosyasına bakın.
+
+## Bu belge hakkında
+
+Bu README İngilizce sürümden çevrilmiştir; esas alınacak metin [İngilizce sürümdür](README.md).
 
 ## Lisans
 
