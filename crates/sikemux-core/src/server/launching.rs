@@ -256,15 +256,18 @@ async fn launch_terminal(
         }
         _ => Default::default(),
     };
+    let program = terminal_program(
+        &agent.provider,
+        profile.and_then(|profile| profile.executable_path.as_deref()),
+    )
+    .await;
     let spawn = TerminalSpawn {
         cols,
         rows,
         cwd: Some(cwd.clone()),
         startup: None,
         direct_command: Some(PtyDirectCommand {
-            program: profile
-                .and_then(|profile| profile.executable_path.clone())
-                .unwrap_or_else(|| agent.provider.clone()),
+            program,
             args: terminal::args(&agent.provider, &run),
             profile: profile.map(|profile| PtyAgentProfile {
                 config_path: profile.config_path.clone(),
@@ -1083,5 +1086,47 @@ fn give_agent_environment(
     let given = super::plugins::agent_environment(core, std::path::Path::new(folder));
     for (key, value) in given {
         env.entry(key).or_insert(value);
+    }
+}
+
+async fn terminal_program(provider: &str, explicit: Option<&str>) -> String {
+    let explicit = explicit.map(str::trim).filter(|path| !path.is_empty());
+    if let Ok(resolved) = crate::launch::discovery::resolve(provider, explicit).await {
+        return resolved.to_string_lossy().into_owned();
+    }
+    terminal_program_fallback(provider, explicit)
+}
+
+fn terminal_program_fallback(provider: &str, explicit: Option<&str>) -> String {
+    if let Some(path) = explicit.map(str::trim).filter(|path| !path.is_empty()) {
+        return sikemux_process::paths::expand_home(path)
+            .to_string_lossy()
+            .into_owned();
+    }
+    crate::agent_catalog::agent(provider)
+        .map(|entry| {
+            sikemux_process::paths::expand_home(entry.command)
+                .to_string_lossy()
+                .into_owned()
+        })
+        .unwrap_or_else(|| provider.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::terminal_program_fallback;
+
+    #[test]
+    fn terminal_program_falls_back_to_catalog_command() {
+        assert_eq!(terminal_program_fallback("antigravity", None), "agy");
+        assert_eq!(
+            terminal_program_fallback("antigravity", Some("  /custom/agy  ")),
+            "/custom/agy"
+        );
+        assert_eq!(terminal_program_fallback("antigravity", Some("   ")), "agy");
+        assert_eq!(
+            terminal_program_fallback("unknown-agent", None),
+            "unknown-agent"
+        );
     }
 }

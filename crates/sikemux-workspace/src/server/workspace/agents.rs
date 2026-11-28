@@ -331,10 +331,11 @@ impl Workspaces {
     ) {
         if let Some(known) = self.agent(&launch.agent_id) {
             let unnamed = known.profile_id.is_none() && launch.account.is_some();
-            if known.asleep || known.terminal || unnamed {
+            if known.asleep || known.terminal || known.pty_id.is_some() || unnamed {
                 let _ = self.change(|saved| {
                     if let Some(kept) = saved.kept_mut(&known.id) {
-                        (kept.agent.asleep, kept.agent.terminal) = (false, false);
+                        (kept.agent.asleep, kept.agent.terminal, kept.agent.pty_id) =
+                            (false, false, None);
                         if kept.agent.profile_id.is_none() {
                             kept.agent.profile_id =
                                 launch.account.as_ref().map(|account| account.id.clone());

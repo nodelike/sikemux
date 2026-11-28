@@ -22,17 +22,28 @@ const AT_WORK: &str = "Wait for the agent to finish";
 /// as a chat.
 pub(crate) async fn switch(core: &Arc<Core>, params: AgentViewParams) -> CoreResult<Value> {
     let agent = core.workspaces().agent_or_gone(&params.agent_id)?;
-    let terminal = agent
-        .pty_id
-        .and_then(|pty| core.session(pty))
-        .filter(|session| session.is_running());
-    match (params.to, terminal) {
-        (AgentViewKind::Terminal, Some(terminal)) => Ok(json!({ "ptyId": terminal.id })),
-        (AgentViewKind::Terminal, None) => to_terminal(core, &params.agent_id).await,
-        (AgentViewKind::Chat, None) if core.chats().get(&params.agent_id).is_some() => {
+    let session = agent.pty_id.and_then(|pty| core.session(pty));
+    match (params.to, session) {
+        (AgentViewKind::Terminal, Some(terminal)) if terminal.is_running() => {
+            Ok(json!({ "ptyId": terminal.id }))
+        }
+        (AgentViewKind::Terminal, _) => to_terminal(core, &params.agent_id).await,
+        (AgentViewKind::Chat, None)
+            if agent.pty_id.is_none()
+                && !agent.terminal
+                && core.chats().get(&params.agent_id).is_some() =>
+        {
             Ok(Value::Null)
         }
-        (AgentViewKind::Chat, terminal) => to_chat(core, &params.agent_id, terminal).await,
+        (AgentViewKind::Chat, terminal) => {
+            to_chat(
+                core,
+                &params.agent_id,
+                agent.pty_id.is_some() || agent.terminal,
+                terminal,
+            )
+            .await
+        }
     }
 }
 
@@ -61,16 +72,30 @@ async fn to_terminal(core: &Arc<Core>, agent_id: &str) -> CoreResult<Value> {
 async fn to_chat(
     core: &Arc<Core>,
     agent_id: &str,
+    had_terminal: bool,
     terminal: Option<Arc<session::Session>>,
 ) -> CoreResult<Value> {
-    if let Some(terminal) = terminal {
-        if terminal.agent.as_ref().is_some_and(AgentActivity::busy) {
+    let draft = if let Some(terminal) = terminal {
+        let running = terminal.is_running();
+        if running && terminal.agent.as_ref().is_some_and(AgentActivity::busy) {
             return Err(AT_WORK.into());
         }
-        let draft = session::prompt_draft(&terminal);
+        let draft = if running {
+            session::prompt_draft(&terminal)
+        } else {
+            String::new()
+        };
+        core.remove_session(&terminal);
         session::kill(core, &terminal);
-        core.workspaces()
-            .edit_agent(agent_id, |agent| agent.pty_id = None)?;
+        draft
+    } else {
+        String::new()
+    };
+    if had_terminal {
+        core.workspaces().edit_agent(agent_id, |agent| {
+            agent.pty_id = None;
+            agent.terminal = false;
+        })?;
         if !draft.trim().is_empty() {
             let key = sikemux_view::chat::chat_draft_key(agent_id);
             core.drafts().set(&key, draft, None)?;
