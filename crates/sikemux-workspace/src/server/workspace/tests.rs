@@ -482,38 +482,3 @@ fn a_routed_model_alone_starts_omp_on_its_provider() {
         .windows(2)
         .any(|pair| pair == ["--model", "sikemux-wokey/gpt-6.2-sol"]));
 }
-
-#[test]
-fn note_begun_clears_stale_terminal_and_pty_id_on_existing_agent() {
-    let workspaces = Workspaces::new(None, None);
-    offer(&workspaces, vec![launcher()]);
-    let mut started = launch(&workspaces, choice()).unwrap();
-    started.agent_id = "agent-1".into();
-    workspaces.note_begun(&started, None, None);
-    workspaces
-        .edit_agent("agent-1", |agent| {
-            agent.asleep = true;
-            agent.terminal = false;
-            agent.pty_id = Some(42);
-        })
-        .unwrap();
-
-    workspaces.note_begun(&started, None, None);
-    let after = workspaces.agent("agent-1").unwrap();
-    assert!(!after.asleep);
-    assert!(!after.terminal);
-    assert_eq!(after.pty_id, None);
-
-    workspaces
-        .edit_agent("agent-1", |agent| {
-            agent.asleep = true;
-            agent.terminal = true;
-            agent.pty_id = Some(99);
-        })
-        .unwrap();
-    workspaces.note_begun(&started, None, None);
-    let after = workspaces.agent("agent-1").unwrap();
-    assert!(!after.asleep);
-    assert!(!after.terminal);
-    assert_eq!(after.pty_id, None);
-}

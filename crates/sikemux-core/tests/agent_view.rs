@@ -236,6 +236,24 @@ async fn antigravity_tui_runs_agy_and_exited_terminal_switches_back_to_chat() {
     let exit_code = wait_for_exit(&mut events, pty_id).await;
     assert_eq!(exit_code, Some(127));
 
+    let restarted = app
+        .call(
+            "switchAgentView",
+            json!({ "agentId": agent_id, "to": "terminal" }),
+        )
+        .await
+        .expect("re-enter terminal after exit 127");
+    let restarted_pty = restarted["ptyId"]
+        .as_u64()
+        .expect("re-entering terminal returns a new ptyId");
+    assert_ne!(restarted_pty, pty_id);
+    let sessions = app.ask(ask::List).await.expect("list sessions");
+    assert!(
+        !sessions.iter().any(|session| session.id == pty_id),
+        "previous exited PTY {pty_id} should be removed when replaced by {restarted_pty}: {sessions:?}"
+    );
+    assert_eq!(wait_for_exit(&mut events, restarted_pty).await, Some(127));
+
     let back = app
         .call(
             "switchAgentView",
@@ -244,6 +262,10 @@ async fn antigravity_tui_runs_agy_and_exited_terminal_switches_back_to_chat() {
         .await
         .expect("switch back to chat after exit 127");
     assert_eq!(back, Value::Null);
+    assert!(
+        app.ask(ask::List).await.expect("list sessions").is_empty(),
+        "switching back to chat should remove the exited PTY session"
+    );
 
     let record = agent_record(&app, &agent_id).await;
     assert!(
