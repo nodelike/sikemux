@@ -7,7 +7,7 @@ use crate::server::chat_state::ChatParts;
 use crate::server::parts::PartCore;
 use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
-use crate::server::serving::ServeParts;
+use crate::server::serving::{ServeCore, ServeParts};
 use crate::server::workspace_state::WorkspaceParts;
 use sikemux_wire::protocol::{AgentState, Event, SessionId};
 
@@ -18,7 +18,7 @@ use super::changed::{Topic, What};
 use super::device_view::DeviceViewCore;
 use super::notify::Signal;
 use super::parts::Parts;
-use super::session::Session;
+use super::session::{self, Session};
 use super::spawn::{self, Ending};
 use std::path::PathBuf;
 
@@ -224,8 +224,35 @@ fn agents_gone(core: &Core, gone: &[&String]) {
     for agent_id in gone {
         core.chats().close(agent_id);
     }
+    let sessions: Vec<_> = core
+        .all_sessions()
+        .into_iter()
+        .filter(|session| {
+            !session.is_task()
+                && session
+                    .agent
+                    .as_ref()
+                    .is_some_and(|agent| gone.iter().any(|id| id.as_str() == agent.agent_id()))
+        })
+        .collect();
+    for session in &sessions {
+        core.remove_session(session);
+    }
     hosts::route::closed(core, gone);
     pins::agents_closed(core, gone);
+    if !sessions.is_empty() {
+        if let (Some(killing), Ok(runtime)) = (core.arc(), tokio::runtime::Handle::try_current()) {
+            runtime.spawn_blocking(move || {
+                for session in sessions {
+                    session::kill(&killing, &session);
+                }
+            });
+        } else {
+            for session in &sessions {
+                session::kill(core, session);
+            }
+        }
+    }
     if let (Some(core), Ok(runtime), false) = (
         core.arc(),
         tokio::runtime::Handle::try_current(),

@@ -130,6 +130,9 @@ impl WorkspaceCore for Core {
             .into_iter()
             .collect();
         running.extend(self.all_sessions().iter().filter_map(|session| {
+            if !session.is_running() {
+                return None;
+            }
             session
                 .agent
                 .as_ref()

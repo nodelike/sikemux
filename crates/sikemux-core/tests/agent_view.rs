@@ -269,3 +269,106 @@ async fn antigravity_tui_runs_agy_and_exited_terminal_switches_back_to_chat() {
 
     say(&app, &socket, &agent_id, "after switch").await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_chief_after_exited_terminal_still_reopens_as_same_chief() {
+    let root = tempfile::Builder::new()
+        .prefix("chief-reopen")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
+    let project = root.join("project");
+    let bin = root.join("bin");
+    for dir in [
+        root.join("home"),
+        root.join("acp"),
+        project.clone(),
+        bin.clone(),
+    ] {
+        std::fs::create_dir_all(dir).expect("dir");
+    }
+    let marker = root.join("terminal.marker");
+    let _agy = write_agy(&bin, &marker);
+
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &bin, &socket);
+    let (app, mut events) = CoreClient::connect(&socket).await.expect("connect");
+
+    app.call(
+        "addProject",
+        json!({ "id": "widget", "name": "widget", "path": project }),
+    )
+    .await
+    .expect("addProject");
+    app.call("installedAgents", json!({}))
+        .await
+        .expect("installedAgents");
+
+    let opened = app
+        .call("openChief", json!({ "project": "widget" }))
+        .await
+        .expect("openChief");
+    let chief_id = opened["agentId"]
+        .as_str()
+        .expect("openChief returns agentId")
+        .to_owned();
+    let (_chief_watch, mut chief_chat) = open(&socket, &chief_id).await;
+    chief_chat.until(folded::Folded::has_ended_a_turn).await;
+    say(&app, &socket, &chief_id, "hello chief").await;
+
+    let switched = app
+        .call(
+            "switchAgentView",
+            json!({ "agentId": chief_id, "to": "terminal" }),
+        )
+        .await
+        .expect("switch chief to terminal");
+    let pty_id = switched["ptyId"].as_u64().expect("ptyId");
+    assert_eq!(wait_for_exit(&mut events, pty_id).await, Some(127));
+
+    app.call("closeAgents", json!({ "agentIds": [chief_id] }))
+        .await
+        .expect("close chief");
+    let workspace = app.call("workspace", json!({})).await.expect("workspace");
+    assert!(
+        !(workspace["agents"].as_array().into_iter().flatten())
+            .any(|agent| agent["id"] == chief_id),
+        "closed chief should not remain in workspace.agents: {workspace}"
+    );
+
+    let reopened = app
+        .call("openChief", json!({ "project": "widget" }))
+        .await
+        .expect("reopen chief");
+    assert_eq!(
+        reopened["agentId"].as_str(),
+        Some(chief_id.as_str()),
+        "openChief should reopen the exact same Chief agentId: {reopened}"
+    );
+
+    let reopened_pty = agent_record(&app, &chief_id).await["ptyId"]
+        .as_u64()
+        .expect("reopened terminal chief has ptyId");
+    assert_eq!(wait_for_exit(&mut events, reopened_pty).await, Some(127));
+
+    let back = app
+        .call(
+            "switchAgentView",
+            json!({ "agentId": chief_id, "to": "chat" }),
+        )
+        .await
+        .expect("switch reopened chief back to chat");
+    assert_eq!(back, Value::Null);
+
+    let record = agent_record(&app, &chief_id).await;
+    assert!(record["ptyId"].is_null(), "{record}");
+    assert_eq!(record["terminal"], false, "{record}");
+
+    let names = app.call("agentNames", json!({})).await.expect("agentNames");
+    let chief_name = (names.as_array().into_iter().flatten())
+        .find(|entry| entry["agentId"] == chief_id)
+        .unwrap_or_else(|| panic!("chief missing from agentNames: {names}"));
+    assert_eq!(chief_name["name"], "Chief", "{chief_name}");
+
+    say(&app, &socket, &chief_id, "chief back").await;
+}
