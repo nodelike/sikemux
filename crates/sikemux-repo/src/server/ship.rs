@@ -876,8 +876,7 @@ pub(super) fn check_call(
             }
             let routine = plain.filter(|_| places::judge::routine(&gated, &ship));
             let asking = Asking {
-                always: routine.is_none()
-                    && may_stop_asking(core, &project, &gated, &ship, rewrites),
+                always: may_stop_asking(core, &project, &gated, &ship, rewrites),
                 place: &gated,
                 key,
                 once,

@@ -193,7 +193,7 @@ pub fn ordinary(place: &Place, ship: &Ship, rewrites: bool) -> bool {
     !rewrites && !place.recognise.iter().any(releases) && crate::ship::ordinary_deploy(ship)
 }
 
-fn releases(fact: &Recognise) -> bool {
+pub(super) fn releases(fact: &Recognise) -> bool {
     match fact {
         Recognise::Tag { .. } => true,
         Recognise::Package { registry } => registry == GITHUB_RELEASES,
