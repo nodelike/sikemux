@@ -118,6 +118,7 @@ async fn probe_agent_executable_with_timeout(
     command
         .args(def.probe)
         .envs(login_shell_environment())
+        .envs(crate::custom_agents::env_for(def.kind))
         .kill_on_drop(true)
         .stdin(sikemux_process::command::Stdio::null())
         .stdout(sikemux_process::command::Stdio::piped())
@@ -171,8 +172,27 @@ impl Probed {
     }
 }
 
-fn probed() -> &'static Mutex<HashMap<PathBuf, Probed>> {
-    static PROBED: OnceLock<Mutex<HashMap<PathBuf, Probed>>> = OnceLock::new();
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct ProbeKey {
+    kind: String,
+    executable: PathBuf,
+    probe: Vec<String>,
+    env: Vec<(String, String)>,
+}
+
+fn probe_key(def: &AgentEntry, executable: &Path) -> ProbeKey {
+    ProbeKey {
+        kind: def.kind.to_owned(),
+        executable: executable.to_path_buf(),
+        probe: def.probe.iter().map(|arg| (*arg).to_owned()).collect(),
+        env: crate::custom_agents::env_for(def.kind)
+            .into_iter()
+            .collect(),
+    }
+}
+
+fn probed() -> &'static Mutex<HashMap<ProbeKey, Probed>> {
+    static PROBED: OnceLock<Mutex<HashMap<ProbeKey, Probed>>> = OnceLock::new();
     PROBED.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -191,25 +211,33 @@ pub fn forget_failures() {
     }
 }
 
+/// Drops cached probe answers for custom agents after their config changed.
+pub fn forget_custom() {
+    probed()
+        .locked()
+        .retain(|key, _| crate::agent_catalog::AgentKind::from_name(&key.kind).is_some());
+}
+
 /// Wakes once a program whose check timed out has answered in the background.
 pub fn answered_late() -> &'static Notify {
     static ANSWERED: Notify = Notify::const_new();
     &ANSWERED
 }
 
-type Probe = (PathBuf, Option<FileStamp>);
+type Probe = (ProbeKey, Option<FileStamp>);
 
 /// Asks the program at `executable` and keeps its answer, once however many
 /// ask together. A first look that times out is tried again later.
 async fn ask(
     def: &'static AgentEntry,
+    key: ProbeKey,
     executable: &Path,
     stamp: Option<FileStamp>,
     timeout: Duration,
 ) -> Result<String, String> {
     static ASKING: LazyLock<Flights<Probe, Result<String, String>>> =
         LazyLock::new(Flights::default);
-    shared(&ASKING, (executable.to_path_buf(), stamp), async {
+    shared(&ASKING, (key.clone(), stamp), async {
         let answer = {
             let _turn = probe_turn().await;
             probe_agent_executable_with_timeout(def, executable, timeout).await
@@ -221,7 +249,7 @@ async fn ask(
         let good = answer
             .clone()
             .ok()
-            .or_else(|| probed.get(executable).and_then(|kept| kept.good.clone()));
+            .or_else(|| probed.get(&key).and_then(|kept| kept.good.clone()));
         if probed.len() >= MAX_PROBED {
             probed.clear();
         }
@@ -231,10 +259,10 @@ async fn ask(
             good,
         };
         if kept.timed_out() && timeout == AGENT_PROBE_TIMEOUT {
-            retry_later(def, executable.to_path_buf(), stamp);
+            retry_later(def, key.clone(), executable.to_path_buf(), stamp);
         }
         let shown = kept.shown();
-        probed.insert(executable.to_path_buf(), kept);
+        probed.insert(key, kept);
         shown
     })
     .await
@@ -242,21 +270,28 @@ async fn ask(
 
 /// Tries a check that timed out again, off any caller's path, since a busy
 /// machine or an updater swapping the program says nothing about whether it works.
-fn retry_later(def: &'static AgentEntry, executable: PathBuf, stamp: FileStamp) {
-    let still_timed_out = move |executable: &Path| {
+fn retry_later(def: &'static AgentEntry, key: ProbeKey, executable: PathBuf, stamp: FileStamp) {
+    let still_timed_out = move |key: &ProbeKey| {
         probed()
             .locked()
-            .get(executable)
+            .get(key)
             .is_some_and(|kept| kept.stamp == Some(stamp) && kept.timed_out())
     };
     tokio::spawn(async move {
         for wait in RETRY_AFTER {
             tokio::time::sleep(wait).await;
-            if !still_timed_out(&executable) {
+            if !still_timed_out(&key) {
                 return;
             }
-            let _ = ask(def, &executable, Some(stamp), AGENT_RETRY_TIMEOUT).await;
-            if !still_timed_out(&executable) {
+            let _ = ask(
+                def,
+                key.clone(),
+                &executable,
+                Some(stamp),
+                AGENT_RETRY_TIMEOUT,
+            )
+            .await;
+            if !still_timed_out(&key) {
                 answered_late().notify_one();
                 return;
             }
@@ -270,12 +305,13 @@ async fn probe_agent_executable(
     executable: &Path,
 ) -> Result<String, String> {
     let stamp = stamp(executable);
-    if let Some(kept) = probed().locked().get(executable) {
+    let key = probe_key(def, executable);
+    if let Some(kept) = probed().locked().get(&key) {
         if stamp.is_some() && kept.stamp == stamp {
             return kept.shown();
         }
     }
-    ask(def, executable, stamp, AGENT_PROBE_TIMEOUT).await
+    ask(def, key, executable, stamp, AGENT_PROBE_TIMEOUT).await
 }
 
 /// The first of `candidates` that works, and why each one before it failed. With none
@@ -293,7 +329,9 @@ pub async fn first_healthy(
             Err(error) => failures.push(format!("{}: {error}", candidate.display())),
         }
     }
-    let slow = candidates.into_iter().find(|program| timed_out(program));
+    let slow = candidates
+        .into_iter()
+        .find(|program| timed_out(def, program));
     (slow, failures)
 }
 
@@ -320,15 +358,14 @@ pub async fn resolve(agent: &str, explicit: Option<&str>) -> Result<PathBuf, Str
 }
 
 /// What the program at `executable` last said when asked whether it runs.
-pub fn said(executable: &Path) -> Option<String> {
-    probed().locked().get(executable)?.shown().ok()
+pub fn said(def: &AgentEntry, executable: &Path) -> Option<String> {
+    let key = probe_key(def, executable);
+    probed().locked().get(&key)?.shown().ok()
 }
 
-fn timed_out(program: &Path) -> bool {
-    probed()
-        .locked()
-        .get(program)
-        .is_some_and(Probed::timed_out)
+fn timed_out(def: &AgentEntry, program: &Path) -> bool {
+    let key = probe_key(def, program);
+    probed().locked().get(&key).is_some_and(Probed::timed_out)
 }
 
 const ERROR_DETAIL_LIMIT: usize = 240;

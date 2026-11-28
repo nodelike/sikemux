@@ -4,6 +4,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -73,12 +74,14 @@ struct Parsed {
 struct Loaded {
     path: Option<PathBuf>,
     stamp: Option<(SystemTime, u64)>,
+    raw: Option<Vec<u8>>,
     checked: Instant,
     entries: &'static [AgentEntry],
     env: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 static LOADED: Mutex<Option<Loaded>> = Mutex::new(None);
+static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 fn leak(text: String) -> &'static str {
     Box::leak(text.into_boxed_str())
@@ -89,9 +92,13 @@ fn leak_all(items: Vec<String>) -> &'static [&'static str] {
     Box::leak(items.into_boxed_slice())
 }
 
-fn file_path() -> Option<PathBuf> {
+pub fn file_path() -> Option<PathBuf> {
     sikemux_process::paths::env_path(CUSTOM_AGENTS_PATH)
         .or_else(|| Some(sikemux_process::paths::config_dir()?.join(FILE_NAME)))
+}
+
+pub fn generation() -> u64 {
+    GENERATION.load(Ordering::Acquire)
 }
 
 fn valid_type(name: &str) -> bool {
@@ -151,6 +158,17 @@ fn check(raw: CustomAgentConfig, taken: &HashSet<String>) -> Result<CustomAgentC
             "{kind} has the invalid environment variable {name:?}"
         ));
     }
+    let modes = match raw.modes {
+        None => None,
+        Some(modes) => {
+            let normal = modes.normal.trim().to_owned();
+            let bypass = modes.bypass.trim().to_owned();
+            if normal.is_empty() || bypass.is_empty() {
+                return Err(format!("{kind} modes need both normal and bypass"));
+            }
+            Some(CustomAgentModes { normal, bypass })
+        }
+    };
     Ok(CustomAgentConfig {
         r#type: kind,
         label: non_blank(raw.label),
@@ -162,7 +180,7 @@ fn check(raw: CustomAgentConfig, taken: &HashSet<String>) -> Result<CustomAgentC
         probe: raw.probe.filter(|probe| !probe.is_empty()),
         compact: non_blank(raw.compact),
         asks_before_tools: raw.asks_before_tools,
-        modes: raw.modes,
+        modes,
     })
 }
 
@@ -275,10 +293,25 @@ fn stamp_of(path: &PathBuf) -> Option<(SystemTime, u64)> {
     Some((metadata.modified().ok()?, metadata.len()))
 }
 
-fn read(path: Option<PathBuf>, stamp: Option<(SystemTime, u64)>) -> Loaded {
-    let parsed = match (&path, stamp) {
-        (Some(path), Some(_)) => match fs::read_to_string(path) {
-            Ok(text) => parse(&text, &path.display().to_string()),
+fn read_bytes(path: &Path) -> Option<Vec<u8>> {
+    match fs::read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            eprintln!("sikemux core: cannot read {}: {error}", path.display());
+            None
+        }
+    }
+}
+
+fn build_loaded(
+    path: Option<PathBuf>,
+    stamp: Option<(SystemTime, u64)>,
+    raw: Option<Vec<u8>>,
+) -> Loaded {
+    let parsed = match (&path, &raw) {
+        (Some(path), Some(bytes)) => match std::str::from_utf8(bytes) {
+            Ok(text) => parse(text, &path.display().to_string()),
             Err(error) => {
                 eprintln!("sikemux core: cannot read {}: {error}", path.display());
                 Parsed::default()
@@ -289,33 +322,80 @@ fn read(path: Option<PathBuf>, stamp: Option<(SystemTime, u64)>) -> Loaded {
     Loaded {
         path,
         stamp,
+        raw,
         checked: Instant::now(),
         entries: Box::leak(parsed.entries.into_boxed_slice()),
         env: parsed.env,
     }
 }
 
+fn sync_loaded(slot: &mut Option<Loaded>, force: bool) -> bool {
+    if !force
+        && slot
+            .as_ref()
+            .is_some_and(|loaded| loaded.checked.elapsed() < RECHECK_AFTER)
+    {
+        return false;
+    }
+    let path = file_path();
+    let stamp = path.as_ref().and_then(stamp_of);
+    if !force {
+        if let Some(loaded) = slot.as_mut() {
+            if loaded.path == path && loaded.stamp == stamp {
+                loaded.checked = Instant::now();
+                return false;
+            }
+        }
+    }
+    let raw = match (&path, stamp) {
+        (Some(path), Some(_)) => read_bytes(path),
+        _ => None,
+    };
+    if let Some(loaded) = slot.as_mut() {
+        if loaded.path == path && loaded.raw == raw {
+            loaded.stamp = stamp;
+            loaded.checked = Instant::now();
+            return false;
+        }
+    }
+    let had_loaded = slot.is_some();
+    *slot = Some(build_loaded(path, stamp, raw));
+    if had_loaded {
+        GENERATION.fetch_add(1, Ordering::AcqRel);
+        true
+    } else {
+        false
+    }
+}
+
 /// Runs `read` on the list as the file has it now. The file is looked at again only when its
 /// size or date changed, and no more than once a second.
 fn with_loaded<R>(read_from: impl FnOnce(&Loaded) -> R) -> R {
-    let mut slot = LOADED.locked();
-    let fresh = slot
-        .as_ref()
-        .is_some_and(|loaded| loaded.checked.elapsed() < RECHECK_AFTER);
-    if !fresh {
-        let path = file_path();
-        let stamp = path.as_ref().and_then(stamp_of);
-        match slot.as_mut() {
-            Some(loaded) if loaded.path == path && loaded.stamp == stamp => {
-                loaded.checked = Instant::now();
-            }
-            _ => *slot = Some(read(path, stamp)),
-        }
+    let (result, changed) = {
+        let mut slot = LOADED.locked();
+        let changed = sync_loaded(&mut slot, false);
+        let result = match slot.as_ref() {
+            Some(loaded) => read_from(loaded),
+            None => read_from(&build_loaded(None, None, None)),
+        };
+        (result, changed)
+    };
+    if changed {
+        crate::launch::discovery::forget_custom();
     }
-    match slot.as_ref() {
-        Some(loaded) => read_from(loaded),
-        None => read_from(&read(None, None)),
+    result
+}
+
+/// Re-reads the file immediately if its bytes changed, and answers with the current generation.
+pub fn refresh() -> u64 {
+    let changed = {
+        let mut slot = LOADED.locked();
+        sync_loaded(&mut slot, true)
+    };
+    if changed {
+        crate::launch::discovery::forget_custom();
     }
+    generation()
 }
 
 /// The agents the person added, in the order they listed them.
@@ -388,28 +468,22 @@ fn store(
     top.insert("agents".to_owned(), serde_json::Value::Array(agents));
     let mut text = serde_json::to_string_pretty(&top).map_err(|error| error.to_string())?;
     text.push('\n');
-    let saved = sikemux_process::files::write_atomic(path, text.as_bytes(), true)
-        .map_err(|error| format!("cannot write {}: {error}", path.display()));
-    *LOADED.locked() = None;
-    saved
+    sikemux_process::files::write_atomic(path, text.as_bytes(), true)
+        .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    refresh();
+    crate::launch::discovery::forget_custom();
+    Ok(())
 }
 
 fn type_of(value: &serde_json::Value) -> Option<&str> {
     value.get("type")?.as_str().map(str::trim)
 }
 
-/// The agents the person added that can be used, as the file lists them.
-pub fn list() -> Vec<CustomAgentConfig> {
-    let Some(path) = file_path() else {
-        return Vec::new();
-    };
-    let Ok((_, agents)) = stored(&path) else {
-        return Vec::new();
-    };
+fn valid_configs(agents: &[serde_json::Value]) -> Vec<CustomAgentConfig> {
     let mut taken = HashSet::new();
     let mut listed = Vec::new();
     for value in agents {
-        let config = serde_json::from_value::<CustomAgentConfig>(value)
+        let config = serde_json::from_value::<CustomAgentConfig>(value.clone())
             .map_err(|error| error.to_string())
             .and_then(|raw| check(raw, &taken));
         if let Ok(config) = config {
@@ -420,15 +494,29 @@ pub fn list() -> Vec<CustomAgentConfig> {
     listed
 }
 
+/// The agents the person added that can be used, as the file lists them.
+pub fn list() -> Vec<CustomAgentConfig> {
+    let Some(path) = file_path() else {
+        return Vec::new();
+    };
+    let Ok((_, agents)) = stored(&path) else {
+        return Vec::new();
+    };
+    valid_configs(&agents)
+}
+
 /// Adds `config` to the file and returns it as kept. It is refused for the reasons the file's
 /// own entries are skipped: an id that is not a plain name, one that is a built-in agent or
 /// already listed, no command, a brand that is not a colour, or a bad variable.
 pub fn add(config: CustomAgentConfig) -> Result<CustomAgentConfig, String> {
     let path = file_path().ok_or("Sikemux has no config folder to keep custom agents in")?;
     let _writing = WRITING.locked();
-    let taken: HashSet<String> = list().into_iter().map(|agent| agent.r#type).collect();
-    let config = check(config, &taken)?;
     let (top, mut agents) = stored(&path)?;
+    let taken: HashSet<String> = valid_configs(&agents)
+        .into_iter()
+        .map(|agent| agent.r#type)
+        .collect();
+    let config = check(config, &taken)?;
     // An entry with this id that cannot be used is replaced rather than left beside it.
     agents.retain(|value| type_of(value) != Some(config.r#type.as_str()));
     agents.push(serde_json::to_value(&config).map_err(|error| error.to_string())?);
@@ -496,6 +584,31 @@ mod tests {
     /// Holds the environment variable that names the file while a test uses it.
     static ENV: Mutex<()> = Mutex::new(());
 
+    struct EnvGuard {
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(path: &Path) -> Self {
+            let previous = std::env::var_os(CUSTOM_AGENTS_PATH);
+            std::env::set_var(CUSTOM_AGENTS_PATH, path);
+            *LOADED.locked() = None;
+            crate::launch::discovery::forget_custom();
+            Self { previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(previous) => std::env::set_var(CUSTOM_AGENTS_PATH, previous),
+                None => std::env::remove_var(CUSTOM_AGENTS_PATH),
+            }
+            *LOADED.locked() = None;
+            crate::launch::discovery::forget_custom();
+        }
+    }
+
     fn config(kind: &str, command: &str) -> CustomAgentConfig {
         CustomAgentConfig {
             r#type: kind.to_owned(),
@@ -509,7 +622,7 @@ mod tests {
         let _env = ENV.locked();
         let folder = tempfile::tempdir().unwrap();
         let file = folder.path().join("sub").join(FILE_NAME);
-        std::env::set_var(CUSTOM_AGENTS_PATH, &file);
+        let _guard = EnvGuard::set(&file);
 
         assert!(list().is_empty());
         assert!(!is_custom("dima"));
@@ -547,6 +660,12 @@ mod tests {
         let mut variable = config("variable", "x");
         variable.env = Some(BTreeMap::from([("A=B".to_owned(), "c".to_owned())]));
         assert!(add(variable).is_err());
+        let mut blank_modes = config("blank-modes", "x");
+        blank_modes.modes = Some(CustomAgentModes {
+            normal: " ".to_owned(),
+            bypass: "yolo".to_owned(),
+        });
+        assert!(add(blank_modes).is_err());
         assert_eq!(list().len(), 1);
 
         add(config("other", "other")).unwrap();
@@ -560,8 +679,6 @@ mod tests {
         assert!(is_custom("other"));
         assert_eq!(remove("other"), Ok(true));
         assert!(entries().is_empty());
-
-        std::env::remove_var(CUSTOM_AGENTS_PATH);
     }
 
     #[test]
@@ -569,7 +686,7 @@ mod tests {
         let _env = ENV.locked();
         let folder = tempfile::tempdir().unwrap();
         let file = folder.path().join(FILE_NAME);
-        std::env::set_var(CUSTOM_AGENTS_PATH, &file);
+        let _guard = EnvGuard::set(&file);
         fs::write(&file, "not json").unwrap();
         assert!(add(config("dima", "dima")).is_err());
         assert!(remove("dima").is_err());
@@ -587,7 +704,5 @@ mod tests {
         assert!(text.contains("\"extra\": 1"), "{text}");
         let kinds: Vec<_> = list().into_iter().map(|agent| agent.r#type).collect();
         assert_eq!(kinds, ["broken", "fine"]);
-
-        std::env::remove_var(CUSTOM_AGENTS_PATH);
     }
 }

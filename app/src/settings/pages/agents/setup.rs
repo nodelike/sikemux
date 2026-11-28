@@ -3,11 +3,11 @@
 //! to its hosts, its accounts and the program it runs.
 
 use crate::ui::Clicks;
-use gpui_kit::component::input::InputState;
+use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::{
-    div, px, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
+    div, px, AnyElement, App, AppContext, Context, Entity, Hsla, InteractiveElement, IntoElement,
     ParentElement, Radians, SharedString, StatefulInteractiveElement, Styled, Transformation,
     Window,
 };
@@ -56,7 +56,7 @@ pub struct Fields {
     id: Entity<InputState>,
     command: Entity<InputState>,
     args: Entity<InputState>,
-    env: Entity<InputState>,
+    env: Entity<TextareaState>,
 }
 
 impl Fields {
@@ -70,7 +70,9 @@ impl Fields {
         });
         let args = cx.new(|cx| InputState::new(window, cx).placeholder(t!("acp")));
         let env = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(t!("KEY=VALUE, separated by commas or lines"))
+            TextareaState::new(window, cx)
+                .auto_grow(2, 6)
+                .placeholder(t!("KEY=VALUE, one per line"))
         });
         Self {
             open: None,
@@ -162,6 +164,7 @@ pub fn render(
             t!("Add custom agent"),
             ui::Variant::Outline,
         )
+        .disabled(fields.busy || bench.agent_setup.found.is_none())
         .on_click(move |_, window, cx| this.update(cx, |bench, cx| toggle_form(bench, window, cx)))
         .into_any_element()
     };
@@ -282,7 +285,7 @@ fn row(
         .children(custom.then(|| {
             div()
                 .px(SPACE_1H)
-                .rounded(px(4.))
+                .rounded(theme::radius_1())
                 .border_1()
                 .border_color(t.line_soft)
                 .text_size(theme::ui_text(TEXT_2XS_H))
@@ -515,7 +518,10 @@ fn detail(
     let signs_in =
         (bench.reads.catalog.agents()).any(|kind| kind.kind == agent.kind && kind.accounts);
     let accounts = signs_in.then(|| super::accounts::list(bench, agent.kind, this, cx));
-    let custom = (bench.reads.catalog.kind(agent.kind)).filter(|entry| entry.custom);
+    let runs_row = match (bench.reads.catalog.kind(agent.kind)).filter(|entry| entry.custom) {
+        Some(own) => custom_command(agent, own, fields, this, cx),
+        None => runs(bench, agent, fields, this, cx),
+    };
     div()
         .pl(px(48.))
         .pr(SPACE_4)
@@ -524,10 +530,7 @@ fn detail(
         .border_color(t.line_soft)
         .child(part(t!("Hosts"), hosts.into_any_element()))
         .children(accounts.map(|accounts| part(t!("Accounts"), accounts)))
-        .child(part(t!("Runs"), runs(bench, agent, fields, this, cx)))
-        .children(
-            custom.map(|own| part(t!("Custom"), custom_command(agent, own, fields, this, cx))),
-        )
+        .child(part(t!("Runs"), runs_row))
         .into_any_element()
 }
 
@@ -700,8 +703,14 @@ fn custom_command(
 
 /// Shows or hides the form for a custom agent, starting it empty.
 fn toggle_form(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+    if bench.agent_setup.found.is_none() {
+        return;
+    }
     super::change_fields(bench, cx, |fields, cx| {
         let fields = &mut fields.setup;
+        if fields.busy {
+            return;
+        }
         fields.adding = !fields.adding;
         fields.failure = None;
         if !fields.adding {
@@ -712,10 +721,12 @@ fn toggle_form(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
             (&fields.id, ""),
             (&fields.command, ""),
             (&fields.args, "acp"),
-            (&fields.env, ""),
         ] {
             input.update(cx, |input, cx| input.set_value(value, window, cx));
         }
+        fields
+            .env
+            .update(cx, |input, cx| input.set_value("", window, cx));
         fields.label.update(cx, |input, cx| input.focus(window, cx));
     });
 }
@@ -737,6 +748,30 @@ fn form(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> AnyElement {
             )
             .child(if mono { field.mono() } else { field })
     };
+    let env_box = div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_1)
+        .child(
+            div()
+                .text_size(theme::ui_text(TEXT_XS))
+                .text_color(t.text_tertiary)
+                .child(t!("Environment")),
+        )
+        .child(
+            div()
+                .border(theme::border())
+                .border_color(t.line)
+                .rounded(theme::radius_2())
+                .bg(Hsla {
+                    a: 0.62,
+                    ..t.line_soft
+                })
+                .font_family(theme::mono_font())
+                .text_size(theme::ui_text(TEXT_XS))
+                .text_color(t.text_primary)
+                .child(Textarea::new(&fields.env).bordered(false)),
+        );
     let (save, cancel) = (this.clone(), this.clone());
     div()
         .px(SPACE_4)
@@ -759,7 +794,7 @@ fn form(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> AnyElement {
         )
         .child(boxed(t!("Command"), &fields.command, true))
         .child(boxed(t!("Arguments"), &fields.args, true))
-        .child(boxed(t!("Environment"), &fields.env, true))
+        .child(env_box)
         .children(fields.failure.clone().map(|message| {
             div()
                 .text_size(theme::ui_text(TEXT_XS))
@@ -773,6 +808,7 @@ fn form(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> AnyElement {
                 .gap(SPACE_2)
                 .child(
                     ui::Button::new("agent-custom-cancel", t!("Cancel"), ui::Variant::Ghost)
+                        .disabled(fields.busy)
                         .on_click(move |_, window, cx| {
                             cancel.update(cx, |bench, cx| {
                                 super::change_fields(bench, cx, |fields, _| {
@@ -809,12 +845,13 @@ fn add_custom(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         return;
     }
     let typed = |input: &Entity<InputState>| input.read(cx).value().to_string();
+    let env = fields.env.read(cx).value().to_string();
     let built = config_of(
         &typed(&fields.label),
         &typed(&fields.id),
         &typed(&fields.command),
         &typed(&fields.args),
-        &typed(&fields.env),
+        &env,
     );
     let config = match built {
         Ok(config) => config,
@@ -843,16 +880,16 @@ fn add_custom(bench: &mut Workbench, cx: &mut Context<Workbench>) {
                     Err(error) => fields.failure = Some(error.to_string()),
                 }
             });
-            if answer.is_ok() {
-                crate::agents::setup::read(bench, cx);
-            }
         });
     })
     .detach();
 }
 
-/// Takes a custom agent away, closes its row and reads the agents again.
+/// Takes a custom agent away and closes its row.
 fn remove_custom(bench: &mut Workbench, kind: String, cx: &mut Context<Workbench>) {
+    if super::fields(bench, cx).is_some_and(|fields| fields.setup.busy) {
+        return;
+    }
     super::change_fields(bench, cx, |fields, _| {
         fields.setup.busy = true;
         fields.setup.removal_failure = None;
@@ -867,13 +904,14 @@ fn remove_custom(bench: &mut Workbench, kind: String, cx: &mut Context<Workbench
                 fields.busy = false;
                 match &answer {
                     Ok(_) => {
-                        fields.open = None;
-                        fields.editing = None;
+                        if fields.open.as_deref() == Some(kind.as_str()) {
+                            fields.open = None;
+                            fields.editing = None;
+                        }
                     }
                     Err(error) => fields.removal_failure = Some((kind.clone(), error.to_string())),
                 }
             });
-            crate::agents::setup::read(bench, cx);
         });
     })
     .detach();
@@ -955,14 +993,10 @@ fn split_args(text: &str) -> Vec<String> {
     words
 }
 
-/// `KEY=VALUE` pairs separated by commas or lines.
+/// `KEY=VALUE` pairs, one per line.
 fn parse_env(text: &str) -> Result<BTreeMap<String, String>, String> {
     let mut env = BTreeMap::new();
-    for pair in text
-        .split([',', '\n'])
-        .map(str::trim)
-        .filter(|pair| !pair.is_empty())
-    {
+    for pair in text.lines().map(str::trim).filter(|pair| !pair.is_empty()) {
         match pair.split_once('=') {
             Some((name, value)) if !name.trim().is_empty() => {
                 env.insert(name.trim().to_owned(), value.trim().to_owned());
@@ -998,10 +1032,11 @@ mod tests {
     }
 
     #[test]
-    fn variables_are_pairs_split_at_commas_or_lines() {
-        let env = parse_env("A=1, B = two\nC=x=y\n\n").unwrap();
+    fn variables_are_pairs_one_per_line() {
+        let env = parse_env("A=1\n B = two\nNO_PROXY=localhost,127.0.0.1\nC=x=y\n\n").unwrap();
         assert_eq!(env["A"], "1");
         assert_eq!(env["B"], "two");
+        assert_eq!(env["NO_PROXY"], "localhost,127.0.0.1");
         assert_eq!(env["C"], "x=y");
         assert!(parse_env("A").is_err());
         assert!(parse_env("=x").is_err());

@@ -37,10 +37,13 @@ fn method_of(method: &Value, command: &str) -> Option<SignInMethod> {
         .and_then(|meta| meta.get("terminal-auth"))
         .filter(|zed| zed.is_object());
     if let Some(zed) = zed {
+        let expected = Path::new(command)
+            .file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new(command));
         let own = zed["command"]
             .as_str()
             .and_then(|named| Path::new(named).file_name())
-            .is_some_and(|named| named == command);
+            .is_some_and(|named| named == expected);
         return own.then(|| SignInMethod::Terminal {
             id,
             name: zed["label"].as_str().map_or(name, str::to_owned),

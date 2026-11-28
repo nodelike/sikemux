@@ -4,6 +4,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
+use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::agent_accounts::Availability;
 pub use sikemux_calls::agent_accounts::{
@@ -16,7 +17,9 @@ pub use sikemux_calls::agent_accounts::{
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, Once};
+use std::time::Duration;
 
 use super::agent_sign_in;
 use super::changed::Topic;
@@ -120,6 +123,9 @@ pub(super) async fn set(core: &Arc<Core>, book: Book) -> CoreResult<()> {
     Ok(())
 }
 
+static CUSTOM_AGENTS_APPLIED: AtomicU64 = AtomicU64::new(0);
+const CUSTOM_AGENTS_SETTLE: Duration = Duration::from_millis(150);
+
 /// Tells every client that the agents it can pick from moved, and has the launchers follow.
 async fn custom_agents_moved(core: &Arc<Core>) {
     refresh_launchers(core.clone()).await;
@@ -129,6 +135,70 @@ async fn custom_agents_moved(core: &Arc<Core>) {
     core.changed(What::View);
 }
 
+async fn apply_custom_agents_change(core: &Arc<Core>) {
+    let generation = blocking(|| Ok(custom_agents::refresh()))
+        .await
+        .unwrap_or_else(|_| custom_agents::generation());
+    let previous = CUSTOM_AGENTS_APPLIED.swap(generation, Ordering::AcqRel);
+    if generation != previous {
+        custom_agents_moved(core).await;
+    }
+}
+
+/// Watches `custom-agents.json` on disk so edits outside the Settings UI refresh launchers
+/// and every connected client.
+pub(super) async fn follow_custom_agents(core: Arc<Core>) {
+    let Some(path) = custom_agents::file_path() else {
+        return;
+    };
+    let Some(folder) = path.parent().map(Path::to_path_buf) else {
+        return;
+    };
+    let _ = blocking(|| {
+        let _ = custom_agents::entries();
+        Ok(())
+    })
+    .await;
+    CUSTOM_AGENTS_APPLIED.store(custom_agents::generation(), Ordering::Release);
+    loop {
+        let watch_dir = if folder.is_dir() {
+            folder.clone()
+        } else {
+            let Some(ancestor) = folder.ancestors().find(|dir| dir.is_dir()) else {
+                return;
+            };
+            ancestor.to_path_buf()
+        };
+        let watching_target = watch_dir == folder;
+        let (sender, mut changes) = tokio::sync::mpsc::unbounded_channel();
+        let Ok(_watcher) =
+            core.watch_hub()
+                .watch(&watch_dir, notify::RecursiveMode::NonRecursive, move |_| {
+                    let _ = sender.send(());
+                })
+        else {
+            return;
+        };
+        apply_custom_agents_change(&core).await;
+        if !watching_target && folder.is_dir() {
+            continue;
+        }
+        let mut switch_to_target = false;
+        while changes.recv().await.is_some() {
+            tokio::time::sleep(CUSTOM_AGENTS_SETTLE).await;
+            while changes.try_recv().is_ok() {}
+            apply_custom_agents_change(&core).await;
+            if !watching_target && folder.is_dir() {
+                switch_to_target = true;
+                break;
+            }
+        }
+        if !switch_to_target {
+            return;
+        }
+    }
+}
+
 /// Adds an ACP agent of the person's own to `custom-agents.json`, whether or not its program
 /// is there yet; the agents page lists it either way, so a mistyped command can be removed.
 pub(super) async fn add_custom(
@@ -136,6 +206,7 @@ pub(super) async fn add_custom(
     config: custom_agents::CustomAgentConfig,
 ) -> CoreResult<custom_agents::CustomAgentConfig> {
     let added = blocking(move || custom_agents::add(config).map_err(Into::into)).await?;
+    CUSTOM_AGENTS_APPLIED.store(custom_agents::generation(), Ordering::Release);
     custom_agents_moved(core).await;
     Ok(added)
 }
@@ -148,6 +219,7 @@ pub(super) async fn remove_custom(
     let kind = params.kind;
     let removed = blocking(move || custom_agents::remove(&kind).map_err(Into::into)).await?;
     if removed {
+        CUSTOM_AGENTS_APPLIED.store(custom_agents::generation(), Ordering::Release);
         custom_agents_moved(core).await;
     }
     Ok(removed)

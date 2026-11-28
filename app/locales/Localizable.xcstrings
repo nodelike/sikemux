@@ -58616,7 +58616,7 @@
         }
       }
     },
-    "KEY=VALUE, separated by commas or lines": {},
+    "KEY=VALUE, one per line": {},
     "Keep Alive": {
       "localizations": {
         "fr": {

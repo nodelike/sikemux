@@ -61,7 +61,7 @@ pub(super) fn add_versions(core: &Arc<Core>, agents: &mut [Installed]) {
         let program = agent.available.then(|| PathBuf::from(&agent.command));
         agent.version = program
             .as_deref()
-            .and_then(discovery::said)
+            .and_then(|program| discovery::said(def, program))
             .and_then(|said| release(&said));
         let mut running: Vec<String> = chats
             .iter()
