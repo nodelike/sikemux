@@ -6,7 +6,7 @@
 
 `Open-source agentic infrastructure · MIT`
 
-English · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
+English · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Türkçe](README.tr.md)
 
 **Agents build and ship. You make the calls.** A project chief staffs and routes Claude Code, Codex and more across your laptops, servers and phone, with shared rules, peer review, real browser testing and release gates.
 
