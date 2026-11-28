@@ -34,6 +34,7 @@ pub mod chat_find;
 pub mod chief;
 pub mod cli_install;
 pub mod codehost;
+pub mod custom_agents;
 pub mod custom_command;
 pub mod diagnosis;
 pub mod diagrams;

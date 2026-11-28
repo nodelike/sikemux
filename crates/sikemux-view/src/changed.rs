@@ -70,6 +70,8 @@ pub enum Topic {
     HostStats,
     /// Agentic Vault entries, pending first-entry cards, fill approvals, or audit entries changed.
     Vault,
+    /// The agents a client can pick from: the built-in catalog and the custom agents added to it.
+    Catalog,
     /// A topic from a newer core, which a client skips.
     #[serde(other)]
     Unknown,

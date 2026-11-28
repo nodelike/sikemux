@@ -7697,6 +7697,7 @@
         }
       }
     },
+    "Add custom agent": {},
     "Add custom field": {
       "localizations": {
         "fr": {
@@ -14561,6 +14562,7 @@
         }
       }
     },
+    "Arguments": {},
     "Arrange": {
       "localizations": {
         "fr": {
@@ -14613,6 +14615,7 @@
         }
       }
     },
+    "Artifact": {},
     "Artifacts": {
       "localizations": {
         "fr": {
@@ -25429,6 +25432,7 @@
         }
       }
     },
+    "Command not found": {},
     "Command, Control or Option": {
       "localizations": {
         "fr": {
@@ -35829,6 +35833,7 @@
         }
       }
     },
+    "DimCode": {},
     "Dirty worktrees will be refused.": {
       "localizations": {
         "fr": {
@@ -40665,6 +40670,7 @@
         }
       }
     },
+    "Enter the command that starts it": {},
     "Enter {field} to continue.": {
       "localizations": {
         "fr": {
@@ -40717,6 +40723,7 @@
         }
       }
     },
+    "Environment": {},
     "Esc / {keys}": {
       "localizations": {
         "fr": {
@@ -47529,6 +47536,7 @@
         }
       }
     },
+    "From the name if empty": {},
     "Full": {
       "localizations": {
         "fr": {
@@ -48465,6 +48473,7 @@
         }
       }
     },
+    "Give it a name or an ID": {},
     "Global": {
       "localizations": {
         "fr": {
@@ -52625,6 +52634,7 @@
         }
       }
     },
+    "ID": {},
     "IP address and port": {
       "localizations": {
         "fr": {
@@ -57097,6 +57107,7 @@
         }
       }
     },
+    "Its command was not found on this host. Check the path or remove it.": {},
     "Its cookies and sign-ins are erased. Nothing else is touched.": {
       "localizations": {
         "fr": {
@@ -58605,6 +58616,7 @@
         }
       }
     },
+    "KEY=VALUE, separated by commas or lines": {},
     "Keep Alive": {
       "localizations": {
         "fr": {
@@ -62817,6 +62829,7 @@
         }
       }
     },
+    "Loading artifact…": {},
     "Loading changed files": {
       "localizations": {
         "fr": {
@@ -146537,6 +146550,7 @@
         }
       }
     },
+    "acp": {},
     "actions menu": {
       "localizations": {
         "fr": {
@@ -153193,6 +153207,7 @@
         }
       }
     },
+    "dima or /Users/you/.local/bin/dima": {},
     "discard": {
       "localizations": {
         "fr": {
@@ -191777,6 +191792,7 @@
         }
       }
     },
+    "{pair} is not KEY=VALUE": {},
     "{part} takes the most, {size}.": {
       "localizations": {
         "fr": {

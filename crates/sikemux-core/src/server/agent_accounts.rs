@@ -31,6 +31,7 @@ use crate::agent_accounts::{
 use crate::agent_catalog::{AgentEntry, AgentKind, AGENTS};
 use crate::flights::{shared, Flights};
 use crate::launch::discovery;
+use sikemux_agents::custom_agents;
 use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::ChatAccount;
 
@@ -117,6 +118,39 @@ pub(super) async fn set(core: &Arc<Core>, book: Book) -> CoreResult<()> {
     core.workspaces().set_accounts(book)?;
     refresh_launchers(core.clone()).await;
     Ok(())
+}
+
+/// Tells every client that the agents it can pick from moved, and has the launchers follow.
+async fn custom_agents_moved(core: &Arc<Core>) {
+    refresh_launchers(core.clone()).await;
+    core.changed(What::Read(Topic::Catalog));
+    core.changed(What::Read(Topic::AgentAccounts));
+    core.changed(What::Read(Topic::AgentStatus));
+    core.changed(What::View);
+}
+
+/// Adds an ACP agent of the person's own to `custom-agents.json`, whether or not its program
+/// is there yet; the agents page lists it either way, so a mistyped command can be removed.
+pub(super) async fn add_custom(
+    core: &Arc<Core>,
+    config: custom_agents::CustomAgentConfig,
+) -> CoreResult<custom_agents::CustomAgentConfig> {
+    let added = blocking(move || custom_agents::add(config).map_err(Into::into)).await?;
+    custom_agents_moved(core).await;
+    Ok(added)
+}
+
+/// Takes a custom agent out of `custom-agents.json`; whether it was listed is the answer.
+pub(super) async fn remove_custom(
+    core: &Arc<Core>,
+    params: sikemux_calls::custom_agents::RemoveParams,
+) -> CoreResult<bool> {
+    let kind = params.kind;
+    let removed = blocking(move || custom_agents::remove(&kind).map_err(Into::into)).await?;
+    if removed {
+        custom_agents_moved(core).await;
+    }
+    Ok(removed)
 }
 
 pub(super) async fn save(core: &Arc<Core>, saving: Saving) -> CoreResult<Book> {
@@ -1070,8 +1104,10 @@ pub(super) async fn installed(core: &Arc<Core>) -> CoreResult<Vec<Installed>> {
     let listed = crate::agent_catalog::all().into_iter().filter_map(|def| {
         let profile = book.in_use(def.kind);
         let explicit = profile.and_then(|profile| profile.executable_path.as_deref());
-        (def.accounts || !discovery::candidates(def, explicit).is_empty())
-            .then_some((def, profile, explicit))
+        (def.accounts
+            || custom_agents::is_custom(def.kind)
+            || !discovery::candidates(def, explicit).is_empty())
+        .then_some((def, profile, explicit))
     });
     futures_util::future::try_join_all(listed.map(|(def, profile, explicit)| async move {
         let config_path = profile.and_then(|profile| profile.config_path.clone());

@@ -12,10 +12,16 @@ use gpui_kit::{
     Window,
 };
 use sikemux_agents::agent_accounts::status::AgentStatus;
+use sikemux_agents::custom_agents::CustomAgentConfig;
 use sikemux_calls::agent_updates::Updating;
+use sikemux_calls::call;
+use sikemux_calls::custom_agents::RemoveParams;
+use sikemux_view::catalog::CatalogAgent;
+use std::collections::BTreeMap;
 use std::f32::consts::FRAC_PI_2;
 
 use crate::agents::setup::{installing, run, signing_in, update_everywhere, Found, Sheet};
+use crate::core::Target;
 use crate::icons::Icon;
 use crate::settings::rows;
 use crate::theme::{
@@ -29,24 +35,56 @@ pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] =
     &[crate::settings::index::section(
         crate::settings::index::Page::Agents,
         "Agents",
-        "install reinstall update upgrade version latest missing hosts claude codex opencode hermes pi omp grok antigravity agy gemini google cli executable path program profile",
+        "install reinstall update upgrade version latest missing hosts claude codex opencode hermes pi omp grok antigravity agy gemini google cli executable path program profile custom acp add remove",
     )];
 
-/// The row that is open, and the program being written for the account it runs on.
+/// The row that is open, the program being written for the account it runs on, and the form
+/// that adds an agent of the person's own.
 pub struct Fields {
     open: Option<String>,
     editing: Option<String>,
     program: Entity<InputState>,
+    /// The form for a custom agent is showing.
+    adding: bool,
+    /// An add or a remove is on its way to the core.
+    busy: bool,
+    /// Why the form was refused.
+    failure: Option<String>,
+    /// Why a custom agent could not be removed, with its id.
+    removal_failure: Option<(String, String)>,
+    label: Entity<InputState>,
+    id: Entity<InputState>,
+    command: Entity<InputState>,
+    args: Entity<InputState>,
+    env: Entity<InputState>,
 }
 
 impl Fields {
     pub fn new(window: &mut Window, cx: &mut Context<Workbench>) -> Self {
         let program =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("Leave empty to use PATH")));
+        let label = cx.new(|cx| InputState::new(window, cx).placeholder(t!("DimCode")));
+        let id = cx.new(|cx| InputState::new(window, cx).placeholder(t!("From the name if empty")));
+        let command = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t!("dima or /Users/you/.local/bin/dima"))
+        });
+        let args = cx.new(|cx| InputState::new(window, cx).placeholder(t!("acp")));
+        let env = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t!("KEY=VALUE, separated by commas or lines"))
+        });
         Self {
             open: None,
             editing: None,
             program,
+            adding: false,
+            busy: false,
+            failure: None,
+            removal_failure: None,
+            label,
+            id,
+            command,
+            args,
+            env,
         }
     }
 }
@@ -117,9 +155,27 @@ pub fn render(
         .on_click(move |_, _, cx| this.update(cx, update_everywhere))
         .into_any_element()
     });
+    let add_custom = {
+        let this = this.clone();
+        ui::Button::new(
+            "agent-add-custom",
+            t!("Add custom agent"),
+            ui::Variant::Outline,
+        )
+        .on_click(move |_, window, cx| this.update(cx, |bench, cx| toggle_form(bench, window, cx)))
+        .into_any_element()
+    };
+    let actions = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .children(update_all)
+        .child(add_custom)
+        .into_any_element();
     let body: AnyElement = match bench.agent_setup.found {
         None => rows::note(t!("Looking for agents…"), cx),
         Some(_) => div()
+            .children(fields.adding.then(|| form(fields, this, cx)))
             .children(all.iter().map(|agent| {
                 let open = fields.open.as_deref() == Some(agent.kind);
                 div()
@@ -133,7 +189,7 @@ pub fn render(
     rows::section_with(
         n!("Agents"),
         None,
-        update_all,
+        Some(actions),
         None,
         lit("Agents"),
         body,
@@ -213,11 +269,26 @@ fn row(
                 .border_color(t.surface)
                 .child(crate::accounts::avatar(bench.accounts.avatar(profile), 16.))
         }));
+    let custom = bench
+        .reads
+        .catalog
+        .kind(agent.kind)
+        .is_some_and(|entry| entry.custom);
     let label = div()
         .flex()
         .items_baseline()
         .gap(SPACE_2)
         .child(agent.label.to_owned())
+        .children(custom.then(|| {
+            div()
+                .px(SPACE_1H)
+                .rounded(px(4.))
+                .border_1()
+                .border_color(t.line_soft)
+                .text_size(theme::ui_text(TEXT_2XS_H))
+                .text_color(t.text_tertiary)
+                .child(t!("Custom"))
+        }))
         .children(
             shown
                 .and_then(|found| found.version.clone())
@@ -319,7 +390,11 @@ fn state(bench: &Workbench, agent: &Agent, this: &Entity<Workbench>, cx: &App) -
     if agent.installed().any(|found| found.updating_now()) {
         return ui::sign_in::spinner("agent-updating", cx);
     }
+    let custom = (bench.reads.catalog.kind(agent.kind)).is_some_and(|entry| entry.custom);
     match agent.here.map(|found| (found, &found.status)) {
+        Some((_, AgentStatus::Missing)) if custom && agent.installed().next().is_none() => {
+            worded(ui::Tone::Failed, t!("Command not found"))
+        }
         Some((found, AgentStatus::Broken { .. })) => match installing(found) {
             Some(sheet) => sheet_button(
                 format!("agent-install-{}", agent.kind),
@@ -440,6 +515,7 @@ fn detail(
     let signs_in =
         (bench.reads.catalog.agents()).any(|kind| kind.kind == agent.kind && kind.accounts);
     let accounts = signs_in.then(|| super::accounts::list(bench, agent.kind, this, cx));
+    let custom = (bench.reads.catalog.kind(agent.kind)).filter(|entry| entry.custom);
     div()
         .pl(px(48.))
         .pr(SPACE_4)
@@ -449,6 +525,9 @@ fn detail(
         .child(part(t!("Hosts"), hosts.into_any_element()))
         .children(accounts.map(|accounts| part(t!("Accounts"), accounts)))
         .child(part(t!("Runs"), runs(bench, agent, fields, this, cx)))
+        .children(
+            custom.map(|own| part(t!("Custom"), custom_command(agent, own, fields, this, cx))),
+        )
         .into_any_element()
 }
 
@@ -549,4 +628,398 @@ fn runs(
         )
         .child(change)
         .into_any_element()
+}
+
+/// What a custom agent starts, and the way to take it away again.
+fn custom_command(
+    agent: &Agent,
+    own: &CatalogAgent,
+    fields: &Fields,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let shown: SharedString = std::iter::once(own.command.as_str())
+        .chain(own.args.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .into();
+    let missing = agent.installed().next().is_none();
+    let failure = (fields.removal_failure.as_ref())
+        .filter(|(kind, _)| kind == agent.kind)
+        .map(|(_, message)| message.clone());
+    let kind = agent.kind.to_owned();
+    let this = this.clone();
+    let remove = ui::Button::new(
+        SharedString::from(format!("agent-remove-{kind}")),
+        t!("Remove"),
+        ui::Variant::Outline,
+    )
+    .disabled(fields.busy)
+    .on_click(move |_, _, cx| {
+        let kind = kind.clone();
+        this.update(cx, |bench, cx| remove_custom(bench, kind, cx))
+    });
+    div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_1H)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .font_family(theme::mono_font())
+                        .text_size(theme::ui_text(TEXT_XS))
+                        .text_color(t.text_secondary)
+                        .child(shown),
+                )
+                .child(remove),
+        )
+        .children(missing.then(|| {
+            div()
+                .text_size(theme::ui_text(TEXT_2XS_H))
+                .text_color(t.danger)
+                .child(t!(
+                    "Its command was not found on this host. Check the path or remove it."
+                ))
+        }))
+        .children(failure.map(|message| {
+            div()
+                .text_size(theme::ui_text(TEXT_2XS_H))
+                .text_color(t.danger)
+                .child(message)
+        }))
+        .into_any_element()
+}
+
+/// Shows or hides the form for a custom agent, starting it empty.
+fn toggle_form(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+    super::change_fields(bench, cx, |fields, cx| {
+        let fields = &mut fields.setup;
+        fields.adding = !fields.adding;
+        fields.failure = None;
+        if !fields.adding {
+            return;
+        }
+        for (input, value) in [
+            (&fields.label, ""),
+            (&fields.id, ""),
+            (&fields.command, ""),
+            (&fields.args, "acp"),
+            (&fields.env, ""),
+        ] {
+            input.update(cx, |input, cx| input.set_value(value, window, cx));
+        }
+        fields.label.update(cx, |input, cx| input.focus(window, cx));
+    });
+}
+
+/// The labelled boxes that describe a custom agent, with what went wrong and the buttons.
+fn form(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let boxed = |name: &'static str, state: &Entity<InputState>, mono: bool| {
+        let field = ui::Field::new(state);
+        div()
+            .flex()
+            .flex_col()
+            .gap(SPACE_1)
+            .child(
+                div()
+                    .text_size(theme::ui_text(TEXT_XS))
+                    .text_color(t.text_tertiary)
+                    .child(name),
+            )
+            .child(if mono { field.mono() } else { field })
+    };
+    let (save, cancel) = (this.clone(), this.clone());
+    div()
+        .px(SPACE_4)
+        .py(SPACE_3)
+        .flex()
+        .flex_col()
+        .gap(SPACE_2)
+        .border_b(theme::border())
+        .border_color(t.line_soft)
+        .child(
+            div()
+                .flex()
+                .gap(SPACE_3)
+                .child(
+                    div()
+                        .flex_1()
+                        .child(boxed(t!("Name"), &fields.label, false)),
+                )
+                .child(div().flex_1().child(boxed(t!("ID"), &fields.id, true))),
+        )
+        .child(boxed(t!("Command"), &fields.command, true))
+        .child(boxed(t!("Arguments"), &fields.args, true))
+        .child(boxed(t!("Environment"), &fields.env, true))
+        .children(fields.failure.clone().map(|message| {
+            div()
+                .text_size(theme::ui_text(TEXT_XS))
+                .text_color(t.danger)
+                .child(message)
+        }))
+        .child(
+            div()
+                .flex()
+                .justify_end()
+                .gap(SPACE_2)
+                .child(
+                    ui::Button::new("agent-custom-cancel", t!("Cancel"), ui::Variant::Ghost)
+                        .on_click(move |_, window, cx| {
+                            cancel.update(cx, |bench, cx| {
+                                super::change_fields(bench, cx, |fields, _| {
+                                    fields.setup.adding = false;
+                                    fields.setup.failure = None;
+                                });
+                                window.refresh();
+                            })
+                        }),
+                )
+                .child(
+                    ui::Button::new(
+                        "agent-custom-add",
+                        if fields.busy {
+                            t!("Adding…")
+                        } else {
+                            t!("Add")
+                        },
+                        ui::Variant::Primary,
+                    )
+                    .disabled(fields.busy)
+                    .on_click(move |_, _, cx| save.update(cx, add_custom)),
+                ),
+        )
+        .into_any_element()
+}
+
+/// Sends the form to the core, which keeps the agent and tells every client.
+fn add_custom(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let Some(fields) = super::fields(bench, cx).map(|fields| &fields.setup) else {
+        return;
+    };
+    if fields.busy {
+        return;
+    }
+    let typed = |input: &Entity<InputState>| input.read(cx).value().to_string();
+    let built = config_of(
+        &typed(&fields.label),
+        &typed(&fields.id),
+        &typed(&fields.command),
+        &typed(&fields.args),
+        &typed(&fields.env),
+    );
+    let config = match built {
+        Ok(config) => config,
+        Err(message) => {
+            super::change_fields(bench, cx, |fields, _| fields.setup.failure = Some(message));
+            return;
+        }
+    };
+    super::change_fields(bench, cx, |fields, _| {
+        fields.setup.busy = true;
+        fields.setup.failure = None;
+    });
+    let asked = Target::here(&bench.asks).request_typed::<call::CustomAgentAdd>(config);
+    cx.spawn(async move |bench, cx| {
+        let answer = asked.await;
+        let _ = bench.update(cx, |bench, cx| {
+            super::change_fields(bench, cx, |fields, _| {
+                let fields = &mut fields.setup;
+                fields.busy = false;
+                match &answer {
+                    Ok(added) => {
+                        fields.adding = false;
+                        fields.failure = None;
+                        fields.open = Some(added.r#type.clone());
+                    }
+                    Err(error) => fields.failure = Some(error.to_string()),
+                }
+            });
+            if answer.is_ok() {
+                crate::agents::setup::read(bench, cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// Takes a custom agent away, closes its row and reads the agents again.
+fn remove_custom(bench: &mut Workbench, kind: String, cx: &mut Context<Workbench>) {
+    super::change_fields(bench, cx, |fields, _| {
+        fields.setup.busy = true;
+        fields.setup.removal_failure = None;
+    });
+    let asked = Target::here(&bench.asks)
+        .request_typed::<call::CustomAgentRemove>(RemoveParams { kind: kind.clone() });
+    cx.spawn(async move |bench, cx| {
+        let answer = asked.await;
+        let _ = bench.update(cx, |bench, cx| {
+            super::change_fields(bench, cx, |fields, _| {
+                let fields = &mut fields.setup;
+                fields.busy = false;
+                match &answer {
+                    Ok(_) => {
+                        fields.open = None;
+                        fields.editing = None;
+                    }
+                    Err(error) => fields.removal_failure = Some((kind.clone(), error.to_string())),
+                }
+            });
+            crate::agents::setup::read(bench, cx);
+        });
+    })
+    .detach();
+}
+
+/// What the form says, as the agent the core adds: an empty id is made from the name.
+fn config_of(
+    label: &str,
+    id: &str,
+    command: &str,
+    args: &str,
+    env: &str,
+) -> Result<CustomAgentConfig, String> {
+    let (label, id, command) = (label.trim(), id.trim(), command.trim());
+    let id = match id.is_empty() {
+        true => slug(label),
+        false => id.to_owned(),
+    };
+    if id.is_empty() {
+        return Err(t!("Give it a name or an ID").to_owned());
+    }
+    if command.is_empty() {
+        return Err(t!("Enter the command that starts it").to_owned());
+    }
+    let env = parse_env(env)?;
+    Ok(CustomAgentConfig {
+        r#type: id,
+        label: (!label.is_empty()).then(|| label.to_owned()),
+        command: command.to_owned(),
+        args: Some(split_args(args)),
+        env: (!env.is_empty()).then_some(env),
+        ..CustomAgentConfig::default()
+    })
+}
+
+/// `text` as an ID: lowercase letters and digits, with `-` between the words.
+fn slug(text: &str) -> String {
+    let mut slug = String::new();
+    for character in text.chars().flat_map(char::to_lowercase) {
+        if character.is_ascii_alphanumeric() {
+            slug.push(character);
+        } else if !slug.is_empty() && !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    slug.truncate(slug.trim_end_matches('-').len());
+    slug.chars().take(64).collect()
+}
+
+/// The words of `text`, split at spaces; a quoted run is one word.
+fn split_args(text: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut started = false;
+    let mut quote: Option<char> = None;
+    for character in text.chars() {
+        match (quote, character) {
+            (Some(open), character) if character == open => quote = None,
+            (Some(_), character) => word.push(character),
+            (None, '"' | '\'') => {
+                quote = Some(character);
+                started = true;
+            }
+            (None, character) if character.is_whitespace() => {
+                if started {
+                    words.push(std::mem::take(&mut word));
+                    started = false;
+                }
+            }
+            (None, character) => {
+                word.push(character);
+                started = true;
+            }
+        }
+    }
+    if started {
+        words.push(word);
+    }
+    words
+}
+
+/// `KEY=VALUE` pairs separated by commas or lines.
+fn parse_env(text: &str) -> Result<BTreeMap<String, String>, String> {
+    let mut env = BTreeMap::new();
+    for pair in text
+        .split([',', '\n'])
+        .map(str::trim)
+        .filter(|pair| !pair.is_empty())
+    {
+        match pair.split_once('=') {
+            Some((name, value)) if !name.trim().is_empty() => {
+                env.insert(name.trim().to_owned(), value.trim().to_owned());
+            }
+            _ => {
+                return Err(t!("{pair} is not KEY=VALUE", pair = pair));
+            }
+        }
+    }
+    Ok(env)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_id_is_made_from_the_name() {
+        assert_eq!(slug("DimCode"), "dimcode");
+        assert_eq!(slug("  My  Agent: v2! "), "my-agent-v2");
+        assert_eq!(slug("日本語"), "");
+    }
+
+    #[test]
+    fn arguments_split_at_spaces_and_keep_quotes() {
+        assert_eq!(split_args("acp"), ["acp"]);
+        assert_eq!(split_args("  acp   --fast "), ["acp", "--fast"]);
+        assert_eq!(
+            split_args(r#"serve --name "two words" '' x"#),
+            ["serve", "--name", "two words", "", "x"]
+        );
+        assert!(split_args("   ").is_empty());
+    }
+
+    #[test]
+    fn variables_are_pairs_split_at_commas_or_lines() {
+        let env = parse_env("A=1, B = two\nC=x=y\n\n").unwrap();
+        assert_eq!(env["A"], "1");
+        assert_eq!(env["B"], "two");
+        assert_eq!(env["C"], "x=y");
+        assert!(parse_env("A").is_err());
+        assert!(parse_env("=x").is_err());
+        assert!(parse_env("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_form_becomes_a_custom_agent() {
+        let config = config_of("DimCode", " ", " dima ", "acp", "K=V").unwrap();
+        assert_eq!(config.r#type, "dimcode");
+        assert_eq!(config.label.as_deref(), Some("DimCode"));
+        assert_eq!(config.command, "dima");
+        assert_eq!(config.args, Some(vec!["acp".to_owned()]));
+        assert_eq!(config.env.unwrap()["K"], "V");
+        let by_id = config_of("", "dima", "dima", "", "").unwrap();
+        assert_eq!((by_id.r#type.as_str(), by_id.label), ("dima", None));
+        assert_eq!(by_id.args, Some(Vec::new()));
+        assert!(config_of("", "", "dima", "", "").is_err());
+        assert!(config_of("x", "", "  ", "", "").is_err());
+    }
 }

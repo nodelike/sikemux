@@ -327,6 +327,8 @@ calls! { core, client, method, params;
     "modelProviderRead" = ModelProviderRead: Owner => model_providers::read(&core, params).await?,
     "modelProviderAdd" = ModelProviderAdd: Owner => model_providers::add(&core, params).await?,
     "modelProviderRemove" = ModelProviderRemove: Owner => model_providers::remove(&core, params).await?,
+    "customAgentAdd" = CustomAgentAdd: Owner => agent_accounts::add_custom(&core, params).await?,
+    "customAgentRemove" = CustomAgentRemove: Owner => agent_accounts::remove_custom(&core, params).await?,
     "setModelHelper" = SetModelHelper: Owner => model_providers::set_helper(&core, params).await?,
     "agentAccounts" = AgentAccounts: Full, any_program => core.workspaces().accounts().unwrap_or_default().with_built_ins(),
     "agentStatus": Full, any_program => answer(agent_accounts::status(&core, parse(params)?).await?),
