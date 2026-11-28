@@ -67,4 +67,4 @@ A repository without the App works as before.
 
 Bitbucket has no identity for your agents, so Sikemux pushes with your own sign-in, and only Sikemux holds it. Once Bitbucket says an account you signed in with can push to a repository, an agent's `git push` there goes to Sikemux, which sends the same changes on to Bitbucket. `git_commit` with `push` and the land queue's push go the same way. With several accounts, Sikemux pushes with the first one, your default first, that can.
 
-Nothing else changes for the agent: it fetches with your own git setup, such as your SSH key, its commits show you, and it works on pull requests through the connector's tools. If Bitbucket refuses the sign-in, the push fails and says to sign in to Bitbucket again here.
+Nothing else changes for the agent: it fetches with your own git setup, such as your SSH key, its commits show you, and it works on pull requests through the connector's tools, which can also mark one as a draft or publish it. If Bitbucket refuses the sign-in, the push fails and says to sign in to Bitbucket again here.
